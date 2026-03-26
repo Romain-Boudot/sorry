@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/server",
+    "crates/shared",
+    "client/src-tauri",
+]
+default-members = [
+    "crates/server",
+    "crates/shared",
+]
+resolver = "2"

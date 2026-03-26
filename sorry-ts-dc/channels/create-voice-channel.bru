@@ -1,0 +1,26 @@
+meta {
+  name: Create Voice Channel
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/channels
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Vocal",
+    "kind": "voice"
+  }
+}

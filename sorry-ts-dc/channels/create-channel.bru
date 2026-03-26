@@ -1,0 +1,26 @@
+meta {
+  name: Create Channel
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/channels
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "blabla",
+    "kind": "text"
+  }
+}

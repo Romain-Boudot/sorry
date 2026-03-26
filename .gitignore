@@ -1,0 +1,10 @@
+/target
+/client/node_modules
+/client/dist
+/client/bun.lock
+/client/src-tauri/gen
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local

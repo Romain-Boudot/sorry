@@ -1,0 +1,15 @@
+meta {
+  name: List Channels
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/channels
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
