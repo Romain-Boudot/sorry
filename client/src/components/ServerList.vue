@@ -26,7 +26,7 @@
       title="Ajouter un serveur"
       @click="store.showAddServerModal = true"
     >
-      +
+      <Plus :size="20" />
     </div>
 
     <ContextMenu
@@ -41,6 +41,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { Plus } from "lucide-vue-next";
 import { store, switchToServer, muteServer, unmuteServer, removeServer } from "../store";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 
@@ -61,7 +62,7 @@ function openMenu(event: MouseEvent, serverId: string) {
   if (state?.muted) {
     items.push({ label: "Reconnecter", action: () => unmuteServer(serverId) });
   } else if (state?.connected) {
-    items.push({ label: "Se déconnecter", action: () => muteServer(serverId) });
+    items.push({ label: "Se deconnecter", action: () => muteServer(serverId) });
   }
 
   items.push({

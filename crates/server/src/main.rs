@@ -29,6 +29,9 @@ async fn main() {
         .unwrap_or_else(|_| "sqlite:./data.db".to_string());
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    let livekit_url = std::env::var("LIVEKIT_URL").unwrap_or_default();
+    let livekit_api_key = std::env::var("LIVEKIT_API_KEY").unwrap_or_default();
+    let livekit_api_secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_default();
 
     let db = SqlitePoolOptions::new()
         .max_connections(5)
@@ -41,7 +44,7 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    let state = Arc::new(AppState::new(db, jwt_secret));
+    let state = Arc::new(AppState::new(db, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret));
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))

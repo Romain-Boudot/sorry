@@ -4,7 +4,7 @@
       En ligne — {{ state?.onlineUsers.size ?? 0 }}
     </div>
     <div v-for="uid in onlineList" :key="uid" class="user-list-item">
-      <span class="status-dot online"></span>
+      <Circle class="status-dot online" :size="8" fill="currentColor" />
       <span>{{ resolveUser(uid) }}</span>
     </div>
   </div>
@@ -12,6 +12,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { Circle } from "lucide-vue-next";
 import { activeState, resolveUser } from "../store";
 
 const state = computed(() => activeState());

@@ -1,0 +1,25 @@
+meta {
+  name: Get LiveKit Token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/livekit/token
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "channel_id": 2
+  }
+}

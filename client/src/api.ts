@@ -50,6 +50,13 @@ export const api = {
       body: JSON.stringify({ content }),
     });
   },
+
+  getLivekitToken(baseUrl: string, token: string, channelId: number) {
+    return request<{ token: string; url: string }>(baseUrl, "/livekit/token", token, {
+      method: "POST",
+      body: JSON.stringify({ channel_id: channelId }),
+    });
+  },
 };
 
 // Types

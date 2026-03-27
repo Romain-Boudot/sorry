@@ -1,5 +1,6 @@
-import { reactive, computed } from "vue";
+import { reactive } from "vue";
 import { api, connectWS, type User, type Channel, type Message, type ServerEvent } from "./api";
+import { joinVoice, leaveVoice, toggleMute as voiceToggleMute } from "./voice";
 
 export interface SavedServer {
   id: string;
@@ -21,6 +22,9 @@ export interface ServerState {
   voiceState: Map<number, Set<number>>;
   ws: WebSocket | null;
   unreadCount: number;
+  // Vocal
+  voiceChannelId: number | null; // channel vocal actif (localement)
+  isMuted: boolean;
 }
 
 function createServerState(): ServerState {
@@ -36,6 +40,8 @@ function createServerState(): ServerState {
     voiceState: new Map(),
     ws: null,
     unreadCount: 0,
+    voiceChannelId: null,
+    isMuted: false,
   };
 }
 
@@ -201,6 +207,63 @@ export async function sendMessage(content: string) {
       })
     );
   }
+}
+
+/// Rejoindre un channel vocal
+export async function joinVoiceChannel(channelId: number) {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return;
+
+  // Demander un token LiveKit au backend
+  const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
+
+  await joinVoice(url, token, {
+    onConnected: () => {
+      state.voiceChannelId = channelId;
+      state.isMuted = false;
+      // Notifier les autres via WS
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type: "JoinVoice", data: { channel_id: channelId } }));
+      }
+    },
+    onDisconnected: () => {
+      const prevChannel = state.voiceChannelId;
+      state.voiceChannelId = null;
+      state.isMuted = false;
+      if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
+      }
+    },
+    onParticipantJoined: () => {},
+    onParticipantLeft: () => {},
+    onError: (err) => {
+      console.error("Voice error:", err);
+    },
+  });
+}
+
+/// Quitter le channel vocal
+export async function leaveVoiceChannel() {
+  const state = activeState();
+  if (!state) return;
+
+  const prevChannel = state.voiceChannelId;
+  await leaveVoice();
+  state.voiceChannelId = null;
+  state.isMuted = false;
+
+  if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
+  }
+}
+
+/// Toggle mute micro
+export function toggleMute() {
+  const state = activeState();
+  if (!state) return;
+  const newState = voiceToggleMute();
+  state.isMuted = !newState; // toggleMute retourne le nouvel état du micro (true = enabled)
 }
 
 /// Déconnecter d'un serveur (mute — plus de WS, plus de notifs)

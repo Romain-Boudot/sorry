@@ -1,13 +1,10 @@
 <template>
-  <div class="chat">
-    <div class="chat-header">
-      <span class="channel-icon">#</span>
-      <span>{{ activeChannel?.name }}</span>
-    </div>
-
+  <div class="chat-body">
     <div class="chat-messages" ref="messagesContainer">
       <div v-if="!messages.length" class="chat-empty">
-        Aucun message dans #{{ activeChannel?.name }}. Sois le premier !
+        <MessageSquare :size="40" :stroke-width="1.2" />
+        <p>Aucun message dans #{{ activeChannel?.name }}</p>
+        <p class="chat-empty-sub">Sois le premier !</p>
       </div>
       <div v-for="msg in messages" :key="msg.id" class="message">
         <div class="message-header">
@@ -19,18 +16,24 @@
     </div>
 
     <div class="chat-input">
-      <input
-        v-model="input"
-        @keydown.enter="handleSend"
-        :placeholder="`Message #${activeChannel?.name ?? '...'}`"
-        type="text"
-      />
+      <div class="chat-input-wrapper">
+        <input
+          v-model="input"
+          @keydown.enter="handleSend"
+          :placeholder="`Envoyer un message dans #${activeChannel?.name ?? '...'}`"
+          type="text"
+        />
+        <button class="chat-send" @click="handleSend" :disabled="!input.trim()">
+          <SendHorizonal :size="18" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from "vue";
+import { MessageSquare, SendHorizonal } from "lucide-vue-next";
 import { activeState, sendMessage, resolveUser } from "../store";
 
 const input = ref("");

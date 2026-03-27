@@ -13,7 +13,7 @@
         :class="{ active: ch.id === state?.activeChannelId }"
         @click="selectChannel(ch.id)"
       >
-        <span class="channel-icon">#</span>
+        <Hash class="channel-icon" :size="18" />
         <span>{{ ch.name }}</span>
       </div>
     </div>
@@ -24,8 +24,10 @@
         v-for="ch in voiceChannels"
         :key="ch.id"
         class="channel-item voice"
+        :class="{ active: state?.voiceChannelId === ch.id }"
+        @click="handleVoiceClick(ch.id)"
       >
-        <span class="channel-icon">&#x1f50a;</span>
+        <Volume2 class="channel-icon" :size="18" />
         <span>{{ ch.name }}</span>
         <div class="voice-users" v-if="getVoiceUsers(ch.id).length">
           <div v-for="uid in getVoiceUsers(ch.id)" :key="uid" class="voice-user">
@@ -46,7 +48,15 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { activeState, activeServer, selectChannel, resolveUser } from "../store";
+import { Hash, Volume2 } from "lucide-vue-next";
+import {
+  activeState,
+  activeServer,
+  selectChannel,
+  resolveUser,
+  joinVoiceChannel,
+  leaveVoiceChannel,
+} from "../store";
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
@@ -62,5 +72,18 @@ const voiceChannels = computed(() =>
 function getVoiceUsers(channelId: number): number[] {
   const users = state.value?.voiceState.get(channelId);
   return users ? [...users] : [];
+}
+
+function getVoiceChannelName(): string {
+  const ch = state.value?.channels.find((c) => c.id === state.value?.voiceChannelId);
+  return ch?.name ?? "";
+}
+
+function handleVoiceClick(channelId: number) {
+  if (state.value?.voiceChannelId === channelId) {
+    leaveVoiceChannel();
+  } else {
+    joinVoiceChannel(channelId);
+  }
 }
 </script>
