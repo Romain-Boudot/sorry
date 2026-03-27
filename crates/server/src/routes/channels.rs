@@ -56,6 +56,7 @@ async fn require_channel_permission(
 pub struct CreateChannelPayload {
     name: String,
     kind: String,
+    group_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -95,7 +96,7 @@ async fn create_channel(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
-    let id = crate::db::channels::create(&state.db, &payload.name, kind)
+    let id = crate::db::channels::create(&state.db, &payload.name, kind, payload.group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -107,6 +108,7 @@ async fn create_channel(
             _ => shared::models::ChannelKind::Text,
         },
         position: 0,
+        group_id: payload.group_id,
     }))
 }
 
@@ -180,9 +182,122 @@ async fn send_message(
     Ok(Json(message))
 }
 
+// ── Channel Groups ──
+
+/// GET /api/channels/groups
+async fn list_groups(
+    State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
+) -> Result<Json<Vec<shared::models::ChannelGroup>>, StatusCode> {
+    let groups = crate::db::channel_groups::list_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(groups))
+}
+
+#[derive(Deserialize)]
+pub struct CreateGroupPayload {
+    name: String,
+}
+
+/// POST /api/channels/groups
+async fn create_group(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<CreateGroupPayload>,
+) -> Result<Json<shared::models::ChannelGroup>, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let id = crate::db::channel_groups::create(&state.db, &payload.name, 0)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(shared::models::ChannelGroup {
+        id,
+        name: payload.name,
+        position: 0,
+    }))
+}
+
+/// DELETE /api/channels/groups/:id
+async fn delete_group(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::channel_groups::delete(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct ReorderPayload {
+    ids: Vec<i64>,
+}
+
+/// POST /api/channels/reorder
+async fn reorder_channels(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<ReorderPayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::channels::reorder(&state.db, &payload.ids)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/channels/groups/reorder
+async fn reorder_groups(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<ReorderPayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::channel_groups::reorder(&state.db, &payload.ids)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct MoveChannelPayload {
+    group_id: Option<i64>,
+}
+
+/// PATCH /api/channels/:id/group
+async fn move_channel(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+    Json(payload): Json<MoveChannelPayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::channels::update_group(&state.db, id, payload.group_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_channels).post(create_channel))
+        .route("/groups", get(list_groups).post(create_group))
+        .route("/groups/:id", axum::routing::delete(delete_group))
+        .route("/groups/reorder", axum::routing::post(reorder_groups))
+        .route("/reorder", axum::routing::post(reorder_channels))
         .route("/:id", get(|| async { "channel" }).delete(delete_channel))
+        .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message))
 }

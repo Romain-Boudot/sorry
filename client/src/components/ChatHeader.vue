@@ -17,3 +17,23 @@ const activeChannel = computed(() =>
   state.value?.channels.find((c) => c.id === state.value?.activeChannelId)
 );
 </script>
+
+<style scoped>
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  height: 48px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--header-primary);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.channel-icon {
+  color: var(--text-muted);
+}
+</style>

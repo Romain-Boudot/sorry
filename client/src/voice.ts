@@ -2,9 +2,8 @@ import {
   Room,
   RoomEvent,
   Track,
+  Participant,
   RemoteParticipant,
-  RemoteTrackPublication,
-  LocalParticipant,
 } from "livekit-client";
 
 let currentRoom: Room | null = null;
@@ -14,6 +13,7 @@ export interface VoiceCallbacks {
   onDisconnected: () => void;
   onParticipantJoined: (identity: string, name: string) => void;
   onParticipantLeft: (identity: string) => void;
+  onActiveSpeakersChanged: (identities: string[]) => void;
   onError: (error: string) => void;
 }
 
@@ -49,6 +49,13 @@ export async function joinVoice(
     RoomEvent.ParticipantDisconnected,
     (participant: RemoteParticipant) => {
       callbacks.onParticipantLeft(participant.identity);
+    }
+  );
+
+  room.on(
+    RoomEvent.ActiveSpeakersChanged,
+    (speakers: Participant[]) => {
+      callbacks.onActiveSpeakersChanged(speakers.map((s) => s.identity));
     }
   );
 

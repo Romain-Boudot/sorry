@@ -8,11 +8,19 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelGroup {
+    pub id: i64,
+    pub name: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Channel {
     pub id: i64,
     pub name: String,
     pub kind: ChannelKind,
     pub position: i64,
+    pub group_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

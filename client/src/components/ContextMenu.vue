@@ -39,3 +39,38 @@ function close() {
   emit("close");
 }
 </script>
+
+<style scoped>
+.context-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  padding: 6px 8px;
+  min-width: 188px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+  z-index: 201;
+}
+
+.context-menu-item {
+  padding: 6px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.context-menu-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.context-menu-item.danger { color: var(--danger); }
+.context-menu-item.danger:hover { background: var(--danger); color: #fff; }
+</style>

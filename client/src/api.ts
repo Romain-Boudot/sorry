@@ -16,6 +16,12 @@ async function request<T>(
 }
 
 export const api = {
+  async serverInfo(baseUrl: string) {
+    const res = await fetch(`${baseUrl}/info`);
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<{ name: string }>;
+  },
+
   login(baseUrl: string, username: string, password: string, serverPassword?: string) {
     return request<{ token: string; user: User }>(baseUrl, "/auth/login", undefined, {
       method: "POST",
@@ -31,10 +37,46 @@ export const api = {
     return request<Channel[]>(baseUrl, "/channels", token);
   },
 
-  createChannel(baseUrl: string, token: string, name: string, kind: "text" | "voice") {
+  createChannel(baseUrl: string, token: string, name: string, kind: "text" | "voice", groupId?: number) {
     return request<Channel>(baseUrl, "/channels", token, {
       method: "POST",
-      body: JSON.stringify({ name, kind }),
+      body: JSON.stringify({ name, kind, group_id: groupId ?? null }),
+    });
+  },
+
+  listGroups(baseUrl: string, token: string) {
+    return request<ChannelGroup[]>(baseUrl, "/channels/groups", token);
+  },
+
+  createGroup(baseUrl: string, token: string, name: string) {
+    return request<ChannelGroup>(baseUrl, "/channels/groups", token, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  deleteGroup(baseUrl: string, token: string, id: number) {
+    return request<void>(baseUrl, `/channels/groups/${id}`, token, { method: "DELETE" });
+  },
+
+  reorderChannels(baseUrl: string, token: string, ids: number[]) {
+    return request<void>(baseUrl, "/channels/reorder", token, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  reorderGroups(baseUrl: string, token: string, ids: number[]) {
+    return request<void>(baseUrl, "/channels/groups/reorder", token, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  moveChannel(baseUrl: string, token: string, channelId: number, groupId: number | null) {
+    return request<void>(baseUrl, `/channels/${channelId}/group`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ group_id: groupId }),
     });
   },
 
@@ -57,6 +99,13 @@ export const api = {
       body: JSON.stringify({ channel_id: channelId }),
     });
   },
+
+  updateDisplayName(baseUrl: string, token: string, displayName: string) {
+    return request<User>(baseUrl, "/users/me", token, {
+      method: "PATCH",
+      body: JSON.stringify({ display_name: displayName }),
+    });
+  },
 };
 
 // Types
@@ -66,11 +115,18 @@ export interface User {
   display_name: string;
 }
 
+export interface ChannelGroup {
+  id: number;
+  name: string;
+  position: number;
+}
+
 export interface Channel {
   id: number;
   name: string;
   kind: "text" | "voice";
   position: number;
+  group_id: number | null;
 }
 
 export interface Message {
@@ -83,6 +139,7 @@ export interface Message {
 
 export interface MeResponse {
   user: User;
+  permissions: number;
   users: User[];
   online_users: number[];
   voice_state: Record<number, number[]>;

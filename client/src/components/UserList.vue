@@ -35,3 +35,56 @@ const offlineList = computed(() => {
   return [...state.value.users.values()].filter((u) => !online.has(u.id));
 });
 </script>
+
+<style scoped>
+.user-list {
+  width: 240px;
+  background: var(--bg-primary);
+  flex-shrink: 0;
+  padding: 16px 8px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+}
+
+.user-list-header {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  padding: 0 8px 8px;
+}
+
+.offline-header {
+  margin-top: 16px;
+}
+
+.user-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.user-list-item:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+}
+
+.user-list-item.offline {
+  opacity: 0.45;
+}
+
+.user-list-item.offline .status-dot {
+  color: var(--text-faint);
+}
+
+.status-dot {
+  color: var(--green);
+  flex-shrink: 0;
+}
+</style>

@@ -67,6 +67,17 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
         .collect())
 }
 
+pub async fn update_display_name(db: &SqlitePool, id: i64, display_name: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE users SET display_name = ? WHERE id = ?",
+        display_name,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn create(
     db: &SqlitePool,
     username: &str,

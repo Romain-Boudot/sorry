@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, connectWS, type User, type Channel, type Message, type ServerEvent } from "./api";
+import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type ServerEvent } from "./api";
 import { joinVoice, leaveVoice, toggleMute as voiceToggleMute } from "./voice";
 
 export interface SavedServer {
@@ -14,7 +14,8 @@ export interface ServerState {
   connected: boolean;
   muted: boolean; // déconnecté manuellement
   user: User | null;
-  users: Map<number, User>; // cache id → user
+  users: Map<number, User>;
+  groups: ChannelGroup[];
   channels: Channel[];
   messages: Map<number, Message[]>;
   activeChannelId: number | null;
@@ -22,8 +23,10 @@ export interface ServerState {
   voiceState: Map<number, Set<number>>;
   ws: WebSocket | null;
   unreadCount: number;
+  permissions: number;
   // Vocal
   voiceChannelId: number | null;
+  speakingUsers: Set<string>; // identities currently speaking
   voiceStatus: "idle" | "connecting" | "connected" | "error";
   isMuted: boolean;
 }
@@ -34,6 +37,7 @@ function createServerState(): ServerState {
     muted: false,
     user: null,
     users: new Map(),
+    groups: [],
     channels: [],
     messages: new Map(),
     activeChannelId: null,
@@ -42,6 +46,8 @@ function createServerState(): ServerState {
     ws: null,
     unreadCount: 0,
     voiceChannelId: null,
+    permissions: 0,
+    speakingUsers: new Set(),
     voiceStatus: "idle",
     isMuted: false,
   };
@@ -64,6 +70,8 @@ export const store = reactive({
   activeServerId: null as string | null,
   serverStates: new Map<string, ServerState>(),
   showAddServerModal: false,
+  showSettingsModal: false,
+  showServerSettingsModal: false,
 });
 
 /// State du serveur actif (pour les composants)
@@ -83,6 +91,13 @@ export function resolveUser(userId: number): string {
   return state.users.get(userId)?.display_name ?? `User #${userId}`;
 }
 
+/// Est-ce qu'un user (par son id) est en train de parler ?
+export function isUserSpeaking(userId: number): boolean {
+  const state = activeState();
+  if (!state) return false;
+  return state.speakingUsers.has(`user-${userId}`);
+}
+
 /// Le channel actif est-il un channel vocal ?
 export function isActiveChannelVoice(): boolean {
   const state = activeState();
@@ -97,10 +112,16 @@ export async function addServer(
   url: string,
   username: string,
   password: string,
-  serverPassword?: string
+  serverPassword?: string,
+  displayName?: string
 ) {
   const baseUrl = url.replace(/\/+$/, "");
   const res = await api.login(baseUrl, username, password, serverPassword);
+
+  // Si un display name a été fourni, le mettre à jour sur le serveur
+  if (displayName) {
+    await api.updateDisplayName(baseUrl, res.token, displayName);
+  }
 
   const server: SavedServer = {
     id: crypto.randomUUID(),
@@ -133,12 +154,15 @@ export async function connectToServer(serverId: string) {
   store.serverStates.set(serverId, state);
 
   try {
-    const [me, channels] = await Promise.all([
+    const [me, channels, groups] = await Promise.all([
       api.me(server.url, server.token),
       api.listChannels(server.url, server.token),
+      api.listGroups(server.url, server.token),
     ]);
 
     state.user = me.user;
+    state.permissions = me.permissions;
+    state.groups = groups;
     state.channels = channels;
     state.connected = true;
     state.onlineUsers = new Set(me.online_users);
@@ -251,6 +275,9 @@ export async function joinVoiceChannel(channelId: number) {
       },
       onParticipantJoined: () => {},
       onParticipantLeft: () => {},
+      onActiveSpeakersChanged: (identities) => {
+        state.speakingUsers = new Set(identities);
+      },
       onError: (err) => {
         state.voiceStatus = "error";
         console.error("Voice error:", err);

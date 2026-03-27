@@ -9,6 +9,7 @@ pub type ChannelId = i64;
 
 pub struct AppState {
     pub db: SqlitePool,
+    pub server_name: String,
     pub jwt_secret: String,
     pub livekit_url: String,
     pub livekit_api_key: String,
@@ -21,6 +22,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         db: SqlitePool,
+        server_name: String,
         jwt_secret: String,
         livekit_url: String,
         livekit_api_key: String,
@@ -29,6 +31,7 @@ impl AppState {
         let (event_tx, _) = broadcast::channel(1024);
         Self {
             db,
+            server_name,
             jwt_secret,
             livekit_url,
             livekit_api_key,

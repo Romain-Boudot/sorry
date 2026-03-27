@@ -28,6 +28,7 @@ async fn main() {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:./data.db".to_string());
 
+    let server_name = std::env::var("SERVER_NAME").unwrap_or_else(|_| "Sorry Server".to_string());
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let livekit_url = std::env::var("LIVEKIT_URL").unwrap_or_default();
     let livekit_api_key = std::env::var("LIVEKIT_API_KEY").unwrap_or_default();
@@ -44,10 +45,14 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    let state = Arc::new(AppState::new(db, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret));
 
+    let info_state = state.clone();
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/info", get(move || async move {
+            axum::Json(serde_json::json!({ "name": info_state.server_name }))
+        }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
         .layer(CorsLayer::permissive())
