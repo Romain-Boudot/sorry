@@ -7,6 +7,14 @@
       <Circle class="status-dot online" :size="8" fill="currentColor" />
       <span>{{ resolveUser(uid) }}</span>
     </div>
+
+    <div class="user-list-header offline-header">
+      Hors ligne — {{ offlineList.length }}
+    </div>
+    <div v-for="user in offlineList" :key="user.id" class="user-list-item offline">
+      <Circle class="status-dot" :size="8" fill="currentColor" />
+      <span>{{ user.display_name }}</span>
+    </div>
   </div>
 </template>
 
@@ -20,4 +28,10 @@ const state = computed(() => activeState());
 const onlineList = computed(() =>
   state.value ? [...state.value.onlineUsers] : []
 );
+
+const offlineList = computed(() => {
+  if (!state.value) return [];
+  const online = state.value.onlineUsers;
+  return [...state.value.users.values()].filter((u) => !online.has(u.id));
+});
 </script>

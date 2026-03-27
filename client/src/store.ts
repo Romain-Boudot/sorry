@@ -23,7 +23,8 @@ export interface ServerState {
   ws: WebSocket | null;
   unreadCount: number;
   // Vocal
-  voiceChannelId: number | null; // channel vocal actif (localement)
+  voiceChannelId: number | null;
+  voiceStatus: "idle" | "connecting" | "connected" | "error";
   isMuted: boolean;
 }
 
@@ -41,6 +42,7 @@ function createServerState(): ServerState {
     ws: null,
     unreadCount: 0,
     voiceChannelId: null,
+    voiceStatus: "idle",
     isMuted: false,
   };
 }
@@ -79,6 +81,14 @@ export function resolveUser(userId: number): string {
   const state = activeState();
   if (!state) return `User #${userId}`;
   return state.users.get(userId)?.display_name ?? `User #${userId}`;
+}
+
+/// Le channel actif est-il un channel vocal ?
+export function isActiveChannelVoice(): boolean {
+  const state = activeState();
+  if (!state?.activeChannelId) return false;
+  const ch = state.channels.find((c) => c.id === state.activeChannelId);
+  return ch?.kind === "voice";
 }
 
 /// Ajouter un nouveau serveur et s'y connecter
@@ -132,6 +142,7 @@ export async function connectToServer(serverId: string) {
     state.channels = channels;
     state.connected = true;
     state.onlineUsers = new Set(me.online_users);
+    state.onlineUsers.add(me.user.id);
 
     // Cache des users
     for (const u of me.users) {
@@ -215,32 +226,39 @@ export async function joinVoiceChannel(channelId: number) {
   const state = activeState();
   if (!server || !state) return;
 
-  // Demander un token LiveKit au backend
-  const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
+  state.voiceStatus = "connecting";
 
-  await joinVoice(url, token, {
-    onConnected: () => {
-      state.voiceChannelId = channelId;
-      state.isMuted = false;
-      // Notifier les autres via WS
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        state.ws.send(JSON.stringify({ type: "JoinVoice", data: { channel_id: channelId } }));
-      }
-    },
-    onDisconnected: () => {
-      const prevChannel = state.voiceChannelId;
-      state.voiceChannelId = null;
-      state.isMuted = false;
-      if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
-        state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
-      }
-    },
-    onParticipantJoined: () => {},
-    onParticipantLeft: () => {},
-    onError: (err) => {
-      console.error("Voice error:", err);
-    },
-  });
+  try {
+    const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
+
+    await joinVoice(url, token, {
+      onConnected: () => {
+        state.voiceChannelId = channelId;
+        state.voiceStatus = "connected";
+        state.isMuted = false;
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: "JoinVoice", data: { channel_id: channelId } }));
+        }
+      },
+      onDisconnected: () => {
+        const prevChannel = state.voiceChannelId;
+        state.voiceChannelId = null;
+        state.voiceStatus = "idle";
+        state.isMuted = false;
+        if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
+        }
+      },
+      onParticipantJoined: () => {},
+      onParticipantLeft: () => {},
+      onError: (err) => {
+        state.voiceStatus = "error";
+        console.error("Voice error:", err);
+      },
+    });
+  } catch {
+    state.voiceStatus = "error";
+  }
 }
 
 /// Quitter le channel vocal
@@ -251,6 +269,7 @@ export async function leaveVoiceChannel() {
   const prevChannel = state.voiceChannelId;
   await leaveVoice();
   state.voiceChannelId = null;
+  state.voiceStatus = "idle";
   state.isMuted = false;
 
   if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {

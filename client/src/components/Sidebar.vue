@@ -5,43 +5,35 @@
     </div>
 
     <div class="channel-group">
-      <div class="channel-group-title">Text</div>
-      <div
-        v-for="ch in textChannels"
-        :key="ch.id"
-        class="channel-item"
-        :class="{ active: ch.id === state?.activeChannelId }"
-        @click="selectChannel(ch.id)"
-      >
-        <Hash class="channel-icon" :size="18" />
-        <span>{{ ch.name }}</span>
-      </div>
-    </div>
-
-    <div class="channel-group">
-      <div class="channel-group-title">Voice</div>
-      <div
-        v-for="ch in voiceChannels"
-        :key="ch.id"
-        class="channel-item voice"
-        :class="{ active: state?.voiceChannelId === ch.id }"
-        @click="handleVoiceClick(ch.id)"
-      >
-        <Volume2 class="channel-icon" :size="18" />
-        <span>{{ ch.name }}</span>
-        <div class="voice-users" v-if="getVoiceUsers(ch.id).length">
+      <div class="channel-group-title">Channels</div>
+      <template v-for="ch in state?.channels" :key="ch.id">
+        <div
+          v-if="ch.kind === 'text'"
+          class="channel-item"
+          :class="{ active: ch.id === state?.activeChannelId }"
+          @click="selectChannel(ch.id)"
+        >
+          <Hash class="channel-icon" :size="20" />
+          <span>{{ ch.name }}</span>
+        </div>
+        <div
+          v-else
+          class="channel-item voice"
+          :class="{
+            active: ch.id === state?.activeChannelId,
+            joined: state?.voiceChannelId === ch.id,
+          }"
+          @click="handleVoiceClick(ch.id)"
+        >
+          <Volume2 class="channel-icon" :size="20" />
+          <span>{{ ch.name }}</span>
+        </div>
+        <div v-if="ch.kind === 'voice' && getVoiceUsers(ch.id).length" class="voice-users">
           <div v-for="uid in getVoiceUsers(ch.id)" :key="uid" class="voice-user">
             {{ resolveUser(uid) }}
           </div>
         </div>
-      </div>
-    </div>
-
-    <div class="sidebar-footer">
-      <div class="user-info">
-        <span class="user-avatar">{{ state?.user?.display_name?.[0]?.toUpperCase() }}</span>
-        <span class="user-name">{{ state?.user?.display_name }}</span>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -55,33 +47,19 @@ import {
   selectChannel,
   resolveUser,
   joinVoiceChannel,
-  leaveVoiceChannel,
 } from "../store";
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
-
-const textChannels = computed(() =>
-  state.value?.channels.filter((c) => c.kind === "text") ?? []
-);
-
-const voiceChannels = computed(() =>
-  state.value?.channels.filter((c) => c.kind === "voice") ?? []
-);
 
 function getVoiceUsers(channelId: number): number[] {
   const users = state.value?.voiceState.get(channelId);
   return users ? [...users] : [];
 }
 
-function getVoiceChannelName(): string {
-  const ch = state.value?.channels.find((c) => c.id === state.value?.voiceChannelId);
-  return ch?.name ?? "";
-}
-
 function handleVoiceClick(channelId: number) {
   if (state.value?.voiceChannelId === channelId) {
-    leaveVoiceChannel();
+    state.value.activeChannelId = channelId;
   } else {
     joinVoiceChannel(channelId);
   }
