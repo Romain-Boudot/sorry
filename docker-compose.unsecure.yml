@@ -1,11 +1,12 @@
-# No domain, no TLS. Access via http://HOST:3000
+# No Caddy. Sorry is exposed on PORT (default 80) over plain HTTP.
+# Use this behind your own reverse proxy, or for testing on a local network.
 # For voice to work from another machine, set LIVEKIT_URL=ws://HOST_IP:7880
 services:
   sorry:
     build: .
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PORT:-80}:3000"
     environment:
       - DATABASE_URL=sqlite:./data/data.db
       - JWT_SECRET=${JWT_SECRET:-change_me_in_production}
@@ -14,8 +15,8 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - SERVER_PASSWORD=${SERVER_PASSWORD:-}
       - LIVEKIT_URL=${LIVEKIT_URL:-ws://localhost:7880}
-      - LIVEKIT_API_KEY=devkey
-      - LIVEKIT_API_SECRET=devsecret
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
     volumes:
       - sorry-data:/app/data
 

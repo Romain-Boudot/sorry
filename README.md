@@ -119,8 +119,8 @@ Three Docker Compose configurations are available:
 
 | File | Use case | Command |
 |---|---|---|
-| `docker-compose.yml` | Production with a domain + automatic TLS | `docker compose up -d` |
-| `docker-compose.unsecure.yml` | Testing without a domain, plain HTTP | `docker compose -f docker-compose.unsecure.yml up -d` |
+| `docker-compose.yml` | Production with a domain + automatic TLS (Caddy) | `docker compose up -d` |
+| `docker-compose.unsecure.yml` | No Caddy — plain HTTP, port configurable via `PORT` (default 80) | `docker compose -f docker-compose.unsecure.yml up -d` |
 | `docker-compose.dev.yml` | Local dev (LiveKit only) | `docker compose -f docker-compose.dev.yml up` |
 
 #### Production (with domain)
@@ -156,7 +156,7 @@ For testing on a local network without a domain name:
 docker compose -f docker-compose.unsecure.yml up -d
 ```
 
-The server is available at `http://HOST:3000`.
+The server is available at `http://HOST` (or `http://HOST:PORT` if you set a custom `PORT`).
 
 For voice to work from another machine on the network, set `LIVEKIT_URL=ws://HOST_IP:7880` before starting.
 

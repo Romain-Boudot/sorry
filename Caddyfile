@@ -1,7 +1,7 @@
-{$DOMAIN:sorry.example.com} {
+{$DOMAIN:sorry.example.com}:{$HTTPS_PORT:443} {
     reverse_proxy sorry:3000
 }
 
-livekit.{$DOMAIN:sorry.example.com} {
+livekit.{$DOMAIN:sorry.example.com}:{$HTTPS_PORT:443} {
     reverse_proxy livekit:7880
 }

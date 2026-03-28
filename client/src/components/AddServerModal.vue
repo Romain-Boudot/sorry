@@ -93,14 +93,34 @@ const displayName = ref(localStorage.getItem("defaultDisplayName") || "");
 const serverPassword = ref("");
 const showServerPassword = ref(false);
 
+// Returns the URL(s) to try in order. If the user typed an explicit protocol,
+// we respect it and try only that. If no protocol, we try https first, then
+// http — but only if we're not in a browser served over https (mixed content).
+function candidateUrls(raw: string): string[] {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(trimmed)) return [trimmed];
+  const canTryHttp = window.location.protocol !== "https:"; // tauri: or http: → ok
+  return canTryHttp ? [`https://${trimmed}`, `http://${trimmed}`] : [`https://${trimmed}`];
+}
+
 async function nextStep() {
   error.value = "";
   loading.value = true;
 
   try {
     if (step.value === 1) {
-      const baseUrl = url.value.replace(/\/+$/, "");
-      const info = await api.serverInfo(baseUrl);
+      const candidates = candidateUrls(url.value);
+      let info: { name: string } | null = null;
+      for (const candidate of candidates) {
+        try {
+          info = await api.serverInfo(candidate);
+          url.value = candidate;
+          break;
+        } catch {
+          // try next
+        }
+      }
+      if (!info) throw new Error("unreachable");
       serverName.value = info.name;
       step.value = 2;
     } else if (step.value === 2) {
