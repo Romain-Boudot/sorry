@@ -8,3 +8,7 @@
 *.db-wal
 .env
 .env.local
+todos.txt
+*.crt
+*.key
+*.pem
