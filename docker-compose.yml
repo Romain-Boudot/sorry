@@ -1,8 +1,50 @@
 services:
+  sorry:
+    build: .
+    restart: unless-stopped
+    environment:
+      - BIND_ADDR=0.0.0.0:3000
+      - DATABASE_URL=sqlite:./data/data.db
+      - JWT_SECRET=${JWT_SECRET}
+      - SERVER_NAME=${SERVER_NAME:-Sorry Server}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - SERVER_PASSWORD=${SERVER_PASSWORD:-}
+      - LIVEKIT_URL=wss://livekit.${DOMAIN}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+    volumes:
+      - sorry-data:/app/data
+
   livekit:
     image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
     ports:
-      - "7880:7880"
       - "7881:7881"
-      - "7882:7882/udp"
-    command: --dev
+      - "443:443/udp"
+      - "50000-60000:50000-60000/udp"
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_DOMAIN=livekit.${DOMAIN}
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  sorry-data:
+  caddy-data:
+  caddy-config:

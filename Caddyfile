@@ -1,0 +1,7 @@
+{$DOMAIN:sorry.example.com} {
+    reverse_proxy sorry:3000
+}
+
+livekit.{$DOMAIN:sorry.example.com} {
+    reverse_proxy livekit:7880
+}
