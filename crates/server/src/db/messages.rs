@@ -38,6 +38,30 @@ pub async fn create(
     Ok(to_model(&row))
 }
 
+pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<MessageRow>> {
+    sqlx::query_as!(
+        MessageRow,
+        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String" FROM messages WHERE id = ?"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn delete(db: &SqlitePool, id: i64) -> sqlx::Result<()> {
+    sqlx::query!("DELETE FROM messages WHERE id = ?", id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_content(db: &SqlitePool, id: i64, content: &str) -> sqlx::Result<()> {
+    sqlx::query!("UPDATE messages SET content = ? WHERE id = ?", content, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn list_by_channel(
     db: &SqlitePool,
     channel_id: i64,

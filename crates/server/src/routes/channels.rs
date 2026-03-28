@@ -112,6 +112,44 @@ async fn create_channel(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateChannelPayload {
+    name: Option<String>,
+}
+
+/// PATCH /api/channels/:id
+async fn update_channel(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateChannelPayload>,
+) -> Result<Json<shared::models::Channel>, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let row = crate::db::channels::find_by_id(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if let Some(ref name) = payload.name {
+        crate::db::channels::update_name(&state.db, id, name)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let name = payload.name.unwrap_or(row.name);
+    Ok(Json(shared::models::Channel {
+        id,
+        name,
+        kind: match row.kind.as_str() {
+            "voice" => shared::models::ChannelKind::Voice,
+            _ => shared::models::ChannelKind::Text,
+        },
+        position: row.position,
+        group_id: row.group_id,
+    }))
+}
+
 /// DELETE /api/channels/:id
 async fn delete_channel(
     State(state): State<Arc<AppState>>,
@@ -297,7 +335,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/groups/:id", axum::routing::delete(delete_group))
         .route("/groups/reorder", axum::routing::post(reorder_groups))
         .route("/reorder", axum::routing::post(reorder_channels))
-        .route("/:id", get(|| async { "channel" }).delete(delete_channel))
+        .route("/:id", get(|| async { "channel" }).patch(update_channel).delete(delete_channel))
         .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message))
 }

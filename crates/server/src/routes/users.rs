@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::get,
     Json, Router,
@@ -17,7 +17,7 @@ pub struct MeResponse {
     permissions: i64,
     users: Vec<shared::models::User>,
     online_users: Vec<i64>,
-    voice_state: HashMap<i64, Vec<i64>>,
+    voice_state: HashMap<i64, HashMap<i64, shared::models::VoiceUserState>>,
 }
 
 /// GET /api/users/me
@@ -40,12 +40,12 @@ async fn me(
 
     let online: Vec<i64> = state.online_users.read().unwrap().iter().copied().collect();
 
-    let voice: HashMap<i64, Vec<i64>> = state
+    let voice: HashMap<i64, HashMap<i64, shared::models::VoiceUserState>> = state
         .voice_state
         .read()
         .unwrap()
         .iter()
-        .map(|(k, v)| (*k, v.iter().copied().collect()))
+        .map(|(k, v)| (*k, v.iter().map(|(uid, vs)| (*uid, vs.clone())).collect()))
         .collect();
 
     Ok(Json(MeResponse {
@@ -85,6 +85,20 @@ async fn update_me(
     Ok(Json(user))
 }
 
+/// GET /api/users/:id/roles
+async fn user_roles(
+    State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
+    Path(user_id): Path<i64>,
+) -> Result<Json<Vec<shared::models::Role>>, StatusCode> {
+    let roles = crate::db::roles::get_user_roles(&state.db, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(roles))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/me", get(me).patch(update_me))
+    Router::new()
+        .route("/me", get(me).patch(update_me))
+        .route("/:id/roles", get(user_roles))
 }

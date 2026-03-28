@@ -39,87 +39,36 @@
 
         <!-- Channels -->
         <div v-if="activeTab === 'channels'" class="settings-body">
-          <div class="settings-section">
-            <label>Creer un groupe</label>
-            <div class="settings-input-row">
-              <input v-model="newGroupName" type="text" placeholder="Nom du groupe" @keydown.enter="createGroup" />
-              <button class="settings-save-btn" @click="createGroup" :disabled="!newGroupName.trim()">
-                Creer
-              </button>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <label>Creer un channel</label>
-            <div class="settings-input-row">
-              <input v-model="newChannelName" type="text" placeholder="Nom du channel" />
-              <div class="dropdown-wrapper">
-                <Dropdown v-model="newChannelKind" :options="channelKindOptions" />
-              </div>
-              <div class="dropdown-wrapper-wide">
-                <Dropdown v-model="newChannelGroup" :options="groupOptions" placeholder="Aucun groupe" />
-              </div>
-              <button class="settings-save-btn" @click="createChannel" :disabled="!newChannelName.trim()">
-                Creer
-              </button>
-            </div>
-          </div>
+          <p class="settings-hint">Clic droit dans la liste des channels pour en creer. Glisse-les pour les reorganiser.</p>
 
           <div class="settings-section">
             <label>Channels</label>
-
-            <!-- Ungrouped -->
             <div class="channel-list">
-              <div v-for="(ch, i) in ungroupedChannels" :key="ch.id" class="channel-row">
+              <div v-for="ch in ungroupedChannels" :key="ch.id" class="channel-row">
                 <Hash v-if="ch.kind === 'text'" :size="16" class="channel-row-icon" />
                 <Volume2 v-else :size="16" class="channel-row-icon" />
                 <span class="channel-row-name">{{ ch.name }}</span>
-                <div class="channel-row-actions">
-                  <button class="channel-action-btn" @click="moveChannelUp(ch.id)" :disabled="i === 0" title="Monter">
-                    <ChevronUp :size="14" />
-                  </button>
-                  <button class="channel-action-btn" @click="moveChannelDown(ch.id)" :disabled="i === ungroupedChannels.length - 1" title="Descendre">
-                    <ChevronDown :size="14" />
-                  </button>
-                  <button class="channel-delete-btn" @click="deleteChannel(ch.id)" title="Supprimer">
-                    <Trash2 :size="14" />
-                  </button>
-                </div>
+                <button class="channel-delete-btn" @click="deleteChannel(ch.id)" title="Supprimer">
+                  <Trash2 :size="14" />
+                </button>
               </div>
             </div>
 
-            <!-- Groups -->
-            <div v-for="(group, gi) in state?.groups" :key="group.id" class="settings-group">
+            <div v-for="group in state?.groups" :key="group.id" class="settings-group">
               <div class="settings-group-header">
                 <span class="settings-group-name">{{ group.name }}</span>
-                <div class="channel-row-actions">
-                  <button class="channel-action-btn" @click="moveGroupUp(group.id)" :disabled="gi === 0" title="Monter">
-                    <ChevronUp :size="14" />
-                  </button>
-                  <button class="channel-action-btn" @click="moveGroupDown(group.id)" :disabled="gi === (state?.groups.length ?? 0) - 1" title="Descendre">
-                    <ChevronDown :size="14" />
-                  </button>
-                  <button class="channel-delete-btn" @click="deleteGroup(group.id)" title="Supprimer le groupe">
-                    <Trash2 :size="14" />
-                  </button>
-                </div>
+                <button class="channel-delete-btn" @click="deleteGroup(group.id)" title="Supprimer le groupe">
+                  <Trash2 :size="14" />
+                </button>
               </div>
               <div class="channel-list">
-                <div v-for="(ch, i) in getGroupChannels(group.id)" :key="ch.id" class="channel-row">
+                <div v-for="ch in getGroupChannels(group.id)" :key="ch.id" class="channel-row">
                   <Hash v-if="ch.kind === 'text'" :size="16" class="channel-row-icon" />
                   <Volume2 v-else :size="16" class="channel-row-icon" />
                   <span class="channel-row-name">{{ ch.name }}</span>
-                  <div class="channel-row-actions">
-                    <button class="channel-action-btn" @click="moveChannelUp(ch.id)" :disabled="i === 0" title="Monter">
-                      <ChevronUp :size="14" />
-                    </button>
-                    <button class="channel-action-btn" @click="moveChannelDown(ch.id)" :disabled="i === getGroupChannels(group.id).length - 1" title="Descendre">
-                      <ChevronDown :size="14" />
-                    </button>
-                    <button class="channel-delete-btn" @click="deleteChannel(ch.id)" title="Supprimer">
-                      <Trash2 :size="14" />
-                    </button>
-                  </div>
+                  <button class="channel-delete-btn" @click="deleteChannel(ch.id)" title="Supprimer">
+                    <Trash2 :size="14" />
+                  </button>
                 </div>
                 <p v-if="!getGroupChannels(group.id).length" class="settings-hint" style="padding-left: 8px;">Aucun channel</p>
               </div>
@@ -177,8 +126,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, Hash, Volume2, Trash2, Shield, UserX, UserRound, LayoutList, ShieldCheck, Gavel, ChevronUp, ChevronDown } from "lucide-vue-next";
-import Dropdown from "./Dropdown.vue";
+import { X, Hash, Volume2, Trash2, Shield, UserX, UserRound, LayoutList, ShieldCheck, Gavel } from "lucide-vue-next";
 import { store, activeState, activeServer } from "../store";
 import { api, type Channel } from "../api";
 import * as perms from "../permissions";
@@ -225,29 +173,12 @@ async function saveDisplayName() {
 }
 
 // Groups
-const newGroupName = ref("");
-
-const groupOptions = computed(() => [
-  { value: "", label: "Aucun groupe" },
-  ...(state.value?.groups.map((g) => ({ value: String(g.id), label: g.name })) ?? []),
-]);
-
 const ungroupedChannels = computed(() =>
   state.value?.channels.filter((c) => !c.group_id) ?? []
 );
 
 function getGroupChannels(groupId: number) {
   return state.value?.channels.filter((c) => c.group_id === groupId) ?? [];
-}
-
-async function createGroup() {
-  const s = activeServer();
-  const st = activeState();
-  if (!s || !st || !newGroupName.value.trim()) return;
-
-  const group = await api.createGroup(s.url, s.token, newGroupName.value.trim());
-  st.groups.push(group);
-  newGroupName.value = "";
 }
 
 async function deleteGroup(id: number) {
@@ -259,46 +190,7 @@ async function deleteGroup(id: number) {
   st.groups = st.groups.filter((g) => g.id !== id);
 }
 
-async function moveGroupUp(id: number) {
-  const st = activeState();
-  const s = activeServer();
-  if (!st || !s) return;
-  const i = st.groups.findIndex((g) => g.id === id);
-  if (i <= 0) return;
-  [st.groups[i - 1], st.groups[i]] = [st.groups[i], st.groups[i - 1]];
-  await api.reorderGroups(s.url, s.token, st.groups.map((g) => g.id));
-}
-
-async function moveGroupDown(id: number) {
-  const st = activeState();
-  const s = activeServer();
-  if (!st || !s) return;
-  const i = st.groups.findIndex((g) => g.id === id);
-  if (i < 0 || i >= st.groups.length - 1) return;
-  [st.groups[i], st.groups[i + 1]] = [st.groups[i + 1], st.groups[i]];
-  await api.reorderGroups(s.url, s.token, st.groups.map((g) => g.id));
-}
-
 // Channels
-const newChannelName = ref("");
-const newChannelKind = ref("text");
-const newChannelGroup = ref("");
-const channelKindOptions = [
-  { value: "text", label: "Texte" },
-  { value: "voice", label: "Vocal" },
-];
-
-async function createChannel() {
-  const s = activeServer();
-  const st = activeState();
-  if (!s || !st || !newChannelName.value.trim()) return;
-
-  const groupId = newChannelGroup.value ? Number(newChannelGroup.value) : undefined;
-  const ch = await api.createChannel(s.url, s.token, newChannelName.value.trim(), newChannelKind.value as "text" | "voice", groupId);
-  st.channels.push(ch);
-  newChannelName.value = "";
-}
-
 async function deleteChannel(id: number) {
   const s = activeServer();
   const st = activeState();
@@ -309,26 +201,6 @@ async function deleteChannel(id: number) {
     headers: { Authorization: `Bearer ${s.token}` },
   });
   st.channels = st.channels.filter((c) => c.id !== id);
-}
-
-async function moveChannelUp(id: number) {
-  const st = activeState();
-  const s = activeServer();
-  if (!st || !s) return;
-  const i = st.channels.findIndex((c) => c.id === id);
-  if (i <= 0) return;
-  [st.channels[i - 1], st.channels[i]] = [st.channels[i], st.channels[i - 1]];
-  await api.reorderChannels(s.url, s.token, st.channels.map((c) => c.id));
-}
-
-async function moveChannelDown(id: number) {
-  const st = activeState();
-  const s = activeServer();
-  if (!st || !s) return;
-  const i = st.channels.findIndex((c) => c.id === id);
-  if (i < 0 || i >= st.channels.length - 1) return;
-  [st.channels[i], st.channels[i + 1]] = [st.channels[i + 1], st.channels[i]];
-  await api.reorderChannels(s.url, s.token, st.channels.map((c) => c.id));
 }
 
 // Roles
@@ -414,7 +286,7 @@ function close() {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--text-muted);
@@ -460,7 +332,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -501,20 +373,10 @@ function close() {
   gap: 8px;
 }
 
-.dropdown-wrapper {
-  width: 110px;
-  flex-shrink: 0;
-}
-
-.dropdown-wrapper-wide {
-  width: 150px;
-  flex-shrink: 0;
-}
-
 .settings-input-row input {
   flex: 1;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   border: none;
   background: var(--bg-tertiary);
   color: var(--text-normal);
@@ -532,7 +394,7 @@ function close() {
   padding: 8px 16px;
   margin: 0;
   font-size: 0.8125rem;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .settings-success {
@@ -553,7 +415,7 @@ function close() {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: background 0.1s;
 }
 
@@ -594,43 +456,6 @@ function close() {
   flex: 1;
 }
 
-.channel-row-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-
-.channel-row:hover .channel-row-actions,
-.settings-group-header:hover .channel-row-actions {
-  opacity: 1;
-}
-
-.channel-action-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-
-.channel-action-btn:hover {
-  color: var(--text-normal);
-  background: var(--bg-modifier-hover);
-  box-shadow: none;
-}
-
-.channel-action-btn:disabled {
-  opacity: 0.2;
-  cursor: default;
-}
-
 .channel-delete-btn {
   width: 24px;
   height: 24px;
@@ -639,7 +464,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;

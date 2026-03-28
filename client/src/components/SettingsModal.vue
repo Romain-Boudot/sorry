@@ -181,7 +181,7 @@ function close() {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--text-muted);
@@ -227,7 +227,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -271,7 +271,7 @@ function close() {
 .settings-input-row input {
   flex: 1;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   border: none;
   background: var(--bg-tertiary);
   color: var(--text-normal);
@@ -289,7 +289,7 @@ function close() {
   padding: 8px 16px;
   margin: 0;
   font-size: 0.8125rem;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .settings-success {

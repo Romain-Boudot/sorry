@@ -69,6 +69,13 @@ pub async fn update_group(db: &SqlitePool, id: i64, group_id: Option<i64>) -> sq
     Ok(())
 }
 
+pub async fn update_name(db: &SqlitePool, id: i64, name: &str) -> sqlx::Result<()> {
+    sqlx::query!("UPDATE channels SET name = ? WHERE id = ?", name, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn reorder(db: &SqlitePool, ids: &[i64]) -> sqlx::Result<()> {
     for (i, id) in ids.iter().enumerate() {
         let pos = i as i64;

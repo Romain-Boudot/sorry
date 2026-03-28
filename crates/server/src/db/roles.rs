@@ -104,6 +104,22 @@ pub async fn remove_from_user(db: &SqlitePool, user_id: i64, role_id: i64) -> sq
     Ok(())
 }
 
+/// Récupère les rôles d'un user
+pub async fn get_user_roles(db: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Role>> {
+    let rows = sqlx::query_as!(
+        RoleRow,
+        "SELECT r.id, r.name, r.permissions, r.color, r.position
+         FROM roles r
+         INNER JOIN user_roles ur ON ur.role_id = r.id
+         WHERE ur.user_id = ?
+         ORDER BY r.position",
+        user_id
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.iter().map(to_model).collect())
+}
+
 /// Récupère les permissions combinées (OR) de tous les rôles d'un user
 pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
     // SQLite n'a pas d'aggregate bitwise OR, on récupère tous les rôles et on OR en Rust

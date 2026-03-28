@@ -49,6 +49,6 @@ import { store } from "../store";
   margin-top: 8px;
   padding: 10px 20px;
   font-size: 0.875rem;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 </style>

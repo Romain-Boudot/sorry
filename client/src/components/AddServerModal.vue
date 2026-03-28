@@ -195,7 +195,7 @@ function close() {
 .field input {
   width: 100%;
   padding: 10px;
-  border-radius: 3px;
+  border-radius: 6px;
   border: none;
   background: var(--bg-tertiary);
   color: var(--text-normal);

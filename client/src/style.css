@@ -41,7 +41,7 @@ button {
   width: 100%;
   padding: 10px 16px;
   border: none;
-  border-radius: 3px;
+  border-radius: 6px;
   background: var(--accent);
   color: #fff;
   font-size: 0.875rem;
@@ -57,5 +57,5 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
-::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #111214; }

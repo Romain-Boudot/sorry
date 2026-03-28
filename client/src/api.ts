@@ -1,3 +1,9 @@
+async function hashPassword(password: string): Promise<string> {
+  const encoded = new TextEncoder().encode(password);
+  const hash = await crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function request<T>(
   baseUrl: string,
   path: string,
@@ -22,10 +28,11 @@ export const api = {
     return res.json() as Promise<{ name: string }>;
   },
 
-  login(baseUrl: string, username: string, password: string, serverPassword?: string) {
+  async login(baseUrl: string, username: string, password: string, serverPassword?: string) {
+    const hashed = await hashPassword(password);
     return request<{ token: string; user: User }>(baseUrl, "/auth/login", undefined, {
       method: "POST",
-      body: JSON.stringify({ username, password, server_password: serverPassword }),
+      body: JSON.stringify({ username, password: hashed, server_password: serverPassword }),
     });
   },
 
@@ -73,6 +80,17 @@ export const api = {
     });
   },
 
+  deleteChannel(baseUrl: string, token: string, channelId: number) {
+    return request<void>(baseUrl, `/channels/${channelId}`, token, { method: "DELETE" });
+  },
+
+  updateChannel(baseUrl: string, token: string, channelId: number, data: { name?: string }) {
+    return request<Channel>(baseUrl, `/channels/${channelId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
   moveChannel(baseUrl: string, token: string, channelId: number, groupId: number | null) {
     return request<void>(baseUrl, `/channels/${channelId}/group`, token, {
       method: "PATCH",
@@ -106,12 +124,33 @@ export const api = {
       body: JSON.stringify({ display_name: displayName }),
     });
   },
+
+  getUserRoles(baseUrl: string, token: string, userId: number) {
+    return request<Role[]>(baseUrl, `/users/${userId}/roles`, token);
+  },
+
+  listRoles(baseUrl: string, token: string) {
+    return request<Role[]>(baseUrl, "/roles", token);
+  },
+
+  assignRole(baseUrl: string, token: string, roleId: number, userId: number) {
+    return request<void>(baseUrl, `/roles/${roleId}/assign`, token, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
+
+  removeRole(baseUrl: string, token: string, roleId: number, userId: number) {
+    return request<void>(baseUrl, `/roles/${roleId}/remove`, token, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
 };
 
 // Types
 export interface User {
   id: number;
-  username: string;
   display_name: string;
 }
 
@@ -129,6 +168,14 @@ export interface Channel {
   group_id: number | null;
 }
 
+export interface Role {
+  id: number;
+  name: string;
+  permissions: number;
+  color: string | null;
+  position: number;
+}
+
 export interface Message {
   id: number;
   channel_id: number;
@@ -137,12 +184,19 @@ export interface Message {
   created_at: string;
 }
 
+export interface VoiceUserState {
+  muted: boolean;
+  deafened: boolean;
+  force_muted: boolean;
+  force_deafened: boolean;
+}
+
 export interface MeResponse {
   user: User;
   permissions: number;
   users: User[];
   online_users: number[];
-  voice_state: Record<number, number[]>;
+  voice_state: Record<number, Record<number, VoiceUserState>>;
 }
 
 export interface ServerEvent {

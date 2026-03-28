@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use tokio::sync::broadcast;
 use shared::events::ServerEvent;
+use shared::models::VoiceUserState;
 
 pub type UserId = i64;
 pub type ChannelId = i64;
@@ -15,7 +16,7 @@ pub struct AppState {
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
     pub online_users: RwLock<HashSet<UserId>>,
-    pub voice_state: RwLock<HashMap<ChannelId, HashSet<UserId>>>,
+    pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
     pub event_tx: broadcast::Sender<ServerEvent>,
 }
 

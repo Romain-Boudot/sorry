@@ -29,6 +29,7 @@
               </div>
             </div>
             <div class="user-controls">
+              <AudioControls />
               <button class="user-control-btn" title="Parametres" @click="store.showSettingsModal = true">
                 <Settings :size="18" />
               </button>
@@ -59,6 +60,7 @@ import AddServerModal from "./components/AddServerModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import ServerSettingsModal from "./components/ServerSettingsModal.vue";
 import VoiceBar from "./components/VoiceBar.vue";
+import AudioControls from "./components/AudioControls.vue";
 
 const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
@@ -178,7 +180,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;

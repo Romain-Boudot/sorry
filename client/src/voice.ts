@@ -130,3 +130,32 @@ export function isConnected(): boolean {
 export function getCurrentRoom(): Room | null {
   return currentRoom;
 }
+
+/// Enumerate available audio devices
+export async function getAudioDevices(): Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }> {
+  try {
+    const devices = await Room.getLocalDevices("audioinput");
+    const outputs = await Room.getLocalDevices("audiooutput");
+    return { inputs: devices, outputs };
+  } catch {
+    return { inputs: [], outputs: [] };
+  }
+}
+
+/// Switch microphone device
+export async function switchMicrophone(deviceId: string) {
+  if (!currentRoom) return;
+  await currentRoom.switchActiveDevice("audioinput", deviceId);
+}
+
+/// Switch speaker device
+export async function switchSpeaker(deviceId: string) {
+  if (!currentRoom) return;
+  await currentRoom.switchActiveDevice("audiooutput", deviceId);
+}
+
+/// Set mic enabled/disabled directly (for applying state on join)
+export function setMicEnabled(enabled: boolean) {
+  if (!currentRoom) return;
+  currentRoom.localParticipant.setMicrophoneEnabled(enabled);
+}

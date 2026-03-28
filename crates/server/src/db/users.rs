@@ -12,7 +12,6 @@ pub struct UserRow {
 pub fn to_model(row: &UserRow) -> User {
     User {
         id: row.id.unwrap_or(0),
-        username: row.username.clone(),
         display_name: row.display_name.clone(),
     }
 }
@@ -29,14 +28,23 @@ pub async fn find_by_username(db: &SqlitePool, username: &str) -> sqlx::Result<O
 
 pub struct UserPublicRow {
     pub id: Option<i64>,
-    pub username: String,
     pub display_name: String,
+}
+
+pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Option<UserRow>> {
+    sqlx::query_as!(
+        UserRow,
+        "SELECT id, username, display_name, password_hash FROM users WHERE id = ?",
+        id
+    )
+    .fetch_optional(db)
+    .await
 }
 
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> {
     let row = sqlx::query_as!(
         UserPublicRow,
-        "SELECT id, username, display_name FROM users WHERE id = ?",
+        "SELECT id, display_name FROM users WHERE id = ?",
         id
     )
     .fetch_optional(db)
@@ -44,7 +52,6 @@ pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> 
 
     Ok(row.map(|r| User {
         id: r.id.unwrap_or(0),
-        username: r.username,
         display_name: r.display_name,
     }))
 }
@@ -52,7 +59,7 @@ pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> 
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
     let rows = sqlx::query_as!(
         UserPublicRow,
-        "SELECT id, username, display_name FROM users"
+        "SELECT id, display_name FROM users"
     )
     .fetch_all(db)
     .await?;
@@ -61,7 +68,6 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
         .iter()
         .map(|r| User {
             id: r.id.unwrap_or(0),
-            username: r.username.clone(),
             display_name: r.display_name.clone(),
         })
         .collect())
@@ -71,6 +77,28 @@ pub async fn update_display_name(db: &SqlitePool, id: i64, display_name: &str) -
     sqlx::query!(
         "UPDATE users SET display_name = ? WHERE id = ?",
         display_name,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_password(db: &SqlitePool, id: i64, password_hash: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        password_hash,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_username(db: &SqlitePool, id: i64, username: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE users SET username = ? WHERE id = ?",
+        username,
         id
     )
     .execute(db)

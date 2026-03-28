@@ -1,9 +1,16 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VoiceUserState {
+    pub muted: bool,
+    pub deafened: bool,
+    pub force_muted: bool,
+    pub force_deafened: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
-    pub username: String,
     pub display_name: String,
 }
 

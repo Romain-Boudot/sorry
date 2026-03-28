@@ -50,16 +50,16 @@ function close() {
 .context-menu {
   position: fixed;
   background: var(--bg-tertiary);
-  border-radius: 4px;
-  padding: 6px 8px;
-  min-width: 188px;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 200px;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
   z-index: 201;
 }
 
 .context-menu-item {
-  padding: 6px 8px;
-  border-radius: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.8125rem;
   font-weight: 500;

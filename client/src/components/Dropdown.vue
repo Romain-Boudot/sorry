@@ -71,7 +71,7 @@ onUnmounted(() => document.removeEventListener("click", onClickOutside));
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--bg-tertiary);
   color: var(--text-normal);
   font-size: 0.875rem;
@@ -105,7 +105,7 @@ onUnmounted(() => document.removeEventListener("click", onClickOutside));
   left: 0;
   right: 0;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 50;
@@ -115,7 +115,7 @@ onUnmounted(() => document.removeEventListener("click", onClickOutside));
 
 .dropdown-item {
   padding: 8px 10px;
-  border-radius: 3px;
+  border-radius: 8px;
   font-size: 0.8125rem;
   color: var(--text-muted);
   cursor: pointer;

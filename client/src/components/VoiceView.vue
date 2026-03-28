@@ -9,11 +9,36 @@
     </div>
 
     <div class="voice-view-participants">
-      <div v-for="uid in participants" :key="uid" class="voice-participant">
-        <div class="voice-participant-avatar" :class="{ speaking: isUserSpeaking(uid) }">
+      <div v-for="[uid, vs] in participants" :key="uid" class="voice-participant">
+        <div class="voice-participant-avatar" :class="{ speaking: !vs.muted && !vs.deafened && isUserSpeaking(uid) }">
           {{ resolveUser(uid)[0]?.toUpperCase() }}
         </div>
         <span class="voice-participant-name">{{ resolveUser(uid) }}</span>
+        <div class="voice-participant-icons">
+          <MicOff v-if="vs.muted || vs.force_muted" :size="14" :class="{ forced: vs.force_muted }" />
+          <HeadphoneOff v-if="vs.deafened || vs.force_deafened" :size="14" :class="{ forced: vs.force_deafened }" />
+        </div>
+        <!-- Force mute/deafen pour les admins -->
+        <div v-if="uid !== state?.user?.id && (canMuteMembers || canDeafenMembers)" class="voice-participant-actions">
+          <button
+            v-if="canMuteMembers"
+            class="voice-action-btn"
+            :class="{ active: vs.force_muted }"
+            @click="forceMute(uid, !vs.force_muted)"
+            :title="vs.force_muted ? 'Unmute' : 'Force mute'"
+          >
+            <MicOff :size="12" />
+          </button>
+          <button
+            v-if="canDeafenMembers"
+            class="voice-action-btn"
+            :class="{ active: vs.force_deafened }"
+            @click="forceDeafen(uid, !vs.force_deafened)"
+            :title="vs.force_deafened ? 'Undeafen' : 'Force deafen'"
+          >
+            <HeadphoneOff :size="12" />
+          </button>
+        </div>
       </div>
       <div v-if="!participants.length && state?.voiceStatus !== 'connecting'" class="voice-view-empty">
         Personne dans ce channel
@@ -35,17 +60,27 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Phone, Volume2, Loader, AlertCircle } from "lucide-vue-next";
-import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking } from "../store";
+import { Phone, Volume2, Loader, AlertCircle, MicOff, HeadphoneOff } from "lucide-vue-next";
+import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen } from "../store";
+import * as perms from "../permissions";
+import type { VoiceUserState } from "../api";
 
 const state = computed(() => activeState());
 const channelId = computed(() => state.value?.activeChannelId);
 
-const participants = computed(() => {
+const participants = computed((): [number, VoiceUserState][] => {
   if (!state.value?.activeChannelId) return [];
-  const users = state.value.voiceState.get(state.value.activeChannelId);
-  return users ? [...users] : [];
+  const map = state.value.voiceState.get(state.value.activeChannelId);
+  return map ? [...map.entries()] : [];
 });
+
+const canMuteMembers = computed(() =>
+  perms.has(state.value?.permissions ?? 0, perms.MUTE_MEMBERS)
+);
+
+const canDeafenMembers = computed(() =>
+  perms.has(state.value?.permissions ?? 0, perms.DEAFEN_MEMBERS)
+);
 
 const statusText = computed(() => {
   switch (state.value?.voiceStatus) {
@@ -104,6 +139,7 @@ const statusText = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  position: relative;
 }
 
 .voice-participant-avatar {
@@ -131,6 +167,59 @@ const statusText = computed(() => {
   color: var(--text-muted);
 }
 
+.voice-participant-icons {
+  display: flex;
+  gap: 4px;
+  color: var(--text-faint);
+}
+
+.voice-participant-icons .forced {
+  color: var(--danger);
+}
+
+.voice-participant-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.voice-participant:hover .voice-participant-actions {
+  opacity: 1;
+}
+
+.voice-action-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-faint);
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.voice-action-btn:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+}
+
+.voice-action-btn.active {
+  background: var(--danger);
+  color: #fff;
+}
+
+.voice-action-btn.active:hover {
+  background: var(--danger);
+  box-shadow: none;
+}
+
 .voice-view-empty {
   color: var(--text-faint);
   font-size: 0.875rem;
@@ -150,7 +239,7 @@ const statusText = computed(() => {
   color: #fff;
   font-weight: 600;
   font-size: 0.875rem;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
 .voice-join-btn:hover { opacity: 0.9; }

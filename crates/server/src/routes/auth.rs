@@ -59,11 +59,6 @@ async fn login(
             // Assigner le rôle "Membre" (id=2) par défaut
             let _ = crate::db::roles::assign_to_user(&state.db, id, 2).await;
 
-            // Si c'est le premier user, assigner aussi Admin (id=1)
-            if id == 1 {
-                let _ = crate::db::roles::assign_to_user(&state.db, id, 1).await;
-            }
-
             crate::db::users::UserRow {
                 id: Some(id),
                 username: payload.username.clone(),

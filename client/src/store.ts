@@ -1,6 +1,6 @@
 import { reactive } from "vue";
-import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type ServerEvent } from "./api";
-import { joinVoice, leaveVoice, toggleMute as voiceToggleMute } from "./voice";
+import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type ServerEvent, type VoiceUserState } from "./api";
+import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen } from "./voice";
 
 export interface SavedServer {
   id: string;
@@ -20,15 +20,21 @@ export interface ServerState {
   messages: Map<number, Message[]>;
   activeChannelId: number | null;
   onlineUsers: Set<number>;
-  voiceState: Map<number, Set<number>>;
+  voiceState: Map<number, Map<number, VoiceUserState>>;
   ws: WebSocket | null;
   unreadCount: number;
   permissions: number;
   // Vocal
   voiceChannelId: number | null;
-  speakingUsers: Set<string>; // identities currently speaking
+  speakingUsers: Set<string>;
   voiceStatus: "idle" | "connecting" | "connected" | "error";
   isMuted: boolean;
+  isDeafened: boolean;
+  wasMutedBeforeDeafen: boolean;
+}
+
+function defaultVoiceUserState(): VoiceUserState {
+  return { muted: false, deafened: false, force_muted: false, force_deafened: false };
 }
 
 function createServerState(): ServerState {
@@ -50,6 +56,8 @@ function createServerState(): ServerState {
     speakingUsers: new Set(),
     voiceStatus: "idle",
     isMuted: false,
+    isDeafened: false,
+    wasMutedBeforeDeafen: false,
   };
 }
 
@@ -98,12 +106,30 @@ export function isUserSpeaking(userId: number): boolean {
   return state.speakingUsers.has(`user-${userId}`);
 }
 
+/// Récupère le voice state d'un user dans un channel
+export function getUserVoiceState(channelId: number, userId: number): VoiceUserState | undefined {
+  const state = activeState();
+  if (!state) return undefined;
+  return state.voiceState.get(channelId)?.get(userId);
+}
+
 /// Le channel actif est-il un channel vocal ?
 export function isActiveChannelVoice(): boolean {
   const state = activeState();
   if (!state?.activeChannelId) return false;
   const ch = state.channels.find((c) => c.id === state.activeChannelId);
   return ch?.kind === "voice";
+}
+
+/// Envoyer l'état vocal self au serveur (seulement si en vocal)
+function sendVoiceStateUpdate(state: ServerState) {
+  if (!state.voiceChannelId) return;
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({
+      type: "UpdateVoiceState",
+      data: { muted: state.isMuted, deafened: state.isDeafened },
+    }));
+  }
 }
 
 /// Ajouter un nouveau serveur et s'y connecter
@@ -118,7 +144,6 @@ export async function addServer(
   const baseUrl = url.replace(/\/+$/, "");
   const res = await api.login(baseUrl, username, password, serverPassword);
 
-  // Si un display name a été fourni, le mettre à jour sur le serveur
   if (displayName) {
     await api.updateDisplayName(baseUrl, res.token, displayName);
   }
@@ -143,7 +168,6 @@ export async function connectToServer(serverId: string) {
   const server = store.savedServers.find((s) => s.id === serverId);
   if (!server) return;
 
-  // Déjà connecté ?
   const existing = store.serverStates.get(serverId);
   if (existing?.connected) {
     store.activeServerId = serverId;
@@ -168,16 +192,18 @@ export async function connectToServer(serverId: string) {
     state.onlineUsers = new Set(me.online_users);
     state.onlineUsers.add(me.user.id);
 
-    // Cache des users
     for (const u of me.users) {
       state.users.set(u.id, u);
     }
 
-    for (const [chId, userIds] of Object.entries(me.voice_state)) {
-      state.voiceState.set(Number(chId), new Set(userIds));
+    for (const [chId, usersObj] of Object.entries(me.voice_state)) {
+      const map = new Map<number, VoiceUserState>();
+      for (const [uid, vs] of Object.entries(usersObj)) {
+        map.set(Number(uid), vs as VoiceUserState);
+      }
+      state.voiceState.set(Number(chId), map);
     }
 
-    // Premier channel texte par défaut
     const firstText = channels.find((c) => c.kind === "text");
     if (firstText) {
       state.activeChannelId = firstText.id;
@@ -185,7 +211,6 @@ export async function connectToServer(serverId: string) {
       state.messages.set(firstText.id, msgs.reverse());
     }
 
-    // WebSocket
     state.ws = connectWS(server.url, server.token, (event) =>
       handleEvent(serverId, event)
     );
@@ -213,7 +238,6 @@ export function switchToServer(serverId: string) {
     store.activeServerId = serverId;
     state.unreadCount = 0;
   } else {
-    // Pas encore connecté → on connecte
     connectToServer(serverId);
   }
 }
@@ -244,6 +268,29 @@ export async function sendMessage(content: string) {
   }
 }
 
+export function editMessage(messageId: number, content: string) {
+  const state = activeState();
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  state.ws.send(JSON.stringify({
+    type: "EditMessage",
+    data: { message_id: messageId, content },
+  }));
+}
+
+export function deleteMessage(messageId: number) {
+  const state = activeState();
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  // Optimistic delete
+  for (const [, msgs] of state.messages) {
+    const idx = msgs.findIndex((m) => m.id === messageId);
+    if (idx >= 0) { msgs.splice(idx, 1); break; }
+  }
+  state.ws.send(JSON.stringify({
+    type: "DeleteMessage",
+    data: { message_id: messageId },
+  }));
+}
+
 /// Rejoindre un channel vocal
 export async function joinVoiceChannel(channelId: number) {
   const server = activeServer();
@@ -259,16 +306,22 @@ export async function joinVoiceChannel(channelId: number) {
       onConnected: () => {
         state.voiceChannelId = channelId;
         state.voiceStatus = "connected";
-        state.isMuted = false;
+        // Apply pre-existing mute/deaf state
+        if (state.isMuted) {
+          voiceToggleMute(); // mic was enabled by default on join, disable it
+        }
+        if (state.isDeafened) {
+          voiceToggleDeafen();
+        }
         if (state.ws && state.ws.readyState === WebSocket.OPEN) {
           state.ws.send(JSON.stringify({ type: "JoinVoice", data: { channel_id: channelId } }));
+          sendVoiceStateUpdate(state);
         }
       },
       onDisconnected: () => {
         const prevChannel = state.voiceChannelId;
         state.voiceChannelId = null;
         state.voiceStatus = "idle";
-        state.isMuted = false;
         if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
           state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
         }
@@ -297,7 +350,7 @@ export async function leaveVoiceChannel() {
   await leaveVoice();
   state.voiceChannelId = null;
   state.voiceStatus = "idle";
-  state.isMuted = false;
+  // Keep mute/deaf state — user may want to rejoin muted
 
   if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
     state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
@@ -308,8 +361,65 @@ export async function leaveVoiceChannel() {
 export function toggleMute() {
   const state = activeState();
   if (!state) return;
-  const newState = voiceToggleMute();
-  state.isMuted = !newState; // toggleMute retourne le nouvel état du micro (true = enabled)
+  if (state.voiceChannelId) {
+    const micEnabled = voiceToggleMute();
+    state.isMuted = !micEnabled;
+  } else {
+    state.isMuted = !state.isMuted;
+  }
+  // If unmuting while deafened, undeafen too
+  if (!state.isMuted && state.isDeafened) {
+    state.isDeafened = false;
+    if (state.voiceChannelId) voiceToggleDeafen();
+  }
+  sendVoiceStateUpdate(state);
+}
+
+/// Toggle deafen (sourd)
+export function toggleDeafen() {
+  const state = activeState();
+  if (!state) return;
+  const wasDeafened = state.isDeafened;
+
+  if (!wasDeafened) {
+    // Becoming deafened — remember current mute state
+    state.wasMutedBeforeDeafen = state.isMuted;
+    state.isDeafened = true;
+    if (!state.isMuted) {
+      state.isMuted = true;
+      if (state.voiceChannelId) voiceToggleMute();
+    }
+    if (state.voiceChannelId) voiceToggleDeafen();
+  } else {
+    // Undeafening — restore previous mute state
+    state.isDeafened = false;
+    if (state.voiceChannelId) voiceToggleDeafen();
+    if (!state.wasMutedBeforeDeafen) {
+      state.isMuted = false;
+      if (state.voiceChannelId) voiceToggleMute();
+    }
+  }
+  sendVoiceStateUpdate(state);
+}
+
+/// Force mute un autre user (nécessite MUTE_MEMBERS)
+export function forceMute(userId: number, muted: boolean) {
+  const state = activeState();
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  state.ws.send(JSON.stringify({
+    type: "ForceMute",
+    data: { user_id: userId, muted },
+  }));
+}
+
+/// Force deafen un autre user (nécessite DEAFEN_MEMBERS)
+export function forceDeafen(userId: number, deafened: boolean) {
+  const state = activeState();
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  state.ws.send(JSON.stringify({
+    type: "ForceDeafen",
+    data: { user_id: userId, deafened },
+  }));
 }
 
 /// Déconnecter d'un serveur (mute — plus de WS, plus de notifs)
@@ -322,7 +432,6 @@ export function muteServer(serverId: string) {
     state.muted = true;
   }
 
-  // Si c'était le serveur actif, switch au prochain connecté
   if (store.activeServerId === serverId) {
     const next = store.savedServers.find(
       (s) => s.id !== serverId && store.serverStates.get(s.id)?.connected
@@ -365,15 +474,32 @@ function handleEvent(serverId: string, event: ServerEvent) {
       } else {
         state.messages.set(msg.channel_id, [msg]);
       }
-      // Incrémenter unread si pas le serveur actif
       if (store.activeServerId !== serverId) {
         state.unreadCount++;
       }
       break;
     }
+    case "MessageDelete": {
+      const { id } = event.data as { id: number };
+      for (const [, msgs] of state.messages) {
+        const idx = msgs.findIndex((m) => m.id === id);
+        if (idx >= 0) { msgs.splice(idx, 1); break; }
+      }
+      break;
+    }
+    case "MessageUpdate": {
+      const msg = event.data as Message;
+      const msgs = state.messages.get(msg.channel_id);
+      if (msgs) {
+        const idx = msgs.findIndex((m) => m.id === msg.id);
+        if (idx >= 0) msgs[idx] = msg;
+      }
+      break;
+    }
     case "UserOnline": {
-      const { user_id } = event.data as { user_id: number };
-      state.onlineUsers.add(user_id);
+      const { user } = event.data as { user: User };
+      state.onlineUsers.add(user.id);
+      state.users.set(user.id, user);
       break;
     }
     case "UserOffline": {
@@ -382,16 +508,36 @@ function handleEvent(serverId: string, event: ServerEvent) {
       break;
     }
     case "UserJoinedVoice": {
-      const { user, channel_id } = event.data as { user: User; channel_id: number };
+      const { user, channel_id, voice_state: vs } = event.data as { user: User; channel_id: number; voice_state: VoiceUserState };
       if (!state.voiceState.has(channel_id)) {
-        state.voiceState.set(channel_id, new Set());
+        state.voiceState.set(channel_id, new Map());
       }
-      state.voiceState.get(channel_id)!.add(user.id);
+      state.voiceState.get(channel_id)!.set(user.id, vs ?? defaultVoiceUserState());
       break;
     }
     case "UserLeftVoice": {
       const { user_id, channel_id } = event.data as { user_id: number; channel_id: number };
       state.voiceState.get(channel_id)?.delete(user_id);
+      break;
+    }
+    case "VoiceStateUpdate": {
+      const { user_id, channel_id, voice_state: vs } = event.data as { user_id: number; channel_id: number; voice_state: VoiceUserState };
+      if (!state.voiceState.has(channel_id)) {
+        state.voiceState.set(channel_id, new Map());
+      }
+      state.voiceState.get(channel_id)!.set(user_id, vs);
+
+      // Si c'est moi qui suis force muted/deafened, appliquer localement
+      if (user_id === state.user?.id) {
+        if (vs.force_muted && !state.isMuted) {
+          state.isMuted = true;
+          voiceToggleMute();
+        }
+        if (vs.force_deafened && !state.isDeafened) {
+          state.isDeafened = true;
+          voiceToggleDeafen();
+        }
+      }
       break;
     }
   }

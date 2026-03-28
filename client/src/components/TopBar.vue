@@ -1,6 +1,7 @@
 <template>
-  <div class="top-bar" v-if="server">
-    <span class="top-bar-name">{{ server.name }}</span>
+  <div class="top-bar">
+    <span class="app-name">Sorry</span>
+    <span v-if="server" class="top-bar-name">{{ server.name }}</span>
   </div>
 </template>
 
@@ -19,6 +20,16 @@ const server = computed(() => activeServer());
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+}
+
+.app-name {
+  position: absolute;
+  left: 12px;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  letter-spacing: -0.02em;
 }
 
 .top-bar-name {
