@@ -26,6 +26,7 @@ export interface ServerState {
   permissions: number;
   // Vocal
   voiceChannelId: number | null;
+  voiceConnectingChannelId: number | null;
   speakingUsers: Set<string>;
   voiceStatus: "idle" | "connecting" | "connected" | "error";
   isMuted: boolean;
@@ -52,6 +53,7 @@ function createServerState(): ServerState {
     ws: null,
     unreadCount: 0,
     voiceChannelId: null,
+    voiceConnectingChannelId: null,
     permissions: 0,
     speakingUsers: new Set(),
     voiceStatus: "idle",
@@ -298,6 +300,7 @@ export async function joinVoiceChannel(channelId: number) {
   if (!server || !state) return;
 
   state.voiceStatus = "connecting";
+  state.voiceConnectingChannelId = channelId;
 
   try {
     const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
@@ -320,9 +323,11 @@ export async function joinVoiceChannel(channelId: number) {
       },
       onDisconnected: () => {
         const prevChannel = state.voiceChannelId;
+        if (!prevChannel) return; // jamais vraiment connecté, onError s'en occupe
         state.voiceChannelId = null;
+        state.voiceConnectingChannelId = null;
         state.voiceStatus = "idle";
-        if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
           state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
         }
       },
@@ -349,6 +354,7 @@ export async function leaveVoiceChannel() {
   const prevChannel = state.voiceChannelId;
   await leaveVoice();
   state.voiceChannelId = null;
+  state.voiceConnectingChannelId = null;
   state.voiceStatus = "idle";
   // Keep mute/deaf state — user may want to rejoin muted
 

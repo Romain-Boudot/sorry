@@ -1,0 +1,14 @@
+# Local development — only LiveKit runs in Docker.
+# Start the server : cargo run --bin server
+# Start the client : cd client && bun dev
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./livekit.local.yaml:/etc/livekit.yaml
