@@ -14,6 +14,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use state::AppState;
@@ -62,13 +63,14 @@ async fn main() {
         }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
+        .fallback_service(ServeDir::new("/app/static").append_index_html_on_directories(true))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
 
-    let tls_cert = std::env::var("TLS_CERT").ok();
-    let tls_key = std::env::var("TLS_KEY").ok();
+    let tls_cert = std::env::var("TLS_CERT").ok().filter(|s| !s.is_empty());
+    let tls_key = std::env::var("TLS_KEY").ok().filter(|s| !s.is_empty());
 
     if let (Some(cert_path), Some(key_path)) = (tls_cert, tls_key) {
         let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
@@ -97,7 +99,7 @@ async fn ensure_admin(db: &sqlx::SqlitePool) {
     use argon2::password_hash::rand_core::RngCore;
 
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
-    let admin_password_env = std::env::var("ADMIN_PASSWORD").ok();
+    let admin_password_env = std::env::var("ADMIN_PASSWORD").ok().filter(|s| !s.is_empty());
 
     let existing = db::users::find_by_id_internal(db, 1)
         .await

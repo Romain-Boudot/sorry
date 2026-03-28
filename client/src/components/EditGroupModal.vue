@@ -1,17 +1,13 @@
 <template>
-  <ModalSmall title="Creer un channel" @close="close">
+  <ModalSmall title="Modifier le groupe" @close="close">
     <form @submit.prevent="submit">
       <div class="field">
         <label>Nom</label>
-        <input ref="inputRef" v-model="name" type="text" placeholder="nouveau-channel" required />
-      </div>
-      <div class="field">
-        <label>Type</label>
-        <Dropdown v-model="kind" :options="kindOptions" />
+        <input ref="inputRef" v-model="name" type="text" required />
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-cancel" @click="close">Annuler</button>
-        <button type="submit" :disabled="!name.trim()">Creer</button>
+        <button type="submit" :disabled="!name.trim() || name.trim() === props.group.name">Enregistrer</button>
       </div>
     </form>
   </ModalSmall>
@@ -20,19 +16,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { activeState, activeServer } from "../store";
-import { api } from "../api";
+import { api, type ChannelGroup } from "../api";
 import ModalSmall from "./ModalSmall.vue";
-import Dropdown from "./Dropdown.vue";
 
-const props = defineProps<{ groupId?: number }>();
+const props = defineProps<{ group: ChannelGroup }>();
 const emit = defineEmits<{ close: [] }>();
 
-const name = ref("");
-const kind = ref("text");
-const kindOptions = [
-  { value: "text", label: "Texte" },
-  { value: "voice", label: "Vocal" },
-];
+const name = ref(props.group.name);
 const inputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => inputRef.value?.focus());
@@ -42,8 +32,9 @@ async function submit() {
   const st = activeState();
   if (!s || !st || !name.value.trim()) return;
 
-  const ch = await api.createChannel(s.url, s.token, name.value.trim(), kind.value as "text" | "voice", props.groupId);
-  st.channels.push(ch);
+  await api.updateGroup(s.url, s.token, props.group.id, name.value.trim());
+  const idx = st.groups.findIndex((g) => g.id === props.group.id);
+  if (idx >= 0) st.groups[idx] = { ...st.groups[idx], name: name.value.trim() };
   close();
 }
 

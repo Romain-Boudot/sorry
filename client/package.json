@@ -12,7 +12,8 @@
   "dependencies": {
     "livekit-client": "^2.18.0",
     "lucide-vue-next": "^1.0.0",
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vue-draggable-plus": "^0.6.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

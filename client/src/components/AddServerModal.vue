@@ -1,5 +1,5 @@
 <template>
-  <div class="modal-overlay" @click.self="close">
+  <div class="modal-overlay" @click.self="close" @keydown.esc.window="close">
     <div class="modal">
       <!-- Step 1: Server address -->
       <template v-if="step === 1">

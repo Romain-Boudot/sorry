@@ -538,6 +538,10 @@ function formatTimeShort(ts: string): string {
 .chat-input-wrapper {
   display: flex;
   align-items: flex-end;
+  /* Match the user card height: --bar-height is set on .user-row (child),
+     but the border (1px × 2) is on .bottom-card (parent) → total = 48 + 2 = 50px.
+     Here the border is on this element itself, so border-box gives us 50px total. */
+  min-height: calc(var(--bar-height) + 2px);
   background: var(--bg-floating);
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -546,7 +550,8 @@ function formatTimeShort(ts: string): string {
 
 .chat-input textarea {
   width: 100%;
-  padding: 11px 16px;
+  min-height: var(--bar-height);
+  padding: 13px 16px;
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -567,9 +572,9 @@ function formatTimeShort(ts: string): string {
 
 .chat-send {
   width: 32px;
-  height: 32px;
+  height: var(--bar-height);
   padding: 0;
-  margin: 0 0 6px 0;
+  margin: 0;
   flex-shrink: 0;
   display: flex;
   align-items: center;

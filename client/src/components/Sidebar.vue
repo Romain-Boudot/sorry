@@ -5,14 +5,9 @@
       <ChevronDown :size="16" class="sidebar-header-icon" />
     </div>
 
-    <div
-      class="channel-list"
-      @contextmenu.prevent="onContextMenu"
-      @dragover.prevent="onDragOver"
-      @drop="onDrop"
-    >
+    <div class="channel-list" @contextmenu.prevent="onContextMenu">
       <!-- Header channels sans groupe -->
-      <div v-if="ungroupedChannels.length || canManage" class="channel-group-title ungrouped-header">
+      <div v-if="ungrouped.length || canManage" class="channel-group-title ungrouped-header">
         <span>Channels</span>
         <button v-if="canManage" class="group-add-btn" @click.stop="createInGroup = undefined; showCreateChannel = true" title="Creer un channel">
           <Plus :size="14" />
@@ -20,51 +15,55 @@
       </div>
 
       <!-- Channels sans groupe -->
-      <template v-for="ch in ungroupedChannels" :key="ch.id">
-        <ChannelItem
-          :channel="ch"
-          :draggable="canManage"
-          @dragstart="onDragStart('channel', ch.id, $event)"
-          @contextmenu="onChannelContextMenu(ch, $event)"
-          :class="{ 'drop-above': dropTarget?.id === ch.id && dropTarget?.position === 'above',
-                     'drop-below': dropTarget?.id === ch.id && dropTarget?.position === 'below' }"
-        />
-      </template>
+      <VueDraggable
+        v-model="ungrouped"
+        group="channels"
+        :disabled="!canManage"
+        data-group-id="ungrouped"
+        @start="onChannelDragStart"
+        @end="onChannelEnd"
+      >
+        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id">
+          <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
+        </div>
+      </VueDraggable>
 
       <!-- Groupes -->
-      <div
-        v-for="group in state?.groups"
-        :key="'g' + group.id"
-        class="channel-group"
-        :class="{ 'drop-into': dropTarget?.id === group.id && dropTarget?.type === 'group' }"
+      <VueDraggable
+        v-model="localGroups"
+        group="groups"
+        :disabled="!canManage"
+        handle=".channel-group-title"
+        @end="onGroupEnd"
       >
-        <div
-          class="channel-group-title"
-          :draggable="canManage"
-          @click="toggleGroup(group.id)"
-          @dragstart="onDragStart('group', group.id, $event)"
-          @dragover.prevent.stop="onGroupDragOver(group.id, $event)"
-          @drop.stop="onGroupDrop(group.id)"
-        >
-          <ChevronRight :size="12" class="group-arrow" :class="{ expanded: !collapsed.has(group.id) }" />
-          <span>{{ group.name }}</span>
-          <button v-if="canManage" class="group-add-btn" @click.stop="createInGroup = group.id; showCreateChannel = true" title="Creer un channel">
-            <Plus :size="14" />
-          </button>
+        <div v-for="group in localGroups" :key="group.id" class="channel-group">
+          <div
+            class="channel-group-title"
+            :class="{ 'can-drag': canManage }"
+            @click="toggleGroup(group.id)"
+            @contextmenu.prevent.stop="onGroupContextMenu(group, $event)"
+          >
+            <ChevronRight :size="12" class="group-arrow" :class="{ expanded: !collapsed.has(group.id) }" />
+            <span>{{ group.name }}</span>
+            <button v-if="canManage" class="group-add-btn" @click.stop="createInGroup = group.id; showCreateChannel = true" title="Creer un channel">
+              <Plus :size="14" />
+            </button>
+          </div>
+          <VueDraggable
+            v-if="!collapsed.has(group.id)"
+            v-model="groupChannels[group.id]"
+            group="channels"
+            :disabled="!canManage"
+            :data-group-id="group.id"
+            @start="onChannelDragStart"
+            @end="onChannelEnd"
+          >
+            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id">
+              <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
+            </div>
+          </VueDraggable>
         </div>
-        <template v-if="!collapsed.has(group.id)">
-          <template v-for="ch in getGroupChannels(group.id)" :key="ch.id">
-            <ChannelItem
-              :channel="ch"
-              :draggable="canManage"
-              @dragstart="onDragStart('channel', ch.id, $event)"
-              @contextmenu="onChannelContextMenu(ch, $event)"
-              :class="{ 'drop-above': dropTarget?.id === ch.id && dropTarget?.position === 'above',
-                         'drop-below': dropTarget?.id === ch.id && dropTarget?.position === 'below' }"
-            />
-          </template>
-        </template>
-      </div>
+      </VueDraggable>
     </div>
 
     <ContextMenu
@@ -78,12 +77,14 @@
     <CreateChannelModal v-if="showCreateChannel" :group-id="createInGroup" @close="showCreateChannel = false" />
     <CreateGroupModal v-if="showCreateGroup" @close="showCreateGroup = false" />
     <EditChannelModal v-if="editingChannel" :channel="editingChannel" @close="editingChannel = null" />
+    <EditGroupModal v-if="editingGroup" :group="editingGroup" @close="editingGroup = null" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { ChevronDown, ChevronRight, Plus } from "lucide-vue-next";
+import { VueDraggable } from "vue-draggable-plus";
 import {
   store,
   activeState,
@@ -96,7 +97,8 @@ import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import CreateChannelModal from "./CreateChannelModal.vue";
 import CreateGroupModal from "./CreateGroupModal.vue";
 import EditChannelModal from "./EditChannelModal.vue";
-import type { Channel } from "../api";
+import EditGroupModal from "./EditGroupModal.vue";
+import type { Channel, ChannelGroup } from "../api";
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
@@ -107,20 +109,71 @@ const canManage = computed(() =>
   perms.has(state.value?.permissions ?? 0, perms.MANAGE_CHANNELS)
 );
 
-const ungroupedChannels = computed(() =>
-  state.value?.channels.filter((c) => !c.group_id) ?? []
+// ── Local drag-friendly state ──
+const ungrouped = ref<Channel[]>([]);
+const groupChannels = ref<Record<number, Channel[]>>({});
+const localGroups = ref<ChannelGroup[]>([]);
+
+watch(
+  [() => state.value?.channels, () => state.value?.groups],
+  () => {
+    const chs = state.value?.channels ?? [];
+    const grs = state.value?.groups ?? [];
+    localGroups.value = [...grs];
+    ungrouped.value = chs.filter((c) => !c.group_id);
+    const map: Record<number, Channel[]> = {};
+    for (const g of grs) {
+      map[g.id] = chs.filter((c) => c.group_id === g.id);
+    }
+    groupChannels.value = map;
+  },
+  { immediate: true, deep: true }
 );
 
-function getGroupChannels(groupId: number) {
-  return state.value?.channels.filter((c) => c.group_id === groupId) ?? [];
+function onChannelDragStart() {
+  // Expand all groups so their VueDraggable lists are rendered as valid drop targets
+  collapsed.clear();
 }
 
-function toggleGroup(groupId: number) {
-  if (collapsed.has(groupId)) {
-    collapsed.delete(groupId);
-  } else {
-    collapsed.add(groupId);
+async function onChannelEnd(evt: { from: HTMLElement; to: HTMLElement; item: HTMLElement }) {
+  const fromGroupIdRaw = (evt.from as HTMLElement).dataset.groupId;
+  const toGroupIdRaw = (evt.to as HTMLElement).dataset.groupId;
+  if (fromGroupIdRaw === undefined || toGroupIdRaw === undefined) return;
+
+  const fromGroupId = fromGroupIdRaw === "ungrouped" ? null : Number(fromGroupIdRaw);
+  const toGroupId = toGroupIdRaw === "ungrouped" ? null : Number(toGroupIdRaw);
+  const movedId = Number((evt.item as HTMLElement).dataset.channelId);
+
+  // Update group_id on the moved channel object (vue-draggable-plus moved it between arrays but didn't update the field)
+  const toList = toGroupId === null ? ungrouped.value : (groupChannels.value[toGroupId] ?? []);
+  const movedCh = toList.find((c) => c.id === movedId);
+  if (movedCh) movedCh.group_id = toGroupId;
+
+  // Flatten all lists back to a single channel array, preserving per-list order
+  const allChannels: Channel[] = [
+    ...ungrouped.value,
+    ...localGroups.value.flatMap((g) => groupChannels.value[g.id] ?? []),
+  ];
+
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+
+  st.channels = allChannels;
+
+  if (fromGroupId !== toGroupId) {
+    await api.moveChannel(s.url, s.token, movedId, toGroupId);
   }
+  await api.reorderChannels(s.url, s.token, allChannels.map((c) => c.id));
+}
+
+async function onGroupEnd() {
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+
+  st.groups = [...localGroups.value];
+  await api.reorderGroups(s.url, s.token, localGroups.value.map((g) => g.id));
 }
 
 // ── Context menu ──
@@ -129,6 +182,32 @@ const showCreateChannel = ref(false);
 const showCreateGroup = ref(false);
 const createInGroup = ref<number | undefined>(undefined);
 const editingChannel = ref<Channel | null>(null);
+const editingGroup = ref<ChannelGroup | null>(null);
+
+function onGroupContextMenu(group: ChannelGroup, e: MouseEvent) {
+  if (!canManage.value) return;
+
+  const s = activeServer();
+  const st = activeState();
+
+  const items: MenuItem[] = [
+    { label: "Modifier le groupe", action: () => { editingGroup.value = group; } },
+    {
+      label: "Supprimer le groupe",
+      danger: true,
+      action: async () => {
+        if (!s || !st) return;
+        await api.deleteGroup(s.url, s.token, group.id);
+        st.groups = st.groups.filter((g) => g.id !== group.id);
+        st.channels = st.channels.map((c) =>
+          c.group_id === group.id ? { ...c, group_id: null } : c
+        );
+      },
+    },
+  ];
+
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items };
+}
 
 function onChannelContextMenu(channel: Channel, e: MouseEvent) {
   if (!canManage.value) return;
@@ -155,7 +234,6 @@ function onChannelContextMenu(channel: Channel, e: MouseEvent) {
 function onContextMenu(e: MouseEvent) {
   if (!canManage.value) return;
 
-  // Si on a cliqué sur un channel, le menu channel sera affiché à la place
   const target = (e.target as HTMLElement).closest("[data-channel-id]");
   if (target) return;
 
@@ -167,103 +245,12 @@ function onContextMenu(e: MouseEvent) {
   ctxMenu.value = { x: e.clientX, y: e.clientY, items };
 }
 
-// ── Drag & drop ──
-const dragItem = ref<{ type: "channel" | "group"; id: number } | null>(null);
-const dropTarget = ref<{ type: string; id: number; position?: "above" | "below" } | null>(null);
-
-function onDragStart(type: "channel" | "group", id: number, e: DragEvent) {
-  dragItem.value = { type, id };
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", `${type}:${id}`);
+function toggleGroup(groupId: number) {
+  if (collapsed.has(groupId)) {
+    collapsed.delete(groupId);
+  } else {
+    collapsed.add(groupId);
   }
-}
-
-function onDragOver(e: DragEvent) {
-  if (!dragItem.value || dragItem.value.type !== "channel") return;
-
-  const target = (e.target as HTMLElement).closest("[data-channel-id]");
-  if (!target) {
-    dropTarget.value = null;
-    return;
-  }
-
-  const id = Number(target.getAttribute("data-channel-id"));
-  const rect = target.getBoundingClientRect();
-  const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
-  dropTarget.value = { type: "channel", id, position };
-}
-
-function onGroupDragOver(groupId: number, _e: DragEvent) {
-  if (!dragItem.value) return;
-
-  if (dragItem.value.type === "channel") {
-    dropTarget.value = { type: "group", id: groupId };
-  }
-}
-
-async function onDrop() {
-  if (!dragItem.value || !dropTarget.value) {
-    resetDrag();
-    return;
-  }
-
-  const s = activeServer();
-  const st = activeState();
-  if (!s || !st) { resetDrag(); return; }
-
-  if (dragItem.value.type === "channel" && dropTarget.value.type === "channel") {
-    const channels = [...st.channels];
-    const fromIdx = channels.findIndex((c) => c.id === dragItem.value!.id);
-    const toIdx = channels.findIndex((c) => c.id === dropTarget.value!.id);
-    if (fromIdx < 0 || toIdx < 0) { resetDrag(); return; }
-
-    // Move to same group as target
-    channels[fromIdx].group_id = channels[toIdx].group_id;
-    const [moved] = channels.splice(fromIdx, 1);
-    const newToIdx = channels.findIndex((c) => c.id === dropTarget.value!.id);
-    const insertIdx = dropTarget.value.position === "above" ? newToIdx : newToIdx + 1;
-    channels.splice(insertIdx, 0, moved);
-
-    st.channels = channels;
-    await api.moveChannel(s.url, s.token, moved.id, moved.group_id);
-    await api.reorderChannels(s.url, s.token, channels.map((c) => c.id));
-  }
-
-  resetDrag();
-}
-
-async function onGroupDrop(groupId: number) {
-  if (!dragItem.value) { resetDrag(); return; }
-
-  const s = activeServer();
-  const st = activeState();
-  if (!s || !st) { resetDrag(); return; }
-
-  if (dragItem.value.type === "channel") {
-    const ch = st.channels.find((c) => c.id === dragItem.value!.id);
-    if (ch) {
-      ch.group_id = groupId;
-      await api.moveChannel(s.url, s.token, ch.id, groupId);
-    }
-  } else if (dragItem.value.type === "group") {
-    const groups = [...st.groups];
-    const fromIdx = groups.findIndex((g) => g.id === dragItem.value!.id);
-    const toIdx = groups.findIndex((g) => g.id === groupId);
-    if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
-      const [moved] = groups.splice(fromIdx, 1);
-      groups.splice(toIdx, 0, moved);
-      st.groups = groups;
-      await api.reorderGroups(s.url, s.token, groups.map((g) => g.id));
-    }
-  }
-
-  resetDrag();
-}
-
-function resetDrag() {
-  dragItem.value = null;
-  dropTarget.value = null;
 }
 </script>
 
@@ -312,14 +299,6 @@ function resetDrag() {
 
 .channel-group {
   margin-top: 8px;
-  transition: background 0.1s;
-}
-
-.channel-group.drop-into {
-  background: var(--bg-modifier-hover);
-  border-radius: 8px;
-  margin-left: 4px;
-  margin-right: 4px;
 }
 
 .channel-group-title {
@@ -338,6 +317,14 @@ function resetDrag() {
 
 .channel-group-title:hover {
   color: var(--text-muted);
+}
+
+.channel-group-title.can-drag {
+  cursor: grab;
+}
+
+.channel-group-title.can-drag:active {
+  cursor: grabbing;
 }
 
 .ungrouped-header {
@@ -372,14 +359,6 @@ function resetDrag() {
   box-shadow: none;
 }
 
-.channel-group-title[draggable="true"] {
-  cursor: grab;
-}
-
-.channel-group-title[draggable="true"]:active {
-  cursor: grabbing;
-}
-
 .group-arrow {
   transition: transform 0.15s;
   flex-shrink: 0;
@@ -387,14 +366,5 @@ function resetDrag() {
 
 .group-arrow.expanded {
   transform: rotate(90deg);
-}
-
-/* Drop indicators */
-:deep(.drop-above) {
-  border-top: 2px solid var(--accent) !important;
-}
-
-:deep(.drop-below) {
-  border-bottom: 2px solid var(--accent) !important;
 }
 </style>

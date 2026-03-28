@@ -62,6 +62,13 @@ export const api = {
     });
   },
 
+  updateGroup(baseUrl: string, token: string, id: number, name: string) {
+    return request<void>(baseUrl, `/channels/groups/${id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+  },
+
   deleteGroup(baseUrl: string, token: string, id: number) {
     return request<void>(baseUrl, `/channels/groups/${id}`, token, { method: "DELETE" });
   },

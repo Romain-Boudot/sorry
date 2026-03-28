@@ -257,6 +257,27 @@ async fn create_group(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateGroupPayload {
+    name: String,
+}
+
+/// PATCH /api/channels/groups/:id
+async fn update_group(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateGroupPayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::channel_groups::update(&state.db, id, &payload.name)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// DELETE /api/channels/groups/:id
 async fn delete_group(
     State(state): State<Arc<AppState>>,
@@ -332,7 +353,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_channels).post(create_channel))
         .route("/groups", get(list_groups).post(create_group))
-        .route("/groups/:id", axum::routing::delete(delete_group))
+        .route("/groups/:id", axum::routing::patch(update_group).delete(delete_group))
         .route("/groups/reorder", axum::routing::post(reorder_groups))
         .route("/reorder", axum::routing::post(reorder_channels))
         .route("/:id", get(|| async { "channel" }).patch(update_channel).delete(delete_channel))

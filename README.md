@@ -68,6 +68,98 @@ Types, models, events, and permission definitions shared between server and clie
 - Server mute (disconnect without removing)
 - Unread count badges
 
+## Getting Started
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (stable)
+- [Bun](https://bun.sh/)
+- [Docker](https://docs.docker.com/get-docker/) + Docker Compose (for LiveKit and production)
+- [sqlx-cli](https://github.com/launchbadge/sqlx/tree/main/sqlx-cli) for local development
+
+```bash
+cargo install sqlx-cli --no-default-features --features sqlite
+```
+
+### Development
+
+LiveKit runs in Docker, the server and client run locally.
+
+**1. Start LiveKit**
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+**2. First-time setup** (installs dependencies, sets up the database)
+
+```bash
+./scripts/setup.sh
+```
+
+**3. Start server + client**
+
+```bash
+./scripts/dev.sh
+```
+
+The client is available at `http://localhost:5173`, the API at `http://localhost:3000`.
+
+The `.env` file at the root is pre-configured for local development — no changes needed.
+
+Other useful scripts:
+
+```bash
+./scripts/reset-db.sh   # wipe and recreate the local database
+```
+
+### Deployment
+
+Three Docker Compose configurations are available:
+
+| File | Use case | Command |
+|---|---|---|
+| `docker-compose.yml` | Production with a domain + automatic TLS | `docker compose up -d` |
+| `docker-compose.unsecure.yml` | Testing without a domain, plain HTTP | `docker compose -f docker-compose.unsecure.yml up -d` |
+| `docker-compose.dev.yml` | Local dev (LiveKit only) | `docker compose -f docker-compose.dev.yml up` |
+
+#### Production (with domain)
+
+Copy `.env` and fill in the required values:
+
+```bash
+cp .env .env.production
+```
+
+Minimum required variables:
+
+```env
+DOMAIN=yourdomain.com
+JWT_SECRET=a_long_random_secret
+LIVEKIT_API_KEY=your_key
+LIVEKIT_API_SECRET=your_secret
+```
+
+Then:
+
+```bash
+docker compose --env-file .env.production up -d
+```
+
+Caddy handles TLS automatically via Let's Encrypt. The server is available at `https://yourdomain.com`.
+
+#### Unsecure (no domain)
+
+For testing on a local network without a domain name:
+
+```bash
+docker compose -f docker-compose.unsecure.yml up -d
+```
+
+The server is available at `http://HOST:3000`.
+
+For voice to work from another machine on the network, set `LIVEKIT_URL=ws://HOST_IP:7880` before starting.
+
 ## Project Structure
 
 ```
