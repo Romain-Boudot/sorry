@@ -39,13 +39,17 @@ pub async fn handler(
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64) {
     tracing::info!("User {} connected via WebSocket", user_id);
 
-    // Marquer online
-    {
+    // Marquer online (incrémenter le compteur de connexions)
+    let is_first_connection = {
         let mut online = state.online_users.write().unwrap();
-        online.insert(user_id);
-    }
-    if let Ok(Some(user)) = crate::db::users::find_by_id(&state.db, user_id).await {
-        let _ = state.event_tx.send(ServerEvent::UserOnline { user });
+        let count = online.entry(user_id).or_insert(0);
+        *count += 1;
+        *count == 1
+    };
+    if is_first_connection {
+        if let Ok(Some(user)) = crate::db::users::find_by_id(&state.db, user_id).await {
+            let _ = state.event_tx.send(ServerEvent::UserOnline { user });
+        }
     }
 
     let mut rx = state.event_tx.subscribe();
@@ -75,27 +79,41 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
         }
     }
 
-    // Marquer offline
-    {
+    // Décrémenter le compteur de connexions
+    let is_last_connection = {
         let mut online = state.online_users.write().unwrap();
-        online.remove(&user_id);
-    }
+        if let Some(count) = online.get_mut(&user_id) {
+            *count -= 1;
+            if *count == 0 {
+                online.remove(&user_id);
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    };
 
-    // Quitter tous les channels vocaux
-    {
-        let mut voice = state.voice_state.write().unwrap();
-        for (channel_id, users) in voice.iter_mut() {
-            if users.remove(&user_id).is_some() {
-                let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
-                    user_id,
-                    channel_id: *channel_id,
-                });
+    // Seulement si c'était la dernière connexion
+    if is_last_connection {
+        // Quitter tous les channels vocaux
+        {
+            let mut voice = state.voice_state.write().unwrap();
+            for (channel_id, users) in voice.iter_mut() {
+                if users.remove(&user_id).is_some() {
+                    let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+                        user_id,
+                        channel_id: *channel_id,
+                    });
+                }
             }
         }
+
+        let _ = state.event_tx.send(ServerEvent::UserOffline { user_id });
     }
 
-    let _ = state.event_tx.send(ServerEvent::UserOffline { user_id });
-    tracing::info!("User {} disconnected", user_id);
+    tracing::info!("User {} disconnected (last={})", user_id, is_last_connection);
 }
 
 async fn handle_client_event(
@@ -120,9 +138,10 @@ async fn handle_client_event(
                 return Ok(());
             }
             crate::db::messages::update_content(&state.db, message_id, &content).await?;
-            let updated = crate::db::messages::to_model(&crate::db::messages::find_by_id(&state.db, message_id)
+            let mut updated = crate::db::messages::to_model(&crate::db::messages::find_by_id(&state.db, message_id)
                 .await?
                 .ok_or("message not found")?);
+            let _ = crate::db::messages::enrich_with_attachments(&state.db, std::slice::from_mut(&mut updated)).await;
             let _ = state.event_tx.send(ServerEvent::MessageUpdate(updated));
         }
         ClientEvent::DeleteMessage { message_id } => {
@@ -134,7 +153,14 @@ async fn handle_client_event(
             if row.author_id != user_id && !permissions::has(perms, permissions::MANAGE_MESSAGES) {
                 return Ok(());
             }
+            // Delete message (CASCADE deletes attachment rows)
             crate::db::messages::delete(&state.db, message_id).await?;
+            // Clean up files from disk
+            let upload_dir = state.upload_dir.clone();
+            tokio::spawn(async move {
+                let dir = std::path::PathBuf::from(&upload_dir).join(message_id.to_string());
+                let _ = tokio::fs::remove_dir_all(&dir).await;
+            });
             let _ = state.event_tx.send(ServerEvent::MessageDelete { id: message_id });
         }
         ClientEvent::JoinVoice { channel_id } => {

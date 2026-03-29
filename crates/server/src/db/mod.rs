@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod channel_groups;
 pub mod channels;
 pub mod messages;

@@ -38,7 +38,7 @@ async fn me(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let online: Vec<i64> = state.online_users.read().unwrap().iter().copied().collect();
+    let online: Vec<i64> = state.online_users.read().unwrap().keys().copied().collect();
 
     let voice: HashMap<i64, HashMap<i64, shared::models::VoiceUserState>> = state
         .voice_state

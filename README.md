@@ -100,10 +100,11 @@ docker compose -f docker-compose.dev.yml up
 **3. Start server + client**
 
 ```bash
-./scripts/dev.sh
+./scripts/dev.sh         # browser at http://localhost:5173
+./scripts/dev-tauri.sh   # desktop app (Tauri)
 ```
 
-The client is available at `http://localhost:5173`, the API at `http://localhost:3000`.
+The API is available at `http://localhost:3000`.
 
 The `.env` file at the root is pre-configured for local development — no changes needed.
 

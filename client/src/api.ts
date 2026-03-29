@@ -118,6 +118,21 @@ export const api = {
     });
   },
 
+  async sendMessageWithFiles(baseUrl: string, token: string, channelId: number, content: string, files: File[]) {
+    const formData = new FormData();
+    formData.append("content", content);
+    for (const file of files) {
+      formData.append("file", file);
+    }
+    const res = await fetch(`${baseUrl}/api/channels/${channelId}/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<Message>;
+  },
+
   getLivekitToken(baseUrl: string, token: string, channelId: number) {
     return request<{ token: string; url: string }>(baseUrl, "/livekit/token", token, {
       method: "POST",
@@ -183,12 +198,21 @@ export interface Role {
   position: number;
 }
 
+export interface Attachment {
+  id: number;
+  filename: string;
+  content_type: string;
+  size: number;
+  url: string;
+}
+
 export interface Message {
   id: number;
   channel_id: number;
   author_id: number;
   content: string;
   created_at: string;
+  attachments: Attachment[];
 }
 
 export interface VoiceUserState {

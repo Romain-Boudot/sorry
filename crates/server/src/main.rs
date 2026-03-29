@@ -38,6 +38,7 @@ async fn main() {
     let livekit_url = std::env::var("LIVEKIT_URL").unwrap_or_default();
     let livekit_api_key = std::env::var("LIVEKIT_API_KEY").unwrap_or_default();
     let livekit_api_secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_default();
+    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./data/uploads".to_string());
 
     let db = SqlitePoolOptions::new()
         .max_connections(5)
@@ -50,10 +51,13 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
+    // ── Create upload directory ──
+    tokio::fs::create_dir_all(&upload_dir).await.expect("Failed to create upload directory");
+
     // ── Admin account bootstrap ──
     ensure_admin(&db).await;
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret, upload_dir.clone()));
 
     let info_state = state.clone();
     let app = Router::new()
@@ -63,6 +67,7 @@ async fn main() {
         }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
+        .route("/uploads/{msg_id}/{filename}", get(routes::uploads::serve_upload))
         .fallback_service(ServeDir::new("/app/static").append_index_html_on_directories(true))
         .layer(CorsLayer::permissive())
         .with_state(state);

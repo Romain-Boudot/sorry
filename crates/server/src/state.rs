@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::RwLock;
 use tokio::sync::broadcast;
 use shared::events::ServerEvent;
@@ -15,7 +15,8 @@ pub struct AppState {
     pub livekit_url: String,
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
-    pub online_users: RwLock<HashSet<UserId>>,
+    pub upload_dir: String,
+    pub online_users: RwLock<HashMap<UserId, usize>>,
     pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
     pub event_tx: broadcast::Sender<ServerEvent>,
 }
@@ -28,6 +29,7 @@ impl AppState {
         livekit_url: String,
         livekit_api_key: String,
         livekit_api_secret: String,
+        upload_dir: String,
     ) -> Self {
         let (event_tx, _) = broadcast::channel(1024);
         Self {
@@ -37,7 +39,8 @@ impl AppState {
             livekit_url,
             livekit_api_key,
             livekit_api_secret,
-            online_users: RwLock::new(HashSet::new()),
+            upload_dir,
+            online_users: RwLock::new(HashMap::new()),
             voice_state: RwLock::new(HashMap::new()),
             event_tx,
         }

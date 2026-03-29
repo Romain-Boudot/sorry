@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'is-tauri': isTauri }">
     <TopBar />
     <div class="app-grid">
       <ServerList />
@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { Settings } from "lucide-vue-next";
 import { store, connectAll, activeState, isActiveChannelVoice } from "./store";
 import TopBar from "./components/TopBar.vue";
@@ -64,6 +64,7 @@ import AudioControls from "./components/AudioControls.vue";
 
 const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
+const isTauri = ref("__TAURI_INTERNALS__" in window);
 
 onMounted(() => {
   connectAll();
@@ -75,6 +76,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--bg-primary);
+}
+
+.app-shell.is-tauri {
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .app-grid {

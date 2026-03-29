@@ -6,6 +6,7 @@ mod auth;
 mod channels;
 mod livekit;
 mod roles;
+pub mod uploads;
 mod users;
 
 pub fn router() -> Router<Arc<AppState>> {

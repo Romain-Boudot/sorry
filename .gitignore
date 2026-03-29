@@ -12,3 +12,5 @@ todos.txt
 *.crt
 *.key
 *.pem
+*.pxd
+data/

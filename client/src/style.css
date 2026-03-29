@@ -25,9 +25,13 @@
   --bar-height: 48px;
 }
 
+html {
+  background: transparent;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-normal);
   height: 100vh;
   overflow: hidden;
@@ -35,7 +39,10 @@ body {
   font-size: 16px;
 }
 
-#app { height: 100vh; }
+#app {
+  height: 100vh;
+  background: transparent;
+}
 
 button {
   width: 100%;

@@ -1,5 +1,11 @@
 <template>
-  <div class="chat-body">
+  <div class="chat-body" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+    <div v-if="dragging" class="drop-overlay">
+      <div class="drop-overlay-inner">
+        <Paperclip :size="40" :stroke-width="1.2" />
+        <p>Dépose tes fichiers ici</p>
+      </div>
+    </div>
     <div class="chat-messages" ref="messagesContainer">
       <div v-if="!messages.length" class="chat-empty">
         <MessageSquare :size="40" :stroke-width="1.2" />
@@ -47,7 +53,20 @@
                 ></textarea>
                 <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
               </template>
-              <div v-else class="message-content">{{ msg.content }}</div>
+              <div v-else-if="msg.content" class="message-content">{{ msg.content }}</div>
+              <div v-if="msg.attachments?.length" class="message-attachments">
+                <template v-for="att in msg.attachments" :key="att.id">
+                  <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
+                    <img :src="attachmentUrl(att)" :alt="att.filename" loading="lazy" />
+                  </a>
+                  <a v-else :href="attachmentUrl(att)" :download="att.filename" target="_blank" class="attachment-file">
+                    <FileText :size="16" />
+                    <span class="att-name">{{ att.filename }}</span>
+                    <span class="att-size">{{ formatSize(att.size) }}</span>
+                    <Download :size="14" />
+                  </a>
+                </template>
+              </div>
             </div>
           </template>
           <template v-else>
@@ -66,7 +85,20 @@
                 ></textarea>
                 <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
               </template>
-              <div v-else class="message-content">{{ msg.content }}</div>
+              <div v-else-if="msg.content" class="message-content">{{ msg.content }}</div>
+              <div v-if="msg.attachments?.length" class="message-attachments">
+                <template v-for="att in msg.attachments" :key="att.id">
+                  <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
+                    <img :src="attachmentUrl(att)" :alt="att.filename" loading="lazy" />
+                  </a>
+                  <a v-else :href="attachmentUrl(att)" :download="att.filename" target="_blank" class="attachment-file">
+                    <FileText :size="16" />
+                    <span class="att-name">{{ att.filename }}</span>
+                    <span class="att-size">{{ formatSize(att.size) }}</span>
+                    <Download :size="14" />
+                  </a>
+                </template>
+              </div>
             </div>
           </template>
         </div>
@@ -74,16 +106,34 @@
     </div>
 
     <div class="chat-input">
+      <div v-if="pendingFiles.length" class="pending-files">
+        <div v-for="(file, i) in pendingFiles" :key="i" class="pending-file">
+          <img v-if="file.type.startsWith('image/')" :src="objectUrls.get(file)" class="pending-thumb" />
+          <FileText v-else :size="24" class="pending-file-icon" />
+          <div class="pending-file-info">
+            <span class="pending-file-name">{{ file.name }}</span>
+            <span class="pending-file-size">{{ formatSize(file.size) }}</span>
+          </div>
+          <button class="pending-file-remove" @click="removeFile(i)">
+            <X :size="14" />
+          </button>
+        </div>
+      </div>
       <div class="chat-input-wrapper">
+        <input type="file" ref="fileInput" multiple hidden @change="onFileSelect" />
+        <button class="chat-attach" @click="fileInput?.click()" title="Joindre un fichier">
+          <Paperclip :size="18" />
+        </button>
         <textarea
           ref="mainInput"
           v-model="input"
           @keydown="onMainKeydown"
           @input="autoResize"
+          @paste="onPaste"
           :placeholder="`Envoyer un message dans #${activeChannel?.name ?? '...'}`"
           rows="1"
         ></textarea>
-        <button class="chat-send" @click="handleSend" :disabled="!input.trim()">
+        <button class="chat-send" @click="handleSend" :disabled="!input.trim() && !pendingFiles.length">
           <SendHorizonal :size="18" />
         </button>
       </div>
@@ -121,18 +171,24 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
-import { MessageSquare, SendHorizonal, Pencil, Trash2 } from "lucide-vue-next";
-import { activeState, sendMessage, editMessage, deleteMessage, resolveUser } from "../store";
+import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download } from "lucide-vue-next";
+import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser } from "../store";
 import * as perms from "../permissions";
-import type { Message, User } from "../api";
+import type { Message, Attachment, User } from "../api";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
+
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
 const input = ref("");
 const messagesContainer = ref<HTMLElement>();
 const mainInput = ref<HTMLTextAreaElement>();
+const fileInput = ref<HTMLInputElement>();
 const editingMessageId = ref<number | null>(null);
 const editContent = ref("");
+const pendingFiles = ref<File[]>([]);
+const dragging = ref(false);
+const objectUrls = ref<Map<File, string>>(new Map());
 const vFocus = {
   mounted: (el: HTMLElement) => {
     el.focus();
@@ -202,16 +258,96 @@ function trimMessage(s: string): string {
   return s.replace(/^\s*\n/, "").replace(/\n\s*$/, "").trim();
 }
 
+function addFiles(fileList: FileList | File[]) {
+  for (const file of fileList) {
+    if (file.size > MAX_FILE_SIZE) continue;
+    pendingFiles.value.push(file);
+    if (file.type.startsWith("image/")) {
+      objectUrls.value.set(file, URL.createObjectURL(file));
+    }
+  }
+}
+
+function removeFile(index: number) {
+  const file = pendingFiles.value[index];
+  const url = objectUrls.value.get(file);
+  if (url) {
+    URL.revokeObjectURL(url);
+    objectUrls.value.delete(file);
+  }
+  pendingFiles.value.splice(index, 1);
+}
+
+function onFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (input.files) addFiles(input.files);
+  input.value = "";
+}
+
+function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const files: File[] = [];
+  for (const item of items) {
+    if (item.kind === "file") {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (files.length) {
+    e.preventDefault();
+    addFiles(files);
+  }
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault();
+  dragging.value = true;
+}
+
+function onDragLeave() {
+  dragging.value = false;
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  dragging.value = false;
+  if (e.dataTransfer?.files.length) {
+    addFiles(e.dataTransfer.files);
+  }
+}
+
 function handleSend() {
   const content = trimMessage(input.value);
-  if (!content) return;
-  sendMessage(content);
+  const files = pendingFiles.value.length > 0 ? [...pendingFiles.value] : undefined;
+  if (!content && !files) return;
+  sendMessage(content || "", files);
   input.value = "";
+  // Clear pending files
+  for (const [, url] of objectUrls.value) URL.revokeObjectURL(url);
+  objectUrls.value.clear();
+  pendingFiles.value = [];
   nextTick(() => {
     if (mainInput.value) {
       mainInput.value.style.height = "auto";
     }
   });
+}
+
+function isImage(att: Attachment): boolean {
+  return att.content_type.startsWith("image/");
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function attachmentUrl(att: Attachment): string {
+  const server = activeServer();
+  if (!server) return att.url;
+  return `${server.url}${att.url}`;
 }
 
 function onMainKeydown(e: KeyboardEvent) {
@@ -718,5 +854,180 @@ function formatTimeShort(ts: string): string {
 
 .btn-danger:hover {
   opacity: 0.9;
+}
+
+/* ── Drop overlay ── */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--header-primary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* ── Message attachments ── */
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.attachment-image {
+  display: block;
+  max-width: 400px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.attachment-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-normal);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  max-width: 300px;
+  transition: background 0.15s;
+}
+
+.attachment-file:hover {
+  background: var(--bg-modifier-hover);
+}
+
+.att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.att-size {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* ── Pending files ── */
+.pending-files {
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px 0;
+  flex-wrap: wrap;
+}
+
+.pending-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 200px;
+  position: relative;
+}
+
+.pending-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.pending-file-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.pending-file-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.pending-file-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-file-size {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.pending-file-remove {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-modifier-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  flex-shrink: 0;
+}
+
+.pending-file-remove:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ── Attach button ── */
+.chat-attach {
+  width: 32px;
+  height: var(--bar-height);
+  padding: 0;
+  margin: 0 0 0 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  transition: color 0.1s;
+}
+
+.chat-attach:hover {
+  color: var(--text-normal);
+  box-shadow: none;
 }
 </style>

@@ -16,7 +16,22 @@ pub fn to_model(row: &MessageRow) -> Message {
         author_id: row.author_id,
         content: row.content.clone(),
         created_at: row.created_at.clone(),
+        attachments: vec![],
     }
+}
+
+pub async fn enrich_with_attachments(
+    db: &SqlitePool,
+    messages: &mut [Message],
+) -> sqlx::Result<()> {
+    let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+    let map = super::attachments::list_by_message_ids(db, &ids).await?;
+    for msg in messages.iter_mut() {
+        if let Some(atts) = map.get(&msg.id) {
+            msg.attachments = atts.clone();
+        }
+    }
+    Ok(())
 }
 
 pub async fn create(

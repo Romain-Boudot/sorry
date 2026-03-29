@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
@@ -185,7 +186,7 @@ async fn list_messages(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let messages = crate::db::messages::list_by_channel(
+    let mut messages = crate::db::messages::list_by_channel(
         &state.db,
         channel_id,
         query.limit.unwrap_or(50).min(100),
@@ -194,11 +195,17 @@ async fn list_messages(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    crate::db::messages::enrich_with_attachments(&state.db, &mut messages)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(messages))
 }
 
-/// POST /api/channels/:id/messages
-async fn send_message(
+const MAX_FILE_SIZE: usize = 25 * 1024 * 1024; // 25 MB
+
+/// POST /api/channels/:id/messages (JSON — text only)
+async fn send_message_json(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
@@ -214,6 +221,85 @@ async fn send_message(
     let message = crate::db::messages::create(&state.db, channel_id, auth.0, &payload.content)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let _ = state.event_tx.send(shared::events::ServerEvent::MessageCreate(message.clone()));
+
+    Ok(Json(message))
+}
+
+/// POST /api/channels/:id/upload (multipart — text + files)
+async fn send_message_upload(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    mut multipart: Multipart,
+) -> Result<Json<shared::models::Message>, StatusCode> {
+    require_channel_permission(&state.db, auth.0, channel_id, permissions::SEND_MESSAGES).await?;
+
+    crate::db::channels::find_by_id(&state.db, channel_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let mut content = String::new();
+    let mut files: Vec<(String, String, Vec<u8>)> = Vec::new(); // (filename, content_type, data)
+
+    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "content" {
+            content = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+        } else if name == "file" {
+            let filename = field.file_name().unwrap_or("file").to_string();
+            let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            if data.len() > MAX_FILE_SIZE {
+                return Err(StatusCode::PAYLOAD_TOO_LARGE);
+            }
+            files.push((filename, content_type, data.to_vec()));
+        }
+    }
+
+    if content.is_empty() && files.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut message = crate::db::messages::create(&state.db, channel_id, auth.0, &content)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Save files to disk and create attachment records
+    if !files.is_empty() {
+        let msg_dir = PathBuf::from(&state.upload_dir).join(message.id.to_string());
+        tokio::fs::create_dir_all(&msg_dir)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        for (filename, content_type, data) in &files {
+            let ext = std::path::Path::new(filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin");
+            let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+            let file_path = msg_dir.join(&stored_name);
+
+            tokio::fs::write(&file_path, data)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let att = crate::db::attachments::create(
+                &state.db,
+                message.id,
+                filename,
+                &stored_name,
+                content_type,
+                data.len() as i64,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            message.attachments.push(att);
+        }
+    }
 
     let _ = state.event_tx.send(shared::events::ServerEvent::MessageCreate(message.clone()));
 
@@ -358,5 +444,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/reorder", axum::routing::post(reorder_channels))
         .route("/:id", get(|| async { "channel" }).patch(update_channel).delete(delete_channel))
         .route("/:id/group", axum::routing::patch(move_channel))
-        .route("/:id/messages", get(list_messages).post(send_message))
+        .route("/:id/messages", get(list_messages).post(send_message_json))
+        .route("/:id/upload", axum::routing::post(send_message_upload)
+            .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * 10)))
 }

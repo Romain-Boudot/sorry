@@ -38,12 +38,23 @@ pub enum ChannelKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub id: i64,
+    pub filename: String,
+    pub content_type: String,
+    pub size: i64,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: i64,
     pub channel_id: i64,
     pub author_id: i64,
     pub content: String,
     pub created_at: String,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
