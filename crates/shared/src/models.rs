@@ -65,3 +65,11 @@ pub struct Role {
     pub color: Option<String>,
     pub position: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelOverwrite {
+    pub channel_id: i64,
+    pub role_id: i64,
+    pub allow: i64,
+    pub deny: i64,
+}

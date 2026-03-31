@@ -13,8 +13,14 @@ services:
       - LIVEKIT_URL=wss://livekit.${DOMAIN}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=${S3_BUCKET:-uploads}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
     volumes:
       - sorry-data:/app/data
+    depends_on:
+      - minio
 
   livekit:
     image: livekit/livekit-server:latest
@@ -30,6 +36,16 @@ services:
       - LIVEKIT_DOMAIN=livekit.${DOMAIN}
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
 
   caddy:
     image: caddy:2
@@ -47,5 +63,6 @@ services:
 
 volumes:
   sorry-data:
+  minio-data:
   caddy-data:
   caddy-config:

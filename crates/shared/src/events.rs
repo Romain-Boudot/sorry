@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::models::{Message, User, VoiceUserState};
+use crate::models::{Message, Role, User, VoiceUserState};
 
 /// Events envoyés du serveur → client via WebSocket
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +13,10 @@ pub enum ServerEvent {
     UserOnline { user: User },
     UserOffline { user_id: i64 },
     VoiceStateUpdate { user_id: i64, channel_id: i64, voice_state: VoiceUserState },
+    RoleCreate(Role),
+    RoleUpdate(Role),
+    RoleDelete { id: i64 },
+    UserRoleUpdate { user_id: i64, role_ids: Vec<i64> },
 }
 
 /// Events envoyés du client → serveur via WebSocket

@@ -77,6 +77,13 @@ pub async fn update_content(db: &SqlitePool, id: i64, content: &str) -> sqlx::Re
     Ok(())
 }
 
+pub async fn list_ids_by_channel(db: &SqlitePool, channel_id: i64) -> sqlx::Result<Vec<i64>> {
+    let rows = sqlx::query_scalar!("SELECT id FROM messages WHERE channel_id = ?", channel_id)
+        .fetch_all(db)
+        .await?;
+    Ok(rows.into_iter().flatten().collect())
+}
+
 pub async fn list_by_channel(
     db: &SqlitePool,
     channel_id: i64,

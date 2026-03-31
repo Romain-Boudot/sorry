@@ -32,3 +32,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 uuid = { version = "1", features = ["v4"] }
 dotenvy = "0.15"
+
+rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }

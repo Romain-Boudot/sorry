@@ -3,9 +3,15 @@
     <span class="app-name" data-tauri-drag-region>Sorry</span>
     <span v-if="server" class="top-bar-name" data-tauri-drag-region>{{ server.name }}</span>
     <div v-if="isTauri" class="window-controls">
-      <button class="wc-btn minimize" title="Réduire" @mousedown.stop @click="minimize"><span>−</span></button>
-      <button class="wc-btn maximize" title="Agrandir" @mousedown.stop @click="toggleMaximize"><span>□</span></button>
-      <button class="wc-btn close" title="Fermer" @mousedown.stop @click="close"><span>✕</span></button>
+      <button class="wc-btn minimize" title="Réduire" @mousedown.stop @click="minimize">
+        <svg width="10" height="1" viewBox="0 0 10 1"><path d="M0 0h10v1H0z" fill="currentColor"/></svg>
+      </button>
+      <button class="wc-btn maximize" title="Agrandir" @mousedown.stop @click="toggleMaximize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0v10h10V0H0zm1 1h8v8H1V1z" fill="currentColor"/></svg>
+      </button>
+      <button class="wc-btn close" title="Fermer" @mousedown.stop @click="close">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.007.293L5 4.286 8.993.293l.714.714L5.714 5l3.993 3.993-.714.714L5 5.714 1.007 9.707l-.714-.714L4.286 5 .293 1.007l.714-.714z" fill="currentColor"/></svg>
+      </button>
     </div>
   </div>
 </template>
@@ -61,6 +67,7 @@ function close() { appWindow?.close(); }
 
 .window-controls {
   position: absolute;
+  top: 0;
   right: 0;
   display: flex;
   height: 32px;
@@ -78,14 +85,15 @@ function close() { appWindow?.close(); }
   font-size: 0.875rem;
   cursor: pointer;
   padding: 0;
+  margin: 0;
   border-radius: 0;
   box-shadow: none;
   transition: background 0.1s, color 0.1s;
 }
 
-.wc-btn span {
-  line-height: 1;
+.wc-btn svg {
   pointer-events: none;
+  flex-shrink: 0;
 }
 
 .wc-btn:hover {

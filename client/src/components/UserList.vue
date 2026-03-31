@@ -10,7 +10,7 @@
       @click="openCard(uid, $event)"
     >
       <Circle class="status-dot online" :size="8" fill="currentColor" />
-      <span>{{ resolveUser(uid) }}</span>
+      <span :style="resolveUserColor(uid) ? `color:${resolveUserColor(uid)}` : ''">{{ resolveUser(uid) }}</span>
     </div>
 
     <div class="user-list-header offline-header">
@@ -23,7 +23,7 @@
       @click="openCard(user.id, $event)"
     >
       <Circle class="status-dot" :size="8" fill="currentColor" />
-      <span>{{ user.display_name }}</span>
+      <span :style="resolveUserColor(user.id) ? `color:${resolveUserColor(user.id)}` : ''">{{ user.display_name }}</span>
     </div>
 
     <UserCard
@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { Circle } from "lucide-vue-next";
-import { activeState, resolveUser } from "../store";
+import { activeState, resolveUser, resolveUserColor } from "../store";
 import type { User } from "../api";
 import UserCard from "./UserCard.vue";
 
@@ -104,6 +104,7 @@ function openCard(userId: number, e: MouseEvent) {
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
+  user-select: none;
 }
 
 .user-list-item:hover {

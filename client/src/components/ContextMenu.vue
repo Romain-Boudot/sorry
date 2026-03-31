@@ -11,8 +11,9 @@
           :key="item.label"
           class="context-menu-item"
           :class="{ danger: item.danger }"
-          @click="item.action(); close()"
+          @click="item.action(); if (!item.keepOpen) close()"
         >
+          <component v-if="item.icon" :is="item.icon" :size="14" />
           {{ item.label }}
         </div>
       </div>
@@ -21,10 +22,14 @@
 </template>
 
 <script setup lang="ts">
+import type { Component } from "vue";
+
 export interface MenuItem {
   label: string;
   action: () => void;
   danger?: boolean;
+  icon?: Component;
+  keepOpen?: boolean;
 }
 
 defineProps<{
@@ -58,12 +63,16 @@ function close() {
 }
 
 .context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--text-muted);
+  user-select: none;
 }
 
 .context-menu-item:hover {

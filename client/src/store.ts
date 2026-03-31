@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type ServerEvent, type VoiceUserState } from "./api";
+import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState } from "./api";
 import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen } from "./voice";
 
 export interface SavedServer {
@@ -8,6 +8,7 @@ export interface SavedServer {
   url: string;
   username: string;
   token: string;
+  autoConnect?: boolean;
 }
 
 export interface ServerState {
@@ -24,6 +25,9 @@ export interface ServerState {
   ws: WebSocket | null;
   unreadCount: number;
   permissions: number;
+  roles: Role[];
+  userRoles: Map<number, number[]>;
+  maxFileSize: number;
   // Vocal
   voiceChannelId: number | null;
   voiceConnectingChannelId: number | null;
@@ -55,6 +59,9 @@ function createServerState(): ServerState {
     voiceChannelId: null,
     voiceConnectingChannelId: null,
     permissions: 0,
+    roles: [],
+    userRoles: new Map(),
+    maxFileSize: 25 * 1024 * 1024,
     speakingUsers: new Set(),
     voiceStatus: "idle",
     isMuted: false,
@@ -71,7 +78,7 @@ function loadSavedServers(): SavedServer[] {
   }
 }
 
-function persistServers() {
+export function persistServers() {
   localStorage.setItem("servers", JSON.stringify(store.savedServers));
 }
 
@@ -82,6 +89,10 @@ export const store = reactive({
   showAddServerModal: false,
   showSettingsModal: false,
   showServerSettingsModal: false,
+  serverSettingsTab: "profile" as string,
+  serverSettingsChannelId: null as number | null,
+  channelSettingsId: null as number | null,
+  groupSettingsId: null as number | null,
 });
 
 /// State du serveur actif (pour les composants)
@@ -99,6 +110,18 @@ export function resolveUser(userId: number): string {
   const state = activeState();
   if (!state) return `User #${userId}`;
   return state.users.get(userId)?.display_name ?? `User #${userId}`;
+}
+
+export function resolveUserColor(userId: number): string | null {
+  const state = activeState();
+  if (!state) return null;
+  const roleIds = state.userRoles.get(userId);
+  if (!roleIds) return null;
+  // Find the highest role (lowest position) that has a color
+  const userRoles = state.roles
+    .filter((r) => roleIds.includes(r.id) && r.color)
+    .sort((a, b) => a.position - b.position);
+  return userRoles[0]?.color ?? null;
 }
 
 /// Est-ce qu'un user (par son id) est en train de parler ?
@@ -144,6 +167,16 @@ export async function addServer(
   displayName?: string
 ) {
   const baseUrl = url.replace(/\/+$/, "");
+
+  const duplicate = store.savedServers.find(
+    (s) => s.url === baseUrl && s.username === username
+  );
+  if (duplicate) {
+    await connectToServer(duplicate.id);
+    store.activeServerId = duplicate.id;
+    return;
+  }
+
   const res = await api.login(baseUrl, username, password, serverPassword);
 
   if (displayName) {
@@ -198,6 +231,12 @@ export async function connectToServer(serverId: string) {
       state.users.set(u.id, u);
     }
 
+    state.roles = me.roles;
+    state.maxFileSize = me.max_file_size;
+    for (const [uid, rids] of Object.entries(me.user_roles)) {
+      state.userRoles.set(Number(uid), rids as number[]);
+    }
+
     for (const [chId, usersObj] of Object.entries(me.voice_state)) {
       const map = new Map<number, VoiceUserState>();
       for (const [uid, vs] of Object.entries(usersObj)) {
@@ -226,6 +265,7 @@ export async function connectToServer(serverId: string) {
 /// Connecter à TOUS les serveurs non-mutés
 export async function connectAll() {
   const promises = store.savedServers.map((server) => {
+    if (server.autoConnect === false) return Promise.resolve();
     const state = store.serverStates.get(server.id);
     if (state?.muted) return Promise.resolve();
     return connectToServer(server.id).catch(() => {});
@@ -550,6 +590,27 @@ function handleEvent(serverId: string, event: ServerEvent) {
           voiceToggleDeafen();
         }
       }
+      break;
+    }
+    case "RoleCreate": {
+      const role = event.data as Role;
+      state.roles.push(role);
+      break;
+    }
+    case "RoleUpdate": {
+      const role = event.data as Role;
+      const idx = state.roles.findIndex((r) => r.id === role.id);
+      if (idx >= 0) state.roles[idx] = role;
+      break;
+    }
+    case "RoleDelete": {
+      const { id } = event.data as { id: number };
+      state.roles = state.roles.filter((r) => r.id !== id);
+      break;
+    }
+    case "UserRoleUpdate": {
+      const { user_id, role_ids } = event.data as { user_id: number; role_ids: number[] };
+      state.userRoles.set(user_id, role_ids);
       break;
     }
   }

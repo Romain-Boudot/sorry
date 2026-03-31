@@ -41,6 +41,8 @@
     <AddServerModal v-if="store.showAddServerModal" />
     <SettingsModal v-if="store.showSettingsModal" />
     <ServerSettingsModal v-if="store.showServerSettingsModal" />
+    <ChannelSettingsModal v-if="store.channelSettingsId" />
+    <GroupSettingsModal v-if="store.groupSettingsId" />
   </div>
 </template>
 
@@ -59,6 +61,8 @@ import EmptyState from "./components/EmptyState.vue";
 import AddServerModal from "./components/AddServerModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import ServerSettingsModal from "./components/ServerSettingsModal.vue";
+import ChannelSettingsModal from "./components/ChannelSettingsModal.vue";
+import GroupSettingsModal from "./components/GroupSettingsModal.vue";
 import VoiceBar from "./components/VoiceBar.vue";
 import AudioControls from "./components/AudioControls.vue";
 

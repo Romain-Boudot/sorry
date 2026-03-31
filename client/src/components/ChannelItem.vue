@@ -65,10 +65,11 @@ function handleVoiceClick(channelId: number) {
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
-  margin: 1px 8px;
+  margin: 3px 8px;
   cursor: pointer;
   color: var(--text-muted);
   border-radius: 8px;
+  user-select: none;
   font-size: 0.9375rem;
   font-weight: 500;
   transition: background 0.1s, color 0.1s;

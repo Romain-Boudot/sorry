@@ -9,7 +9,7 @@
       <!-- Header channels sans groupe -->
       <div v-if="ungrouped.length || canManage" class="channel-group-title ungrouped-header">
         <span>Channels</span>
-        <button v-if="canManage" class="group-add-btn" @click.stop="createInGroup = undefined; showCreateChannel = true" title="Creer un channel">
+        <button v-if="canManage" class="group-add-btn" @click.stop="onAddClick($event)" title="Creer un channel">
           <Plus :size="14" />
         </button>
       </div>
@@ -23,8 +23,11 @@
         @start="onChannelDragStart"
         @end="onChannelEnd"
       >
-        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id">
+        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id" class="channel-wrapper">
           <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
+          <button v-if="canManage" class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+            <Settings :size="14" />
+          </button>
         </div>
       </VueDraggable>
 
@@ -45,7 +48,7 @@
           >
             <ChevronRight :size="12" class="group-arrow" :class="{ expanded: !collapsed.has(group.id) }" />
             <span>{{ group.name }}</span>
-            <button v-if="canManage" class="group-add-btn" @click.stop="createInGroup = group.id; showCreateChannel = true" title="Creer un channel">
+            <button v-if="canManage" class="group-add-btn" @click.stop="onAddChannelClick($event)" title="Creer un channel">
               <Plus :size="14" />
             </button>
           </div>
@@ -58,8 +61,11 @@
             @start="onChannelDragStart"
             @end="onChannelEnd"
           >
-            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id">
+            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id" class="channel-wrapper">
               <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
+              <button v-if="canManage" class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+                <Settings :size="14" />
+              </button>
             </div>
           </VueDraggable>
         </div>
@@ -74,16 +80,12 @@
       @close="ctxMenu = null"
     />
 
-    <CreateChannelModal v-if="showCreateChannel" :group-id="createInGroup" @close="showCreateChannel = false" />
-    <CreateGroupModal v-if="showCreateGroup" @close="showCreateGroup = false" />
-    <EditChannelModal v-if="editingChannel" :channel="editingChannel" @close="editingChannel = null" />
-    <EditGroupModal v-if="editingGroup" :group="editingGroup" @close="editingGroup = null" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Plus } from "lucide-vue-next";
+import { ChevronDown, ChevronRight, Plus, Settings, Hash, Volume2, FolderPlus, Pencil, Trash2 } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import {
   store,
@@ -94,10 +96,6 @@ import { api } from "../api";
 import * as perms from "../permissions";
 import ChannelItem from "./ChannelItem.vue";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
-import CreateChannelModal from "./CreateChannelModal.vue";
-import CreateGroupModal from "./CreateGroupModal.vue";
-import EditChannelModal from "./EditChannelModal.vue";
-import EditGroupModal from "./EditGroupModal.vue";
 import type { Channel, ChannelGroup } from "../api";
 
 const state = computed(() => activeState());
@@ -130,26 +128,69 @@ watch(
   { immediate: true, deep: true }
 );
 
+async function quickCreateChannel(kind: "text" | "voice") {
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+  const name = kind === "text" ? "nouveau-channel" : "Nouveau vocal";
+  const ch = await api.createChannel(s.url, s.token, name, kind);
+  st.channels.push(ch);
+  store.channelSettingsId = ch.id;
+}
+
+async function quickCreateGroup() {
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+  const group = await api.createGroup(s.url, s.token, "Nouveau groupe");
+  st.groups.push(group);
+  store.groupSettingsId = group.id;
+}
+
+function onAddChannelClick(e: MouseEvent) {
+  ctxMenu.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      { label: "Channel texte", icon: Hash, action: () => quickCreateChannel("text") },
+      { label: "Channel vocal", icon: Volume2, action: () => quickCreateChannel("voice") },
+    ],
+  };
+}
+
+function onAddClick(e: MouseEvent) {
+  ctxMenu.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      { label: "Channel texte", icon: Hash, action: () => quickCreateChannel("text") },
+      { label: "Channel vocal", icon: Volume2, action: () => quickCreateChannel("voice") },
+      { label: "Groupe", icon: FolderPlus, action: () => quickCreateGroup() },
+    ],
+  };
+}
+
+function openChannelSettings(channelId: number) {
+  store.channelSettingsId = channelId;
+}
+
 function onChannelDragStart() {
-  // Expand all groups so their VueDraggable lists are rendered as valid drop targets
   collapsed.clear();
 }
 
 async function onChannelEnd(evt: { from: HTMLElement; to: HTMLElement; item: HTMLElement }) {
-  const fromGroupIdRaw = (evt.from as HTMLElement).dataset.groupId;
-  const toGroupIdRaw = (evt.to as HTMLElement).dataset.groupId;
-  if (fromGroupIdRaw === undefined || toGroupIdRaw === undefined) return;
+  const fromRaw = evt.from.dataset.groupId;
+  const toRaw = evt.to.dataset.groupId;
+  if (!fromRaw || !toRaw) return;
 
-  const fromGroupId = fromGroupIdRaw === "ungrouped" ? null : Number(fromGroupIdRaw);
-  const toGroupId = toGroupIdRaw === "ungrouped" ? null : Number(toGroupIdRaw);
-  const movedId = Number((evt.item as HTMLElement).dataset.channelId);
+  const fromGroupId = fromRaw === "ungrouped" ? null : Number(fromRaw);
+  const toGroupId = toRaw === "ungrouped" ? null : Number(toRaw);
+  const movedId = Number(evt.item.dataset.channelId);
 
-  // Update group_id on the moved channel object (vue-draggable-plus moved it between arrays but didn't update the field)
   const toList = toGroupId === null ? ungrouped.value : (groupChannels.value[toGroupId] ?? []);
   const movedCh = toList.find((c) => c.id === movedId);
   if (movedCh) movedCh.group_id = toGroupId;
 
-  // Flatten all lists back to a single channel array, preserving per-list order
   const allChannels: Channel[] = [
     ...ungrouped.value,
     ...localGroups.value.flatMap((g) => groupChannels.value[g.id] ?? []),
@@ -178,11 +219,7 @@ async function onGroupEnd() {
 
 // ── Context menu ──
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
-const showCreateChannel = ref(false);
-const showCreateGroup = ref(false);
-const createInGroup = ref<number | undefined>(undefined);
-const editingChannel = ref<Channel | null>(null);
-const editingGroup = ref<ChannelGroup | null>(null);
+
 
 function onGroupContextMenu(group: ChannelGroup, e: MouseEvent) {
   if (!canManage.value) return;
@@ -191,9 +228,10 @@ function onGroupContextMenu(group: ChannelGroup, e: MouseEvent) {
   const st = activeState();
 
   const items: MenuItem[] = [
-    { label: "Modifier le groupe", action: () => { editingGroup.value = group; } },
+    { label: "Modifier le groupe", icon: Pencil, action: () => { store.groupSettingsId = group.id; } },
     {
       label: "Supprimer le groupe",
+      icon: Trash2,
       danger: true,
       action: async () => {
         if (!s || !st) return;
@@ -216,9 +254,10 @@ function onChannelContextMenu(channel: Channel, e: MouseEvent) {
   const st = activeState();
 
   const items: MenuItem[] = [
-    { label: "Modifier le channel", action: () => { editingChannel.value = channel; } },
+    { label: "Modifier le channel", icon: Pencil, action: () => openChannelSettings(channel.id) },
     {
       label: "Supprimer le channel",
+      icon: Trash2,
       danger: true,
       action: async () => {
         if (!s || !st) return;
@@ -238,8 +277,9 @@ function onContextMenu(e: MouseEvent) {
   if (target) return;
 
   const items: MenuItem[] = [
-    { label: "Creer un channel", action: () => { createInGroup.value = undefined; showCreateChannel.value = true; } },
-    { label: "Creer un groupe", action: () => { showCreateGroup.value = true; } },
+    { label: "Creer un channel texte", icon: Hash, action: () => quickCreateChannel("text") },
+    { label: "Creer un channel vocal", icon: Volume2, action: () => quickCreateChannel("voice") },
+    { label: "Creer un groupe", icon: FolderPlus, action: () => quickCreateGroup() },
   ];
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items };
@@ -312,19 +352,12 @@ function toggleGroup(groupId: number) {
   letter-spacing: 0.02em;
   color: var(--text-faint);
   cursor: pointer;
+  user-select: none;
   transition: color 0.1s;
 }
 
 .channel-group-title:hover {
   color: var(--text-muted);
-}
-
-.channel-group-title.can-drag {
-  cursor: grab;
-}
-
-.channel-group-title.can-drag:active {
-  cursor: grabbing;
 }
 
 .ungrouped-header {
@@ -367,4 +400,34 @@ function toggleGroup(groupId: number) {
 .group-arrow.expanded {
   transform: rotate(90deg);
 }
+
+.channel-wrapper {
+  position: relative;
+}
+
+.channel-gear {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.channel-wrapper:hover .channel-gear { opacity: 1; }
+.channel-gear:hover { color: var(--text-normal); background: var(--bg-modifier-hover); box-shadow: none; }
+
+.channel-group-title.can-drag { cursor: grab; }
+.channel-group-title.can-drag:active { cursor: grabbing; }
 </style>

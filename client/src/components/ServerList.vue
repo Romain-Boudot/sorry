@@ -14,6 +14,13 @@
       @contextmenu.prevent="openMenu($event, server.id)"
     >
       {{ server.name[0]?.toUpperCase() }}
+      <span
+        class="status-dot"
+        :class="{
+          connected: getState(server.id)?.connected,
+          muted: getState(server.id)?.muted,
+        }"
+      ></span>
       <span class="unread-badge" v-if="getUnread(server.id) > 0">
         {{ getUnread(server.id) }}
       </span>
@@ -41,8 +48,8 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { Plus } from "lucide-vue-next";
-import { store, switchToServer, muteServer, unmuteServer, removeServer } from "../store";
+import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight } from "lucide-vue-next";
+import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers } from "../store";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -57,16 +64,32 @@ function getUnread(serverId: string): number {
 
 function openMenu(event: MouseEvent, serverId: string) {
   const state = getState(serverId);
+  const server = store.savedServers.find((s) => s.id === serverId);
   const items: MenuItem[] = [];
 
   if (state?.muted) {
-    items.push({ label: "Reconnecter", action: () => unmuteServer(serverId) });
+    items.push({ label: "Reconnecter", icon: Plug, action: () => unmuteServer(serverId) });
   } else if (state?.connected) {
-    items.push({ label: "Se deconnecter", action: () => muteServer(serverId) });
+    items.push({ label: "Se deconnecter", icon: Unplug, action: () => muteServer(serverId) });
   }
+
+  const auto = server?.autoConnect !== false;
+  items.push({
+    label: auto ? "Auto-connexion: on" : "Auto-connexion: off",
+    icon: auto ? ToggleRight : ToggleLeft,
+    keepOpen: true,
+    action: () => {
+      if (server) {
+        server.autoConnect = !auto;
+        persistServers();
+        openMenu(event, serverId);
+      }
+    },
+  });
 
   items.push({
     label: "Supprimer",
+    icon: Trash2,
     action: () => removeServer(serverId),
     danger: true,
   });
@@ -101,6 +124,7 @@ function openMenu(event: MouseEvent, serverId: string) {
   cursor: pointer;
   color: var(--text-muted);
   transition: border-radius 0.15s, background 0.15s, color 0.15s;
+  user-select: none;
 }
 
 .server-icon::before {
@@ -143,6 +167,25 @@ function openMenu(event: MouseEvent, serverId: string) {
 
 .server-icon.muted { opacity: 0.3; }
 .server-icon.disconnected { opacity: 0.5; }
+
+.status-dot {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--bg-secondary);
+}
+
+.status-dot.connected {
+  background: var(--green);
+}
+
+.status-dot.muted {
+  background: var(--text-muted);
+}
 
 .unread-badge {
   position: absolute;

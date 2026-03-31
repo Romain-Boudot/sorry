@@ -5,14 +5,12 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::auth::AuthUser;
 use crate::state::AppState;
 
 /// GET /uploads/:msg_id/:filename
-/// Auth required. Serves images inline, everything else as attachment.
+/// Public — UUID filenames are unguessable.
 pub async fn serve_upload(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
     Path((msg_id, filename)): Path<(String, String)>,
 ) -> Result<Response, StatusCode> {
     // Sanitize: reject path traversal
@@ -20,13 +18,14 @@ pub async fn serve_upload(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let file_path = std::path::PathBuf::from(&state.upload_dir)
-        .join(&msg_id)
-        .join(&filename);
+    let key = format!("{}/{}", msg_id, filename);
 
-    let data = tokio::fs::read(&file_path)
+    let data = crate::storage::download(&state.bucket, &key)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|e| {
+            tracing::error!("Failed to download '{}': {}", key, e);
+            StatusCode::NOT_FOUND
+        })?;
 
     // Infer content type from extension
     let content_type = mime_from_ext(&filename);
@@ -44,8 +43,9 @@ pub async fn serve_upload(
         [
             (header::CONTENT_TYPE, content_type),
             (header::CONTENT_DISPOSITION, disposition),
-            // Block scripts even if browser sniffs HTML
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            // Files are immutable (UUID names) — cache forever
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
         ],
         data,
     )

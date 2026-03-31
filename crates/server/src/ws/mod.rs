@@ -116,6 +116,21 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
     tracing::info!("User {} disconnected (last={})", user_id, is_last_connection);
 }
 
+async fn check_channel_permission(
+    state: &AppState,
+    user_id: i64,
+    channel_id: i64,
+    permission: i64,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let role_perms = crate::db::roles::get_user_permissions(&state.db, user_id).await?;
+    if permissions::has(role_perms, permissions::ADMINISTRATOR) {
+        return Ok(true);
+    }
+    let (allow, deny) = crate::db::roles::get_channel_overwrites(&state.db, user_id, channel_id).await?;
+    let final_perms = permissions::compute(&[role_perms], allow, deny);
+    Ok(permissions::has(final_perms, permission))
+}
+
 async fn handle_client_event(
     state: &AppState,
     user_id: i64,
@@ -125,6 +140,9 @@ async fn handle_client_event(
 
     match event {
         ClientEvent::SendMessage { channel_id, content } => {
+            if !check_channel_permission(state, user_id, channel_id, permissions::SEND_MESSAGES).await? {
+                return Ok(());
+            }
             let message = crate::db::messages::create(&state.db, channel_id, user_id, &content)
                 .await?;
             let _ = state.event_tx.send(ServerEvent::MessageCreate(message));
@@ -155,15 +173,19 @@ async fn handle_client_event(
             }
             // Delete message (CASCADE deletes attachment rows)
             crate::db::messages::delete(&state.db, message_id).await?;
-            // Clean up files from disk
-            let upload_dir = state.upload_dir.clone();
+            // Clean up files from S3/MinIO
+            let bucket = state.bucket.clone();
             tokio::spawn(async move {
-                let dir = std::path::PathBuf::from(&upload_dir).join(message_id.to_string());
-                let _ = tokio::fs::remove_dir_all(&dir).await;
+                if let Err(e) = crate::storage::delete_prefix(&bucket, &format!("{}/", message_id)).await {
+                    tracing::error!("Failed to clean up S3 files for message {}: {}", message_id, e);
+                }
             });
             let _ = state.event_tx.send(ServerEvent::MessageDelete { id: message_id });
         }
         ClientEvent::JoinVoice { channel_id } => {
+            if !check_channel_permission(state, user_id, channel_id, permissions::CONNECT).await? {
+                return Ok(());
+            }
             // Quitter l'ancien channel vocal si déjà dans un
             {
                 let mut voice = state.voice_state.write().unwrap();

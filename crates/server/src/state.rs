@@ -1,3 +1,4 @@
+use s3::Bucket;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -15,7 +16,8 @@ pub struct AppState {
     pub livekit_url: String,
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
-    pub upload_dir: String,
+    pub bucket: Box<Bucket>,
+    pub max_file_size: usize,
     pub online_users: RwLock<HashMap<UserId, usize>>,
     pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
     pub event_tx: broadcast::Sender<ServerEvent>,
@@ -29,7 +31,8 @@ impl AppState {
         livekit_url: String,
         livekit_api_key: String,
         livekit_api_secret: String,
-        upload_dir: String,
+        bucket: Box<Bucket>,
+        max_file_size: usize,
     ) -> Self {
         let (event_tx, _) = broadcast::channel(1024);
         Self {
@@ -39,7 +42,8 @@ impl AppState {
             livekit_url,
             livekit_api_key,
             livekit_api_secret,
-            upload_dir,
+            bucket,
+            max_file_size,
             online_users: RwLock::new(HashMap::new()),
             voice_state: RwLock::new(HashMap::new()),
             event_tx,

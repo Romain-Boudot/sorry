@@ -106,6 +106,13 @@ pub async fn update_username(db: &SqlitePool, id: i64, username: &str) -> sqlx::
     Ok(())
 }
 
+pub async fn delete(db: &SqlitePool, id: i64) -> sqlx::Result<()> {
+    sqlx::query!("DELETE FROM users WHERE id = ?", id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn create(
     db: &SqlitePool,
     username: &str,

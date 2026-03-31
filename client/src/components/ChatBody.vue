@@ -39,7 +39,7 @@
             </div>
             <div class="message-body">
               <div class="message-header">
-                <span class="message-author" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
+                <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
                 <span class="message-time">{{ formatTime(msg.created_at) }}</span>
               </div>
               <template v-if="editingMessageId === msg.id">
@@ -105,6 +105,7 @@
       </template>
     </div>
 
+    <div v-if="fileError" class="file-error">{{ fileError }}</div>
     <div class="chat-input">
       <div v-if="pendingFiles.length" class="pending-files">
         <div v-for="(file, i) in pendingFiles" :key="i" class="pending-file">
@@ -172,13 +173,21 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
 import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download } from "lucide-vue-next";
-import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser } from "../store";
+import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor } from "../store";
 import * as perms from "../permissions";
 import type { Message, Attachment, User } from "../api";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = computed(() => state.value?.maxFileSize ?? 25 * 1024 * 1024);
+const MAX_FILES = 10;
+const ALLOWED_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "svg",
+  "mp4", "webm", "mov",
+  "mp3", "ogg", "wav", "flac",
+  "pdf", "txt", "json", "csv",
+  "zip", "tar", "gz", "7z", "rar",
+]);
 
 const input = ref("");
 const messagesContainer = ref<HTMLElement>();
@@ -258,14 +267,34 @@ function trimMessage(s: string): string {
   return s.replace(/^\s*\n/, "").replace(/\n\s*$/, "").trim();
 }
 
+function getExtension(name: string): string {
+  return (name.split(".").pop() || "").toLowerCase();
+}
+
+const fileError = ref("");
+
 function addFiles(fileList: FileList | File[]) {
+  fileError.value = "";
   for (const file of fileList) {
-    if (file.size > MAX_FILE_SIZE) continue;
+    if (pendingFiles.value.length >= MAX_FILES) {
+      fileError.value = `Maximum ${MAX_FILES} fichiers par message`;
+      break;
+    }
+    if (file.size === 0) continue;
+    if (file.size > MAX_FILE_SIZE.value) {
+      fileError.value = `${file.name} est trop volumineux (max ${Math.round(MAX_FILE_SIZE.value / 1024 / 1024)} Mo)`;
+      continue;
+    }
+    if (!ALLOWED_EXTENSIONS.has(getExtension(file.name))) {
+      fileError.value = `${file.name} : type de fichier non autorise`;
+      continue;
+    }
     pendingFiles.value.push(file);
     if (file.type.startsWith("image/")) {
       objectUrls.value.set(file, URL.createObjectURL(file));
     }
   }
+  if (fileError.value) setTimeout(() => (fileError.value = ""), 4000);
 }
 
 function removeFile(index: number) {
@@ -455,11 +484,12 @@ function onMessageContextMenu(msg: Message, e: MouseEvent) {
   const items: MenuItem[] = [];
 
   if (isOwnMessage(msg)) {
-    items.push({ label: "Modifier", action: () => startEdit(msg) });
+    items.push({ label: "Modifier", icon: Pencil, action: () => startEdit(msg) });
   }
 
   items.push({
     label: "Supprimer",
+    icon: Trash2,
     danger: true,
     action: () => {
       if (e.shiftKey) {
@@ -936,6 +966,12 @@ function formatTimeShort(ts: string): string {
 }
 
 /* ── Pending files ── */
+.file-error {
+  padding: 6px 16px;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
 .pending-files {
   display: flex;
   gap: 8px;

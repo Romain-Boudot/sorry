@@ -42,6 +42,7 @@
             <button class="role-add-btn" @click="showRoleDropdown = !showRoleDropdown">
               <Plus :size="14" /> Ajouter un role
             </button>
+            <div v-if="showRoleDropdown" class="role-dropdown-overlay" @click.stop="showRoleDropdown = false"></div>
             <div v-if="showRoleDropdown" class="role-dropdown">
               <div
                 v-for="role in availableRoles"
@@ -61,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed } from "vue";
 import { Circle, Plus } from "lucide-vue-next";
 import { activeState, activeServer } from "../store";
 import { api, type User, type Role } from "../api";
@@ -76,12 +77,16 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 
 const cardEl = ref<HTMLElement>();
-const userRoles = ref<Role[]>([]);
-const allRoles = ref<Role[]>([]);
 const showRoleDropdown = ref(false);
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
+
+const userRoles = computed(() => {
+  const roleIds = state.value?.userRoles.get(props.user.id) ?? [];
+  const allRoles = state.value?.roles ?? [];
+  return allRoles.filter((r) => roleIds.includes(r.id)).sort((a, b) => a.position - b.position);
+});
 
 const isOnline = computed(() =>
   state.value?.onlineUsers.has(props.user.id) ?? false
@@ -92,7 +97,7 @@ const canManageRoles = computed(() =>
 );
 
 const availableRoles = computed(() =>
-  allRoles.value.filter(
+  (state.value?.roles ?? []).filter(
     (r) => !userRoles.value.some((ur) => ur.id === r.id)
   )
 );
@@ -126,38 +131,17 @@ const cardStyle = computed(() => {
   return { top: `${top}px`, left: `${left}px` };
 });
 
-onMounted(async () => {
-  const s = server.value;
-  if (!s) return;
-
-  try {
-    const [roles, all] = await Promise.all([
-      api.getUserRoles(s.url, s.token, props.user.id),
-      canManageRoles.value ? api.listRoles(s.url, s.token) : Promise.resolve([]),
-    ]);
-    userRoles.value = roles;
-    allRoles.value = all;
-  } catch {}
-});
-
 async function onAssignRole(roleId: number) {
   const s = server.value;
   if (!s) return;
-  try {
-    await api.assignRole(s.url, s.token, roleId, props.user.id);
-    const role = allRoles.value.find((r) => r.id === roleId);
-    if (role) userRoles.value.push(role);
-    showRoleDropdown.value = false;
-  } catch {}
+  await api.assignRole(s.url, s.token, roleId, props.user.id);
+  showRoleDropdown.value = false;
 }
 
 async function onRemoveRole(roleId: number) {
   const s = server.value;
   if (!s) return;
-  try {
-    await api.removeRole(s.url, s.token, roleId, props.user.id);
-    userRoles.value = userRoles.value.filter((r) => r.id !== roleId);
-  } catch {}
+  await api.removeRole(s.url, s.token, roleId, props.user.id);
 }
 
 function close() {
@@ -320,7 +304,14 @@ function close() {
   box-shadow: none;
 }
 
+.role-dropdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 299;
+}
+
 .role-dropdown {
+  z-index: 300;
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -330,7 +321,6 @@ function close() {
   padding: 6px;
   min-width: 180px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 10;
 }
 
 .role-dropdown-item {

@@ -3,6 +3,7 @@ mod db;
 mod livekit;
 mod routes;
 mod state;
+mod storage;
 mod ws;
 
 use argon2::{
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use state::AppState;
@@ -38,7 +40,15 @@ async fn main() {
     let livekit_url = std::env::var("LIVEKIT_URL").unwrap_or_default();
     let livekit_api_key = std::env::var("LIVEKIT_API_KEY").unwrap_or_default();
     let livekit_api_secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_default();
-    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./data/uploads".to_string());
+    let max_file_size: usize = std::env::var("MAX_FILE_SIZE_MB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(25) * 1024 * 1024;
+
+    let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string());
+    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "uploads".to_string());
+    let s3_access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+    let s3_secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
 
     let db = SqlitePoolOptions::new()
         .max_connections(5)
@@ -51,13 +61,14 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    // ── Create upload directory ──
-    tokio::fs::create_dir_all(&upload_dir).await.expect("Failed to create upload directory");
+    // ── Init S3/MinIO ──
+    let bucket = storage::create_bucket(&s3_endpoint, &s3_bucket, &s3_access_key, &s3_secret_key).await;
+    tracing::info!("S3 storage ready (endpoint={}, bucket={})", s3_endpoint, s3_bucket);
 
     // ── Admin account bootstrap ──
     ensure_admin(&db).await;
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret, upload_dir.clone()));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret, bucket, max_file_size));
 
     let info_state = state.clone();
     let app = Router::new()
@@ -67,7 +78,7 @@ async fn main() {
         }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
-        .route("/uploads/{msg_id}/{filename}", get(routes::uploads::serve_upload))
+        .route("/uploads/:msg_id/:filename", get(routes::uploads::serve_upload))
         .fallback_service(ServeDir::new("/app/static").append_index_html_on_directories(true))
         .layer(CorsLayer::permissive())
         .with_state(state);

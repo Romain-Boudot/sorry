@@ -147,12 +147,52 @@ export const api = {
     });
   },
 
+  kickUser(baseUrl: string, token: string, userId: number) {
+    return request<void>(baseUrl, `/users/${userId}`, token, { method: "DELETE" });
+  },
+
   getUserRoles(baseUrl: string, token: string, userId: number) {
     return request<Role[]>(baseUrl, `/users/${userId}/roles`, token);
   },
 
   listRoles(baseUrl: string, token: string) {
     return request<Role[]>(baseUrl, "/roles", token);
+  },
+
+  updateRole(baseUrl: string, token: string, roleId: number, data: { name: string; permissions: number; color?: string | null }) {
+    return request<void>(baseUrl, `/roles/${roleId}`, token, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  reorderRoles(baseUrl: string, token: string, ids: number[]) {
+    return request<void>(baseUrl, "/roles/reorder", token, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  deleteRole(baseUrl: string, token: string, roleId: number) {
+    return request<void>(baseUrl, `/roles/${roleId}`, token, { method: "DELETE" });
+  },
+
+  listOverwrites(baseUrl: string, token: string, channelId: number) {
+    return request<ChannelOverwrite[]>(baseUrl, `/channels/${channelId}/overwrites`, token);
+  },
+
+  setOverwrite(baseUrl: string, token: string, channelId: number, roleId: number, allow: number, deny: number) {
+    return request<void>(baseUrl, `/channels/${channelId}/overwrites`, token, {
+      method: "PUT",
+      body: JSON.stringify({ role_id: roleId, allow, deny }),
+    });
+  },
+
+  deleteOverwrite(baseUrl: string, token: string, channelId: number, roleId: number) {
+    return request<void>(baseUrl, `/channels/${channelId}/overwrites`, token, {
+      method: "DELETE",
+      body: JSON.stringify({ role_id: roleId }),
+    });
   },
 
   assignRole(baseUrl: string, token: string, roleId: number, userId: number) {
@@ -222,12 +262,22 @@ export interface VoiceUserState {
   force_deafened: boolean;
 }
 
+export interface ChannelOverwrite {
+  channel_id: number;
+  role_id: number;
+  allow: number;
+  deny: number;
+}
+
 export interface MeResponse {
   user: User;
   permissions: number;
   users: User[];
   online_users: number[];
   voice_state: Record<number, Record<number, VoiceUserState>>;
+  roles: Role[];
+  user_roles: Record<number, number[]>;
+  max_file_size: number;
 }
 
 export interface ServerEvent {

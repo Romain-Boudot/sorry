@@ -5,7 +5,6 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
@@ -164,9 +163,26 @@ async fn delete_channel(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Collect message IDs before cascade delete so we can clean up S3
+    let message_ids = crate::db::messages::list_ids_by_channel(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     crate::db::channels::delete(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Clean up S3 files for all deleted messages
+    if !message_ids.is_empty() {
+        let bucket = state.bucket.clone();
+        tokio::spawn(async move {
+            for msg_id in message_ids {
+                if let Err(e) = crate::storage::delete_prefix(&bucket, &format!("{}/", msg_id)).await {
+                    tracing::error!("Failed to clean up S3 for message {}: {}", msg_id, e);
+                }
+            }
+        });
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -203,6 +219,44 @@ async fn list_messages(
 }
 
 const MAX_FILE_SIZE: usize = 25 * 1024 * 1024; // 25 MB
+const MAX_FILES_PER_MESSAGE: usize = 10;
+
+const ALLOWED_EXTENSIONS: &[&str] = &[
+    // Images
+    "png", "jpg", "jpeg", "gif", "webp", "svg",
+    // Video
+    "mp4", "webm", "mov",
+    // Audio
+    "mp3", "ogg", "wav", "flac",
+    // Documents
+    "pdf", "txt", "json", "csv",
+    // Archives
+    "zip", "tar", "gz", "7z", "rar",
+];
+
+fn sanitize_filename(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    // Limit length to 255
+    if name.len() > 255 {
+        name[..255].to_string()
+    } else if name.is_empty() {
+        "file".to_string()
+    } else {
+        name
+    }
+}
+
+fn is_allowed_extension(filename: &str) -> bool {
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    ALLOWED_EXTENSIONS.contains(&ext.as_str())
+}
 
 /// POST /api/channels/:id/messages (JSON — text only)
 async fn send_message_json(
@@ -242,20 +296,36 @@ async fn send_message_upload(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let mut content = String::new();
-    let mut files: Vec<(String, String, Vec<u8>)> = Vec::new(); // (filename, content_type, data)
+    // (sanitized_filename, content_type, data, ext)
+    let mut files: Vec<(String, String, Vec<u8>, String)> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
         let name = field.name().unwrap_or("").to_string();
         if name == "content" {
             content = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
         } else if name == "file" {
-            let filename = field.file_name().unwrap_or("file").to_string();
+            if files.len() >= MAX_FILES_PER_MESSAGE {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            let raw_filename = field.file_name().unwrap_or("file").to_string();
+            let filename = sanitize_filename(&raw_filename);
+            if !is_allowed_extension(&filename) {
+                return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+            }
             let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
             let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            if data.len() > MAX_FILE_SIZE {
+            if data.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            if data.len() > state.max_file_size {
                 return Err(StatusCode::PAYLOAD_TOO_LARGE);
             }
-            files.push((filename, content_type, data.to_vec()));
+            let ext = std::path::Path::new(&filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin")
+                .to_lowercase();
+            files.push((filename, content_type, data.to_vec(), ext));
         }
     }
 
@@ -263,28 +333,30 @@ async fn send_message_upload(
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    // Create message in DB first (need the ID for S3 keys)
     let mut message = crate::db::messages::create(&state.db, channel_id, auth.0, &content)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Save files to disk and create attachment records
+    // Upload files to S3 and create attachment records
+    // On failure: clean up already-uploaded S3 objects and delete the message
     if !files.is_empty() {
-        let msg_dir = PathBuf::from(&state.upload_dir).join(message.id.to_string());
-        tokio::fs::create_dir_all(&msg_dir)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut uploaded_keys: Vec<String> = Vec::new();
 
-        for (filename, content_type, data) in &files {
-            let ext = std::path::Path::new(filename)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("bin");
+        for (filename, content_type, data, ext) in &files {
             let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
-            let file_path = msg_dir.join(&stored_name);
+            let key = format!("{}/{}", message.id, stored_name);
 
-            tokio::fs::write(&file_path, data)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if let Err(e) = crate::storage::upload(&state.bucket, &key, data, content_type).await {
+                tracing::error!("S3 upload failed: {e}");
+                // Cleanup: delete already-uploaded files + the DB message
+                for k in &uploaded_keys {
+                    let _ = state.bucket.delete_object(k).await;
+                }
+                let _ = crate::db::messages::delete(&state.db, message.id).await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            uploaded_keys.push(key);
 
             let att = crate::db::attachments::create(
                 &state.db,
@@ -435,6 +507,72 @@ async fn move_channel(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ── Channel Permission Overwrites ──
+
+/// GET /api/channels/:id/overwrites
+async fn list_overwrites(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<Vec<shared::models::ChannelOverwrite>>, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let overwrites = crate::db::roles::list_channel_overwrites(&state.db, channel_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(overwrites))
+}
+
+#[derive(Deserialize)]
+pub struct SetOverwritePayload {
+    role_id: i64,
+    allow: i64,
+    deny: i64,
+}
+
+/// PUT /api/channels/:id/overwrites
+async fn set_overwrite(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<SetOverwritePayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::roles::set_channel_overwrite(
+        &state.db,
+        channel_id,
+        payload.role_id,
+        payload.allow,
+        payload.deny,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct DeleteOverwritePayload {
+    role_id: i64,
+}
+
+/// DELETE /api/channels/:id/overwrites
+async fn delete_overwrite(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<DeleteOverwritePayload>,
+) -> Result<StatusCode, StatusCode> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    crate::db::roles::delete_channel_overwrite(&state.db, channel_id, payload.role_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_channels).post(create_channel))
@@ -446,5 +584,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message_json))
         .route("/:id/upload", axum::routing::post(send_message_upload)
-            .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * 10)))
+            .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * MAX_FILES_PER_MESSAGE + 1024 * 64)))
+        .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
 }

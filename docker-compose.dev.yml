@@ -1,4 +1,4 @@
-# Local development — only LiveKit runs in Docker.
+# Local development — only LiveKit and MinIO run in Docker.
 # Start the server : cargo run --bin server
 # Start the client : cd client && bun dev
 services:
@@ -12,3 +12,19 @@ services:
       - "50000-50100:50000-50100/udp"
     volumes:
       - ./livekit.local.yaml:/etc/livekit.yaml
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+
+volumes:
+  minio-data:
