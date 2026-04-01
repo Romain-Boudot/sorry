@@ -29,7 +29,16 @@
 
       <!-- Step 2: Login -->
       <template v-if="step === 2">
-        <h2>{{ serverName }}</h2>
+        <div class="server-header">
+          <div class="server-header-icon">
+            <img v-if="serverIconUrl" :src="serverIconUrl" />
+            <span v-else>{{ serverName[0]?.toUpperCase() }}</span>
+          </div>
+          <div>
+            <h2>{{ serverName }}</h2>
+            <p v-if="serverDescription" class="server-header-desc">{{ serverDescription }}</p>
+          </div>
+        </div>
         <p class="step-desc">Ton identifiant est prive et sert uniquement a te connecter. Les autres verront ton display name.</p>
 
         <div class="field-group">
@@ -39,25 +48,25 @@
           </div>
           <div class="field">
             <label>Mot de passe</label>
-            <input v-model="password" type="password" placeholder="********" required @keydown.enter="!showServerPassword && nextStep()" />
+            <input v-model="password" type="password" placeholder="********" required @keydown.enter="!showNewAccount && nextStep()" />
           </div>
         </div>
 
-        <template v-if="showServerPassword">
+        <template v-if="showNewAccount">
           <div class="field-group">
             <div class="field">
               <label>Display name</label>
               <input v-model="displayName" type="text" placeholder="Ton nom visible" />
             </div>
             <div class="field">
-              <label>Mot de passe serveur</label>
-              <input v-model="serverPassword" type="password" placeholder="Demande a l'admin" @keydown.enter="nextStep" />
+              <label>Code d'invitation</label>
+              <input v-model="inviteCode" type="text" placeholder="Demande a l'admin" @keydown.enter="nextStep" />
             </div>
           </div>
         </template>
 
-        <p class="toggle" @click="showServerPassword = !showServerPassword">
-          {{ showServerPassword ? "J'ai deja un compte" : "Premiere connexion ?" }}
+        <p class="toggle" @click="showNewAccount = !showNewAccount">
+          {{ showNewAccount ? "J'ai deja un compte" : "Premiere connexion ?" }}
         </p>
 
         <p class="error" v-if="error">{{ error }}</p>
@@ -90,8 +99,10 @@ const serverName = ref("");
 const username = ref("");
 const password = ref("");
 const displayName = ref(localStorage.getItem("defaultDisplayName") || "");
-const serverPassword = ref("");
-const showServerPassword = ref(false);
+const inviteCode = ref("");
+const showNewAccount = ref(false);
+const serverIconUrl = ref<string | null>(null);
+const serverDescription = ref<string | null>(null);
 
 // Returns the URL(s) to try in order. If the user typed an explicit protocol,
 // we respect it and try only that. If no protocol, we try https first, then
@@ -110,7 +121,7 @@ async function nextStep() {
   try {
     if (step.value === 1) {
       const candidates = candidateUrls(url.value);
-      let info: { name: string } | null = null;
+      let info: { name: string; description?: string; icon_url?: string } | null = null;
       for (const candidate of candidates) {
         try {
           info = await api.serverInfo(candidate);
@@ -122,15 +133,32 @@ async function nextStep() {
       }
       if (!info) throw new Error("unreachable");
       serverName.value = info.name;
+      serverIconUrl.value = info.icon_url ? `${url.value}${info.icon_url}` : null;
+      serverDescription.value = info.description ?? null;
       step.value = 2;
     } else if (step.value === 2) {
+      // Reconstruct default avatar file from localStorage if available
+      let defaultAvatar: File | undefined;
+      if (showNewAccount.value) {
+        const avatarData = localStorage.getItem("defaultAvatarPreview");
+        const avatarName = localStorage.getItem("defaultAvatarName");
+        const avatarType = localStorage.getItem("defaultAvatarType");
+        if (avatarData && avatarName && avatarType) {
+          try {
+            const res = await fetch(avatarData);
+            const blob = await res.blob();
+            defaultAvatar = new File([blob], avatarName, { type: avatarType });
+          } catch {}
+        }
+      }
       await addServer(
         serverName.value,
         url.value,
         username.value,
         password.value,
-        showServerPassword.value ? serverPassword.value : undefined,
-        showServerPassword.value && displayName.value.trim() ? displayName.value.trim() : undefined
+        showNewAccount.value ? inviteCode.value : undefined,
+        showNewAccount.value && displayName.value.trim() ? displayName.value.trim() : undefined,
+        defaultAvatar
       );
       close();
     }
@@ -179,6 +207,44 @@ function close() {
   font-weight: 700;
   font-size: 1.25rem;
   color: var(--header-primary);
+}
+
+.server-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.server-header-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--text-muted);
+}
+
+.server-header-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.server-header h2 {
+  margin-bottom: 0;
+}
+
+.server-header-desc {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  margin-top: 2px;
 }
 
 .step-desc {

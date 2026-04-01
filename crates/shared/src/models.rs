@@ -12,6 +12,7 @@ pub struct VoiceUserState {
 pub struct User {
     pub id: i64,
     pub display_name: String,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -13,7 +13,8 @@
       @click="switchToServer(server.id)"
       @contextmenu.prevent="openMenu($event, server.id)"
     >
-      {{ server.name[0]?.toUpperCase() }}
+      <img v-if="server.iconUrl" :src="`${server.url}${server.iconUrl}`" class="server-icon-img" />
+      <span v-else>{{ server.name[0]?.toUpperCase() }}</span>
       <span
         class="status-dot"
         :class="{
@@ -23,6 +24,9 @@
       ></span>
       <span class="unread-badge" v-if="getUnread(server.id) > 0">
         {{ getUnread(server.id) }}
+      </span>
+      <span class="voice-indicator" v-if="getState(server.id)?.voiceChannelId">
+        <Phone :size="8" fill="currentColor" />
       </span>
     </div>
 
@@ -48,7 +52,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight } from "lucide-vue-next";
+import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight, Phone } from "lucide-vue-next";
 import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers } from "../store";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 
@@ -127,6 +131,13 @@ function openMenu(event: MouseEvent, serverId: string) {
   user-select: none;
 }
 
+.server-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .server-icon::before {
   content: '';
   position: absolute;
@@ -203,6 +214,21 @@ function openMenu(event: MouseEvent, serverId: string) {
   justify-content: center;
   padding: 0 4px;
   border: 3px solid var(--bg-secondary);
+}
+
+.voice-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-secondary);
 }
 
 .server-separator {

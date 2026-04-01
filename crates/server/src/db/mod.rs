@@ -1,6 +1,7 @@
 pub mod attachments;
 pub mod channel_groups;
 pub mod channels;
+pub mod invites;
 pub mod messages;
 pub mod roles;
 pub mod servers;

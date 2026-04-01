@@ -75,7 +75,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { Mic, MicOff, Headphones, HeadphoneOff, ChevronUp, Check } from "lucide-vue-next";
-import { activeState, toggleMute, toggleDeafen } from "../store";
+import { store, activeState, toggleMute, toggleDeafen } from "../store";
 import { getAudioDevices, switchMicrophone, switchSpeaker } from "../voice";
 
 const state = computed(() => activeState());
@@ -86,8 +86,8 @@ const dropdown = ref<"mic" | "speaker" | null>(null);
 const dropdownPos = ref({ x: 0, y: 0 });
 const micDevices = ref<MediaDeviceInfo[]>([]);
 const speakerDevices = ref<MediaDeviceInfo[]>([]);
-const selectedMic = ref<string>("");
-const selectedSpeaker = ref<string>("");
+const selectedMic = computed(() => store.audioInputDevice);
+const selectedSpeaker = computed(() => store.audioOutputDevice);
 
 async function toggleDropdown(type: "mic" | "speaker") {
   if (dropdown.value === type) {
@@ -115,10 +115,12 @@ async function toggleDropdown(type: "mic" | "speaker") {
 
 async function selectDevice(deviceId: string) {
   if (dropdown.value === "mic") {
-    selectedMic.value = deviceId;
+    store.audioInputDevice = deviceId;
+    localStorage.setItem("audioInputDevice", deviceId);
     await switchMicrophone(deviceId);
   } else if (dropdown.value === "speaker") {
-    selectedSpeaker.value = deviceId;
+    store.audioOutputDevice = deviceId;
+    localStorage.setItem("audioOutputDevice", deviceId);
     await switchSpeaker(deviceId);
   }
   dropdown.value = null;

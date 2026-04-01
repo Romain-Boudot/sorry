@@ -23,11 +23,14 @@
         @start="onChannelDragStart"
         @end="onChannelEnd"
       >
-        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id" class="channel-wrapper">
-          <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
-          <button v-if="canManage" class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
-            <Settings :size="14" />
-          </button>
+        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id">
+          <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
+            <template #actions v-if="canManage">
+              <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+                <Settings :size="14" />
+              </button>
+            </template>
+          </ChannelItem>
         </div>
       </VueDraggable>
 
@@ -61,11 +64,14 @@
             @start="onChannelDragStart"
             @end="onChannelEnd"
           >
-            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id" class="channel-wrapper">
-              <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)" />
-              <button v-if="canManage" class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
-                <Settings :size="14" />
-              </button>
+            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id">
+              <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
+                <template #actions v-if="canManage">
+                  <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+                    <Settings :size="14" />
+                  </button>
+                </template>
+              </ChannelItem>
             </div>
           </VueDraggable>
         </div>
@@ -401,15 +407,7 @@ function toggleGroup(groupId: number) {
   transform: rotate(90deg);
 }
 
-.channel-wrapper {
-  position: relative;
-}
-
 .channel-gear {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
   width: 24px;
   height: 24px;
   padding: 0;
@@ -421,11 +419,7 @@ function toggleGroup(groupId: number) {
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s;
 }
-
-.channel-wrapper:hover .channel-gear { opacity: 1; }
 .channel-gear:hover { color: var(--text-normal); background: var(--bg-modifier-hover); box-shadow: none; }
 
 .channel-group-title.can-drag { cursor: grab; }

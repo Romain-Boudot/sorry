@@ -25,6 +25,25 @@
         <!-- Profil -->
         <div v-if="activeTab === 'profile'" class="settings-body">
           <div class="settings-section">
+            <label>Avatar par defaut</label>
+            <p class="settings-hint">Utilise comme avatar quand tu rejoins un nouveau serveur.</p>
+            <div class="avatar-setting">
+              <div class="avatar-preview" @click="avatarInput?.click()">
+                <img v-if="defaultAvatarPreview" :src="defaultAvatarPreview" />
+                <span v-else class="avatar-placeholder">?</span>
+                <div class="avatar-overlay">
+                  <Camera :size="16" />
+                </div>
+              </div>
+              <div class="avatar-actions">
+                <button class="settings-save-btn" @click="avatarInput?.click()">Changer</button>
+                <button v-if="defaultAvatarPreview" class="settings-remove-btn" @click="removeDefaultAvatar">Supprimer</button>
+              </div>
+              <input ref="avatarInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden @change="onDefaultAvatarSelect" />
+            </div>
+          </div>
+
+          <div class="settings-section">
             <label>Display name par defaut</label>
             <p class="settings-hint">Utilise comme nom par defaut quand tu rejoins un nouveau serveur.</p>
             <div class="settings-input-row">
@@ -45,6 +64,15 @@
               placeholder="Par defaut"
               @update:model-value="onMicChange"
             />
+            <div class="mic-test">
+              <button class="mic-test-btn" :class="{ active: micTesting }" @click="toggleMicTest">
+                <Mic :size="14" />
+                {{ micTesting ? 'Arreter le test' : 'Tester le micro' }}
+              </button>
+              <div v-if="micTesting" class="mic-level-bar">
+                <div class="mic-level-fill" :style="`width:${micLevel}%`"></div>
+              </div>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -80,9 +108,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, UserRound, Volume2, Info } from "lucide-vue-next";
+import { X, UserRound, Volume2, Info, Mic, Camera } from "lucide-vue-next";
 import Dropdown from "./Dropdown.vue";
 import { store } from "../store";
+import { onUnmounted } from "vue";
+import { switchMicrophone, switchSpeaker } from "../voice";
 
 const activeTab = ref("profile");
 
@@ -96,17 +126,48 @@ const activeTabLabel = computed(() => tabs.find((t) => t.id === activeTab.value)
 
 // Profile
 const defaultDisplayName = ref(localStorage.getItem("defaultDisplayName") || "");
+const avatarInput = ref<HTMLInputElement>();
+const defaultAvatarPreview = ref<string | null>(null);
+
+// Load saved default avatar preview
+{
+  const saved = localStorage.getItem("defaultAvatarPreview");
+  if (saved) defaultAvatarPreview.value = saved;
+}
 
 function saveDefaultName() {
   localStorage.setItem("defaultDisplayName", defaultDisplayName.value.trim());
+}
+
+function onDefaultAvatarSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  // Store the file as a data URL for preview + later use
+  const reader = new FileReader();
+  reader.onload = () => {
+    defaultAvatarPreview.value = reader.result as string;
+    localStorage.setItem("defaultAvatarPreview", reader.result as string);
+    localStorage.setItem("defaultAvatarName", file.name);
+    localStorage.setItem("defaultAvatarType", file.type);
+  };
+  reader.readAsDataURL(file);
+  input.value = "";
+}
+
+function removeDefaultAvatar() {
+  defaultAvatarPreview.value = null;
+  localStorage.removeItem("defaultAvatarPreview");
+  localStorage.removeItem("defaultAvatarName");
+  localStorage.removeItem("defaultAvatarType");
 }
 
 
 // Audio
 const microphones = ref<MediaDeviceInfo[]>([]);
 const speakers = ref<MediaDeviceInfo[]>([]);
-const selectedMic = ref(localStorage.getItem("audioInputDevice") || "");
-const selectedSpeaker = ref(localStorage.getItem("audioOutputDevice") || "");
+const selectedMic = ref(store.audioInputDevice);
+const selectedSpeaker = ref(store.audioOutputDevice);
 
 onMounted(async () => {
   try {
@@ -135,14 +196,69 @@ const speakerOptions = computed(() => [
 ]);
 
 function onMicChange() {
+  store.audioInputDevice = selectedMic.value;
   localStorage.setItem("audioInputDevice", selectedMic.value);
+  if (selectedMic.value) switchMicrophone(selectedMic.value);
 }
 
 function onSpeakerChange() {
+  store.audioOutputDevice = selectedSpeaker.value;
   localStorage.setItem("audioOutputDevice", selectedSpeaker.value);
+  if (selectedSpeaker.value) switchSpeaker(selectedSpeaker.value);
+}
+
+// Mic test
+const micTesting = ref(false);
+const micLevel = ref(0);
+let micStream: MediaStream | null = null;
+let micAnalyser: AnalyserNode | null = null;
+let micAnimFrame: number | null = null;
+
+async function toggleMicTest() {
+  if (micTesting.value) {
+    stopMicTest();
+    return;
+  }
+  try {
+    const constraints: MediaStreamConstraints = {
+      audio: selectedMic.value ? { deviceId: { exact: selectedMic.value } } : true,
+    };
+    micStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(micStream);
+    micAnalyser = ctx.createAnalyser();
+    micAnalyser.fftSize = 256;
+    source.connect(micAnalyser);
+    micTesting.value = true;
+    updateMicLevel();
+  } catch {}
+}
+
+function updateMicLevel() {
+  if (!micAnalyser) return;
+  const data = new Uint8Array(micAnalyser.frequencyBinCount);
+  micAnalyser.getByteFrequencyData(data);
+  const avg = data.reduce((a, b) => a + b, 0) / data.length;
+  micLevel.value = Math.min(100, avg * 1.5);
+  micAnimFrame = requestAnimationFrame(updateMicLevel);
+}
+
+function stopMicTest() {
+  micTesting.value = false;
+  micLevel.value = 0;
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+  }
+  if (micAnimFrame) {
+    cancelAnimationFrame(micAnimFrame);
+    micAnimFrame = null;
+  }
+  micAnalyser = null;
 }
 
 function close() {
+  stopMicTest();
   store.showSettingsModal = false;
 }
 </script>
@@ -299,6 +415,75 @@ function close() {
 }
 
 
+.avatar-setting {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.avatar-preview:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-remove-btn {
+  width: auto;
+  padding: 8px 16px;
+  margin: 0;
+  font-size: 0.8125rem;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.settings-remove-btn:hover {
+  background: rgba(208, 80, 80, 0.15);
+  box-shadow: none;
+}
+
 .about-app {
   text-align: center;
   display: flex;
@@ -338,5 +523,39 @@ function close() {
 .about-stack {
   font-size: 0.75rem;
   color: var(--text-faint);
+}
+
+.mic-test {
+  margin-top: 10px;
+}
+
+.mic-test-btn {
+  width: auto;
+  padding: 6px 12px;
+  margin: 0;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+.mic-test-btn:hover { background: var(--bg-modifier-hover); box-shadow: none; }
+.mic-test-btn.active { background: var(--danger); color: #fff; }
+.mic-test-btn.active:hover { background: var(--danger); opacity: 0.9; box-shadow: none; }
+
+.mic-level-bar {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.mic-level-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--green);
 }
 </style>

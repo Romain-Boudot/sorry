@@ -17,6 +17,8 @@ pub enum ServerEvent {
     RoleUpdate(Role),
     RoleDelete { id: i64 },
     UserRoleUpdate { user_id: i64, role_ids: Vec<i64> },
+    UserUpdate(User),
+    ServerUpdate { name: String, description: Option<String>, icon_url: Option<String> },
 }
 
 /// Events envoyés du client → serveur via WebSocket

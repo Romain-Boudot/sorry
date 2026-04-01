@@ -12,7 +12,7 @@ use crate::state::AppState;
 pub struct LoginPayload {
     username: String,
     password: String,
-    server_password: Option<String>,
+    invite_code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -31,6 +31,11 @@ async fn login(
 
     let user_row = match existing {
         Some(row) => {
+            // Check if banned
+            if row.banned_at.is_some() {
+                return Err(StatusCode::FORBIDDEN);
+            }
+
             let hash = PasswordHash::new(&row.password_hash)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             Argon2::default()
@@ -39,11 +44,16 @@ async fn login(
             row
         }
         None => {
-            // Nouvel utilisateur : vérifier le mot de passe serveur
-            let server_pwd = std::env::var("SERVER_PASSWORD").unwrap_or_default();
-            if payload.server_password.as_deref() != Some(server_pwd.as_str()) {
+            // New user: require valid invite code
+            let invite_code = payload.invite_code.as_deref().unwrap_or("");
+            if invite_code.is_empty() {
                 return Err(StatusCode::FORBIDDEN);
             }
+
+            // Validate and consume invite
+            crate::db::invites::use_invite(&state.db, invite_code)
+                .await
+                .map_err(|_| StatusCode::FORBIDDEN)?;
 
             let salt = SaltString::generate(&mut OsRng);
             let hash = Argon2::default()
@@ -56,7 +66,7 @@ async fn login(
                     .await
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            // Assigner le rôle "Membre" (id=2) par défaut
+            // Assign default "Membre" role (id=2)
             let _ = crate::db::roles::assign_to_user(&state.db, id, 2).await;
 
             crate::db::users::UserRow {
@@ -64,6 +74,8 @@ async fn login(
                 username: payload.username.clone(),
                 display_name: payload.username.clone(),
                 password_hash: hash,
+                avatar_url: None,
+                banned_at: None,
             }
         }
     };

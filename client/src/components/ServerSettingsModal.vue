@@ -22,8 +22,70 @@
           </button>
         </div>
 
+        <!-- Serveur -->
+        <div v-if="activeTab === 'server'" class="settings-body">
+          <div class="card">
+            <div class="card-title">Icone du serveur</div>
+            <p class="card-hint">L'icone affichee dans la liste des serveurs.</p>
+            <div class="avatar-setting">
+              <div class="avatar-preview" @click="iconInput?.click()">
+                <img v-if="serverIconUrl" :src="serverIconUrl" />
+                <span v-else class="avatar-placeholder">
+                  <Server :size="24" />
+                </span>
+                <div class="avatar-overlay">
+                  <Camera :size="16" />
+                </div>
+              </div>
+              <div class="avatar-actions">
+                <button class="btn-sm" @click="iconInput?.click()">Changer</button>
+                <button v-if="serverIconUrl" class="btn-sm btn-danger-outline" @click="removeServerIcon">Supprimer</button>
+              </div>
+              <input ref="iconInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden @change="onIconSelect" />
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Nom du serveur</div>
+            <div class="input-row">
+              <input v-model="serverName" type="text" placeholder="Mon serveur" maxlength="64" />
+              <button class="btn-sm" @click="saveServerInfo" :disabled="savingServer">
+                {{ savingServer ? '...' : 'Sauvegarder' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Description</div>
+            <p class="card-hint">Une courte description de ton serveur (max 256 caracteres).</p>
+            <textarea v-model="serverDescription" class="server-desc-input" placeholder="Description du serveur..." maxlength="256" rows="3"></textarea>
+            <button class="btn-sm" style="margin-top: 8px;" @click="saveServerInfo" :disabled="savingServer">
+              {{ savingServer ? '...' : 'Sauvegarder' }}
+            </button>
+          </div>
+        </div>
+
         <!-- Profil -->
         <div v-if="activeTab === 'profile'" class="settings-body">
+          <div class="card">
+            <div class="card-title">Avatar</div>
+            <p class="card-hint">Ta photo de profil sur ce serveur.</p>
+            <div class="avatar-setting">
+              <div class="avatar-preview" @click="serverAvatarInput?.click()">
+                <img v-if="currentAvatarUrl" :src="currentAvatarUrl" />
+                <span v-else class="avatar-placeholder">{{ (state?.user?.display_name || '?')[0]?.toUpperCase() }}</span>
+                <div class="avatar-overlay">
+                  <Camera :size="16" />
+                </div>
+              </div>
+              <div class="avatar-actions">
+                <button class="btn-sm" @click="serverAvatarInput?.click()">Changer</button>
+                <button v-if="currentAvatarUrl" class="btn-sm btn-danger-outline" @click="removeServerAvatar">Supprimer</button>
+              </div>
+              <input ref="serverAvatarInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden @change="onServerAvatarSelect" />
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-title">Display name</div>
             <p class="card-hint">Ton nom visible sur ce serveur.</p>
@@ -34,6 +96,24 @@
               </button>
             </div>
             <p class="toast-success" v-if="saved">Sauvegarde !</p>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Mot de passe</div>
+            <p class="card-hint">Change ton mot de passe de connexion.</p>
+            <div class="password-fields">
+              <input v-model="currentPassword" type="password" placeholder="Mot de passe actuel" />
+              <input v-model="newPassword" type="password" placeholder="Nouveau mot de passe" />
+              <input v-model="confirmPassword" type="password" placeholder="Confirmer" @keydown.enter="changePassword" />
+            </div>
+            <div class="password-actions">
+              <button class="btn-sm" @click="changePassword" :disabled="savingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword">
+                {{ savingPassword ? '...' : 'Changer' }}
+              </button>
+              <span v-if="newPassword && confirmPassword && newPassword !== confirmPassword" class="password-error">Les mots de passe ne correspondent pas</span>
+              <span v-if="passwordError" class="password-error">{{ passwordError }}</span>
+              <span v-if="passwordSaved" class="toast-success">Mot de passe change !</span>
+            </div>
           </div>
         </div>
 
@@ -87,8 +167,11 @@
               <input v-model="editingRole.name" type="text" placeholder="Nom" />
               <label class="color-picker">
                 <input type="color" v-model="editingRole.color" />
-                <div class="color-preview" :style="`background:${editingRole.color}`"></div>
+                <div class="color-preview" :style="`background:${editingRole.color || 'var(--text-muted)'}`"></div>
               </label>
+              <button class="btn-color-reset" :disabled="!editingRole.color" @click="editingRole.color = null" title="Retirer la couleur">
+                <X :size="12" />
+              </button>
             </div>
 
             <!-- Admin: no permission editing -->
@@ -141,12 +224,12 @@
               >
                 <span class="item-name">{{ user.display_name }}</span>
                 <button
-                  v-if="user.id !== state?.user?.id"
+                  v-if="user.id !== state?.user?.id && user.id !== 1"
                   class="btn-icon-danger"
-                  @click.stop="kickUser(user.id)"
-                  title="Kick"
+                  @click.stop="banUser(user.id)"
+                  title="Bannir"
                 >
-                  <UserX :size="14" />
+                  <Ban :size="14" />
                 </button>
               </div>
             </div>
@@ -176,6 +259,45 @@
             </div>
           </div>
         </div>
+
+        <!-- Invitations -->
+        <div v-if="activeTab === 'invites'" class="settings-body">
+          <div class="card">
+            <div class="card-title">Creer une invitation</div>
+            <p class="card-hint">Genere un code pour inviter quelqu'un sur le serveur.</p>
+            <div class="invite-create">
+              <div class="field-group" style="margin-bottom: 0;">
+                <div class="field" style="margin-bottom: 0;">
+                  <label>Utilisations max</label>
+                  <input v-model.number="newInviteMaxUses" type="number" min="1" placeholder="Illimite" />
+                </div>
+                <div class="field" style="margin-bottom: 0;">
+                  <label>Expiration (heures)</label>
+                  <input v-model.number="newInviteExpireHours" type="number" min="1" placeholder="Jamais" />
+                </div>
+              </div>
+              <button class="btn-sm" style="margin-top: 10px;" @click="createInvite">Creer</button>
+            </div>
+          </div>
+
+          <div class="card" v-if="invites.length">
+            <div class="card-title">Invitations actives</div>
+            <div class="invite-list">
+              <div v-for="inv in invites" :key="inv.code" class="invite-row">
+                <code class="invite-code">{{ inv.code }}</code>
+                <span class="invite-meta">
+                  par {{ resolveUser(inv.created_by) }}
+                  · {{ inv.uses }}{{ inv.max_uses ? `/${inv.max_uses}` : '' }} utilisations
+                  <template v-if="inv.expires_at"> · expire {{ formatExpiry(inv.expires_at) }}</template>
+                </span>
+                <button class="btn-icon-danger" @click="revokeInvite(inv.code)" title="Revoquer">
+                  <Trash2 :size="14" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <p v-else class="card-hint" style="margin-top: 8px;">Aucune invitation.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -183,19 +305,21 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, Trash2, ShieldCheck, UserX, UserRound, Gavel, Lock, GripVertical } from "lucide-vue-next";
+import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
-import { store, activeState, activeServer } from "../store";
-import { api } from "../api";
+import { store, activeState, activeServer, persistServers, resolveUser } from "../store";
+import { api, type Invite } from "../api";
 import * as perms from "../permissions";
 
 const state = computed(() => activeState());
 const activeTab = ref(store.serverSettingsTab || "profile");
 
 const allTabs = [
+  { id: "server", label: "Serveur", icon: Server, permission: perms.MANAGE_SERVER },
   { id: "profile", label: "Profil", icon: UserRound, permission: 0 },
   { id: "roles", label: "Roles", icon: ShieldCheck, permission: perms.MANAGE_ROLES },
-  { id: "moderation", label: "Moderation", icon: Gavel, permission: perms.KICK_MEMBERS },
+  { id: "moderation", label: "Moderation", icon: Gavel, permission: perms.BAN_MEMBERS },
+  { id: "invites", label: "Invitations", icon: TicketPlus, permission: perms.CREATE_INVITE },
 ];
 
 const visibleTabs = computed(() => {
@@ -205,10 +329,140 @@ const visibleTabs = computed(() => {
 
 const activeTabLabel = computed(() => allTabs.find((t) => t.id === activeTab.value)?.label ?? "");
 
+// Server
+const serverName = ref("");
+const serverDescription = ref("");
+const serverIconUrl = ref<string | null>(null);
+const iconInput = ref<HTMLInputElement>();
+const savingServer = ref(false);
+
+onMounted(async () => {
+  const s = activeServer();
+  if (!s) return;
+  try {
+    const info = await api.serverInfo(s.url);
+    serverName.value = info.name;
+    serverDescription.value = info.description || "";
+    serverIconUrl.value = info.icon_url ? `${s.url}${info.icon_url}` : null;
+  } catch {}
+});
+
+async function saveServerInfo() {
+  const s = activeServer();
+  if (!s) return;
+  savingServer.value = true;
+  try {
+    await api.updateServer(s.url, s.token, {
+      name: serverName.value,
+      description: serverDescription.value,
+    });
+    // Update the saved server name locally
+    const saved = store.savedServers.find((sv) => sv.id === store.activeServerId);
+    if (saved) {
+      saved.name = serverName.value;
+      persistServers();
+    }
+  } finally {
+    savingServer.value = false;
+  }
+}
+
+async function onIconSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  const s = activeServer();
+  if (!s) return;
+  try {
+    const info = await api.uploadServerIcon(s.url, s.token, file);
+    serverIconUrl.value = info.icon_url ? `${s.url}${info.icon_url}` : null;
+  } catch {}
+  input.value = "";
+}
+
+async function removeServerIcon() {
+  const s = activeServer();
+  if (!s) return;
+  try {
+    await api.deleteServerIcon(s.url, s.token);
+    serverIconUrl.value = null;
+  } catch {}
+}
+
 // Profile
 const displayName = ref(state.value?.user?.display_name || "");
 const saving = ref(false);
 const saved = ref(false);
+const serverAvatarInput = ref<HTMLInputElement>();
+
+const currentAvatarUrl = computed(() => {
+  const s = activeServer();
+  const avatarPath = state.value?.user?.avatar_url;
+  if (!s || !avatarPath) return null;
+  return `${s.url}${avatarPath}`;
+});
+
+async function onServerAvatarSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+  try {
+    const user = await api.uploadAvatar(s.url, s.token, file);
+    st.user = user;
+    st.users.set(user.id, user);
+  } catch {}
+  input.value = "";
+}
+
+async function removeServerAvatar() {
+  const s = activeServer();
+  const st = activeState();
+  if (!s || !st) return;
+  try {
+    await api.deleteAvatar(s.url, s.token);
+    if (st.user) {
+      st.user.avatar_url = null;
+      st.users.set(st.user.id, { ...st.user });
+    }
+  } catch {}
+}
+
+// Password
+const currentPassword = ref("");
+const newPassword = ref("");
+const confirmPassword = ref("");
+const savingPassword = ref(false);
+const passwordError = ref("");
+const passwordSaved = ref(false);
+
+async function changePassword() {
+  const s = activeServer();
+  if (!s || !currentPassword.value || !newPassword.value) return;
+  if (newPassword.value !== confirmPassword.value) return;
+
+  savingPassword.value = true;
+  passwordError.value = "";
+  passwordSaved.value = false;
+  try {
+    await api.changePassword(s.url, s.token, currentPassword.value, newPassword.value);
+    passwordSaved.value = true;
+    currentPassword.value = "";
+    newPassword.value = "";
+    confirmPassword.value = "";
+    setTimeout(() => (passwordSaved.value = false), 3000);
+  } catch (e: any) {
+    if (e.message === "401") {
+      passwordError.value = "Mot de passe actuel incorrect";
+    } else {
+      passwordError.value = "Erreur";
+    }
+  } finally {
+    savingPassword.value = false;
+  }
+}
 
 async function saveDisplayName() {
   const s = activeServer();
@@ -282,7 +536,7 @@ onMounted(async () => {
   try {
     roles.value = await api.listRoles(s.url, s.token);
   } catch {}
-
+  loadInvites();
 });
 
 async function createRole() {
@@ -306,7 +560,7 @@ async function createRole() {
 }
 
 function editRole(role: typeof roles.value[0]) {
-  editingRole.value = { id: role.id, name: role.name, permissions: role.permissions, color: role.color || "#99aab5" };
+  editingRole.value = { id: role.id, name: role.name, permissions: role.permissions, color: role.color };
 }
 
 function togglePerm(flag: number) {
@@ -382,14 +636,58 @@ async function toggleUserRole(roleId: number) {
   }
 }
 
-async function kickUser(userId: number) {
+async function banUser(userId: number) {
   const s = activeServer();
   const st = activeState();
   if (!s || !st) return;
 
-  await api.kickUser(s.url, s.token, userId);
-  st.users.delete(userId);
+  await api.banUser(s.url, s.token, userId);
+  // User stays in list but is banned — they'll be disconnected server-side
   if (selectedUserId.value === userId) selectedUserId.value = null;
+}
+
+// Invites
+const invites = ref<Invite[]>([]);
+const newInviteMaxUses = ref<number | null>(null);
+const newInviteExpireHours = ref<number | null>(null);
+
+async function loadInvites() {
+  const s = activeServer();
+  if (!s) return;
+  try {
+    invites.value = await api.listInvites(s.url, s.token);
+  } catch {}
+}
+
+async function createInvite() {
+  const s = activeServer();
+  if (!s) return;
+  const expiresAt = newInviteExpireHours.value
+    ? Math.floor(Date.now() / 1000) + newInviteExpireHours.value * 3600
+    : null;
+  const inv = await api.createInvite(s.url, s.token, {
+    max_uses: newInviteMaxUses.value || null,
+    expires_at: expiresAt,
+  });
+  invites.value.unshift(inv);
+  newInviteMaxUses.value = null;
+  newInviteExpireHours.value = null;
+}
+
+async function revokeInvite(code: string) {
+  const s = activeServer();
+  if (!s) return;
+  await api.deleteInvite(s.url, s.token, code);
+  invites.value = invites.value.filter((i) => i.code !== code);
+}
+
+function formatExpiry(ts: number): string {
+  const now = Date.now() / 1000;
+  const diff = ts - now;
+  if (diff <= 0) return "expire";
+  if (diff < 3600) return `dans ${Math.ceil(diff / 60)} min`;
+  if (diff < 86400) return `dans ${Math.ceil(diff / 3600)} h`;
+  return `dans ${Math.ceil(diff / 86400)} j`;
 }
 
 function close() {
@@ -544,6 +842,120 @@ function close() {
   margin-bottom: 8px;
 }
 
+.avatar-setting {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.avatar-preview:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-danger-outline {
+  background: transparent !important;
+  color: var(--danger) !important;
+  border: 1px solid var(--danger) !important;
+}
+
+.btn-danger-outline:hover {
+  background: rgba(208, 80, 80, 0.15) !important;
+  box-shadow: none !important;
+}
+
+.server-desc-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+
+.server-desc-input::placeholder {
+  color: var(--text-faint);
+}
+
+.password-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.password-fields input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.password-fields input::placeholder {
+  color: var(--text-faint);
+}
+
+.password-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.password-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
 /* ── Inputs ── */
 .input-row {
   display: flex;
@@ -590,6 +1002,40 @@ function close() {
   font-size: 0.75rem;
   color: var(--green);
   margin-top: 6px;
+}
+
+.invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+}
+
+.invite-code {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  padding: 0;
+}
+
+.invite-meta {
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.invite-create .field-group {
+  margin-bottom: 0;
 }
 
 /* ── Item list (channels, roles, users) ── */
@@ -683,6 +1129,24 @@ function close() {
   border-radius: 6px;
   border: 2px solid var(--border);
 }
+
+.btn-color-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: center;
+}
+.btn-color-reset:not(:disabled):hover { color: var(--text-normal); background: var(--bg-modifier-hover); box-shadow: none; }
+.btn-color-reset:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ── Toggle switch ── */
 .toggle {

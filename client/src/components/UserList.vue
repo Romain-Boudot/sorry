@@ -9,7 +9,10 @@
       class="user-list-item"
       @click="openCard(uid, $event)"
     >
-      <Circle class="status-dot online" :size="8" fill="currentColor" />
+      <div class="user-avatar-small">
+        <img v-if="resolveAvatarUrl(uid)" :src="resolveAvatarUrl(uid)!" />
+        <span v-else>{{ resolveUser(uid)[0]?.toUpperCase() }}</span>
+      </div>
       <span :style="resolveUserColor(uid) ? `color:${resolveUserColor(uid)}` : ''">{{ resolveUser(uid) }}</span>
     </div>
 
@@ -22,7 +25,10 @@
       class="user-list-item offline"
       @click="openCard(user.id, $event)"
     >
-      <Circle class="status-dot" :size="8" fill="currentColor" />
+      <div class="user-avatar-small">
+        <img v-if="resolveAvatarUrl(user.id)" :src="resolveAvatarUrl(user.id)!" />
+        <span v-else>{{ user.display_name[0]?.toUpperCase() }}</span>
+      </div>
       <span :style="resolveUserColor(user.id) ? `color:${resolveUserColor(user.id)}` : ''">{{ user.display_name }}</span>
     </div>
 
@@ -38,8 +44,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Circle } from "lucide-vue-next";
-import { activeState, resolveUser, resolveUserColor } from "../store";
+// no icons needed
+import { activeState, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
 import type { User } from "../api";
 import UserCard from "./UserCard.vue";
 
@@ -94,6 +100,27 @@ function openCard(userId: number, e: MouseEvent) {
   margin-top: 16px;
 }
 
+.user-avatar-small {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.user-avatar-small img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .user-list-item {
   display: flex;
   align-items: center;
@@ -116,12 +143,4 @@ function openCard(userId: number, e: MouseEvent) {
   opacity: 0.45;
 }
 
-.user-list-item.offline .status-dot {
-  color: var(--text-faint);
-}
-
-.status-dot {
-  color: var(--green);
-  flex-shrink: 0;
-}
 </style>

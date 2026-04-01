@@ -6,7 +6,11 @@
         <p>Dépose tes fichiers ici</p>
       </div>
     </div>
-    <div class="chat-messages" ref="messagesContainer">
+    <div class="chat-messages" ref="messagesContainer" @scroll="onMessagesScroll">
+      <div v-if="loadingOlder" class="loading-older">
+        <Loader2 :size="18" class="spinner" />
+        Chargement...
+      </div>
       <div v-if="!messages.length" class="chat-empty">
         <MessageSquare :size="40" :stroke-width="1.2" />
         <p>Aucun message dans #{{ activeChannel?.name }}</p>
@@ -35,7 +39,8 @@
 
           <template v-if="!isGrouped(i)">
             <div class="message-avatar" @click="openCard(msg.author_id, $event)">
-              {{ resolveUser(msg.author_id)[0]?.toUpperCase() }}
+              <img v-if="resolveAvatarUrl(msg.author_id)" :src="resolveAvatarUrl(msg.author_id)!" />
+              <span v-else>{{ resolveUser(msg.author_id)[0]?.toUpperCase() }}</span>
             </div>
             <div class="message-body">
               <div class="message-header">
@@ -172,10 +177,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
-import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download } from "lucide-vue-next";
-import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor } from "../store";
+import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download, Loader2 } from "lucide-vue-next";
+import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
-import type { Message, Attachment, User } from "../api";
+import { api, type Message, type Attachment, type User } from "../api";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 
@@ -215,6 +220,9 @@ const messages = computed(() =>
   state.value?.messages.get(state.value?.activeChannelId ?? 0) ?? []
 );
 
+const loadingOlder = ref(false);
+const noMoreMessages = ref(false);
+
 function scrollToBottom() {
   nextTick(() => {
     const el = messagesContainer.value;
@@ -222,9 +230,66 @@ function scrollToBottom() {
   });
 }
 
-watch(() => messages.value.length, scrollToBottom);
-watch(() => state.value?.activeChannelId, scrollToBottom);
+// Scroll to bottom on new messages (only if already at bottom)
+watch(() => messages.value.length, (newLen, oldLen) => {
+  if (!oldLen || newLen <= oldLen) return; // only for appended messages
+  if (isScrolledToBottom()) scrollToBottom();
+});
+
+// Scroll to bottom on channel switch
+watch(() => state.value?.activeChannelId, () => {
+  noMoreMessages.value = false;
+  scrollToBottom();
+});
+
 onMounted(scrollToBottom);
+
+async function loadOlderMessages() {
+  const server = activeServer();
+  const st = activeState();
+  if (!server || !st?.activeChannelId) return;
+  if (loadingOlder.value || noMoreMessages.value) return;
+
+  const msgs = st.messages.get(st.activeChannelId);
+  if (!msgs || msgs.length === 0) return;
+
+  const oldestId = msgs[0].id;
+  loadingOlder.value = true;
+
+  try {
+    const older = await api.listMessages(server.url, server.token, st.activeChannelId, 50, oldestId);
+    if (older.length === 0) {
+      noMoreMessages.value = true;
+      return;
+    }
+    // Preserve scroll position
+    const el = messagesContainer.value;
+    const prevScrollHeight = el?.scrollHeight ?? 0;
+
+    // Prepend (API returns newest-first, so reverse)
+    msgs.unshift(...older.reverse());
+
+    nextTick(() => {
+      if (el) {
+        el.scrollTop = el.scrollHeight - prevScrollHeight;
+      }
+    });
+
+    if (older.length < 50) {
+      noMoreMessages.value = true;
+    }
+  } finally {
+    loadingOlder.value = false;
+  }
+}
+
+function onMessagesScroll() {
+  const el = messagesContainer.value;
+  if (!el) return;
+  if (el.scrollTop < 100) {
+    loadOlderMessages();
+  }
+}
 
 // Group messages from the same author within 5 minutes
 function isGrouped(index: number): boolean {
@@ -574,6 +639,25 @@ function formatTimeShort(ts: string): string {
   padding: 16px 16px;
 }
 
+.loading-older {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .chat-empty {
   color: var(--text-muted);
   text-align: center;
@@ -640,6 +724,14 @@ function formatTimeShort(ts: string): string {
   color: #fff;
   flex-shrink: 0;
   margin-top: 2px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .message-gutter {

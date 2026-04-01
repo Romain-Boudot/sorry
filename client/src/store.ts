@@ -1,6 +1,6 @@
 import { reactive } from "vue";
 import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState } from "./api";
-import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen } from "./voice";
+import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened } from "./voice";
 
 export interface SavedServer {
   id: string;
@@ -9,6 +9,8 @@ export interface SavedServer {
   username: string;
   token: string;
   autoConnect?: boolean;
+  iconUrl?: string | null;
+  description?: string | null;
 }
 
 export interface ServerState {
@@ -88,6 +90,8 @@ export const store = reactive({
   serverStates: new Map<string, ServerState>(),
   showAddServerModal: false,
   showSettingsModal: false,
+  audioInputDevice: localStorage.getItem("audioInputDevice") || "",
+  audioOutputDevice: localStorage.getItem("audioOutputDevice") || "",
   showServerSettingsModal: false,
   serverSettingsTab: "profile" as string,
   serverSettingsChannelId: null as number | null,
@@ -110,6 +114,16 @@ export function resolveUser(userId: number): string {
   const state = activeState();
   if (!state) return `User #${userId}`;
   return state.users.get(userId)?.display_name ?? `User #${userId}`;
+}
+
+/// Résoudre un user id → avatar URL complète (serveur actif)
+export function resolveAvatarUrl(userId: number): string | null {
+  const state = activeState();
+  const server = activeServer();
+  if (!state || !server) return null;
+  const avatarPath = state.users.get(userId)?.avatar_url;
+  if (!avatarPath) return null;
+  return `${server.url}${avatarPath}`;
 }
 
 export function resolveUserColor(userId: number): string | null {
@@ -163,8 +177,9 @@ export async function addServer(
   url: string,
   username: string,
   password: string,
-  serverPassword?: string,
-  displayName?: string
+  inviteCode?: string,
+  displayName?: string,
+  defaultAvatar?: File
 ) {
   const baseUrl = url.replace(/\/+$/, "");
 
@@ -177,10 +192,16 @@ export async function addServer(
     return;
   }
 
-  const res = await api.login(baseUrl, username, password, serverPassword);
+  const res = await api.login(baseUrl, username, password, inviteCode);
 
   if (displayName) {
     await api.updateDisplayName(baseUrl, res.token, displayName);
+  }
+
+  if (defaultAvatar) {
+    try {
+      await api.uploadAvatar(baseUrl, res.token, defaultAvatar);
+    } catch {}
   }
 
   const server: SavedServer = {
@@ -213,11 +234,20 @@ export async function connectToServer(serverId: string) {
   store.serverStates.set(serverId, state);
 
   try {
-    const [me, channels, groups] = await Promise.all([
+    const [me, channels, groups, info] = await Promise.all([
       api.me(server.url, server.token),
       api.listChannels(server.url, server.token),
       api.listGroups(server.url, server.token),
+      api.serverInfo(server.url).catch(() => null),
     ]);
+
+    // Update saved server info from /info
+    if (info) {
+      server.name = info.name;
+      server.iconUrl = info.icon_url ?? null;
+      server.description = info.description ?? null;
+      persistServers();
+    }
 
     state.user = me.user;
     state.permissions = me.permissions;
@@ -574,20 +604,29 @@ function handleEvent(serverId: string, event: ServerEvent) {
     }
     case "VoiceStateUpdate": {
       const { user_id, channel_id, voice_state: vs } = event.data as { user_id: number; channel_id: number; voice_state: VoiceUserState };
+
+      // Get previous state to detect force changes
+      const prevVs = state.voiceState.get(channel_id)?.get(user_id);
+      const wasForced = prevVs?.force_muted ?? false;
+      const wasForcedDeaf = prevVs?.force_deafened ?? false;
+
       if (!state.voiceState.has(channel_id)) {
         state.voiceState.set(channel_id, new Map());
       }
       state.voiceState.get(channel_id)!.set(user_id, vs);
 
-      // Si c'est moi qui suis force muted/deafened, appliquer localement
-      if (user_id === state.user?.id) {
-        if (vs.force_muted && !state.isMuted) {
-          state.isMuted = true;
-          voiceToggleMute();
+      // Only react to force changes on myself
+      if (user_id === state.user?.id && state.voiceChannelId) {
+        // Force mute/deafen: don't touch isMuted/isDeafened (those reflect self state only)
+        // LiveKit server-side handles the actual mute via API
+
+        // Force deafen changed: ON — deafen audio locally (can't hear others)
+        if (vs.force_deafened && !wasForcedDeaf) {
+          voiceSetDeafened(true);
         }
-        if (vs.force_deafened && !state.isDeafened) {
-          state.isDeafened = true;
-          voiceToggleDeafen();
+        // Force deafen changed: OFF — restore audio
+        if (!vs.force_deafened && wasForcedDeaf) {
+          voiceSetDeafened(false);
         }
       }
       break;
@@ -611,6 +650,25 @@ function handleEvent(serverId: string, event: ServerEvent) {
     case "UserRoleUpdate": {
       const { user_id, role_ids } = event.data as { user_id: number; role_ids: number[] };
       state.userRoles.set(user_id, role_ids);
+      break;
+    }
+    case "UserUpdate": {
+      const user = event.data as User;
+      state.users.set(user.id, user);
+      if (state.user?.id === user.id) {
+        state.user = user;
+      }
+      break;
+    }
+    case "ServerUpdate": {
+      const { name, icon_url, description } = event.data as { name: string; description: string | null; icon_url: string | null };
+      const saved = store.savedServers.find((s) => s.id === serverId);
+      if (saved) {
+        saved.name = name;
+        saved.iconUrl = icon_url;
+        saved.description = description;
+        persistServers();
+      }
       break;
     }
   }

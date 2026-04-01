@@ -68,17 +68,41 @@ async fn main() {
     // ── Admin account bootstrap ──
     ensure_admin(&db).await;
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, livekit_url, livekit_api_key, livekit_api_secret, bucket, max_file_size));
+    let jwt_ttl_secs: i64 = 30 * 24 * 3600; // 30 days — same as auth.rs
+
+    // Load recently banned users into memory
+    let banned_ids = db::users::load_recent_bans(&db, jwt_ttl_secs)
+        .await
+        .expect("Failed to load banned users");
+    let banned_set: std::collections::HashSet<i64> = banned_ids.into_iter().collect();
+    tracing::info!("Loaded {} banned users into memory", banned_set.len());
+
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_api_key, livekit_api_secret, bucket, max_file_size, banned_set));
 
     let info_state = state.clone();
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/info", get(move || async move {
-            axum::Json(serde_json::json!({ "name": info_state.server_name }))
+            let name = crate::db::servers::get_setting(&info_state.db, "name")
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| info_state.server_name.clone());
+            let description = crate::db::servers::get_setting(&info_state.db, "description")
+                .await
+                .ok()
+                .flatten();
+            let icon_url = crate::db::servers::get_setting(&info_state.db, "icon_url")
+                .await
+                .ok()
+                .flatten();
+            axum::Json(serde_json::json!({ "name": name, "description": description, "icon_url": icon_url }))
         }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
         .route("/uploads/:msg_id/:filename", get(routes::uploads::serve_upload))
+        .route("/avatars/:user_id/:filename", get(routes::users::serve_avatar))
+        .route("/server-icon/:filename", get(routes::servers::serve_icon))
         .fallback_service(ServeDir::new("/app/static").append_index_html_on_directories(true))
         .layer(CorsLayer::permissive())
         .with_state(state);

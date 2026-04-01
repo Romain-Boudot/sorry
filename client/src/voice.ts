@@ -80,6 +80,12 @@ export async function joinVoice(
   try {
     await room.connect(url, token);
 
+    // Apply saved audio devices
+    const savedMic = localStorage.getItem("audioInputDevice");
+    const savedSpeaker = localStorage.getItem("audioOutputDevice");
+    if (savedMic) await room.switchActiveDevice("audioinput", savedMic);
+    if (savedSpeaker) await room.switchActiveDevice("audiooutput", savedSpeaker);
+
     // Publier le micro
     await room.localParticipant.setMicrophoneEnabled(true);
 
@@ -107,9 +113,13 @@ export function toggleMute(): boolean {
   return !mic;
 }
 
+export function setMuted(muted: boolean) {
+  if (!currentRoom) return;
+  currentRoom.localParticipant.setMicrophoneEnabled(!muted);
+}
+
 export function toggleDeafen(): boolean {
   if (!currentRoom) return false;
-  // Mute tous les tracks audio distants
   const tracks = currentRoom.remoteParticipants;
   let deafened = false;
   tracks.forEach((p) => {
@@ -121,6 +131,17 @@ export function toggleDeafen(): boolean {
     });
   });
   return deafened;
+}
+
+export function setDeafened(deafened: boolean) {
+  if (!currentRoom) return;
+  currentRoom.remoteParticipants.forEach((p) => {
+    p.audioTrackPublications.forEach((pub_) => {
+      if (pub_.track) {
+        pub_.setSubscribed(!deafened);
+      }
+    });
+  });
 }
 
 export function isConnected(): boolean {

@@ -4,8 +4,9 @@
     <div class="user-card" :style="cardStyle" ref="cardEl">
       <div class="user-card-banner" />
 
-      <div class="user-card-avatar" :style="avatarColor">
-        {{ user.display_name[0]?.toUpperCase() }}
+      <div class="user-card-avatar" :style="avatarBg">
+        <img v-if="avatarSrc" :src="avatarSrc" />
+        <span v-else>{{ user.display_name[0]?.toUpperCase() }}</span>
       </div>
 
       <div class="user-card-body">
@@ -64,7 +65,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { Circle, Plus } from "lucide-vue-next";
-import { activeState, activeServer } from "../store";
+import { activeState, activeServer, resolveAvatarUrl } from "../store";
 import { api, type User, type Role } from "../api";
 import * as perms from "../permissions";
 
@@ -106,7 +107,10 @@ const topRole = computed(() =>
   userRoles.value.find((r) => r.color) ?? null
 );
 
-const avatarColor = computed(() => {
+const avatarSrc = computed(() => resolveAvatarUrl(props.user.id));
+
+const avatarBg = computed(() => {
+  if (avatarSrc.value) return {};
   const color = topRole.value?.color || "var(--accent)";
   return { background: color };
 });
@@ -183,6 +187,14 @@ function close() {
   color: #fff;
   margin: -26px 0 0 16px;
   border: 4px solid var(--bg-tertiary);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .user-card-body {

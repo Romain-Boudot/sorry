@@ -1,49 +1,82 @@
 <template>
-  <div
-    v-if="channel.kind === 'text'"
-    class="channel-item"
-    :class="{ active: channel.id === state?.activeChannelId }"
-    :data-channel-id="channel.id"
-    @click="selectChannel(channel.id)"
-    @contextmenu.prevent.stop="emit('contextmenu', $event)"
-  >
-    <Hash class="channel-icon" :size="20" />
-    <span>{{ channel.name }}</span>
-  </div>
-  <div
-    v-else
-    class="channel-item voice"
-    :class="{
-      active: channel.id === state?.activeChannelId,
-      joined: state?.voiceChannelId === channel.id,
-    }"
-    :data-channel-id="channel.id"
-    @click="handleVoiceClick(channel.id)"
-    @contextmenu.prevent.stop="emit('contextmenu', $event)"
-  >
-    <Volume2 class="channel-icon" :size="20" />
-    <span>{{ channel.name }}</span>
-  </div>
-  <div v-if="channel.kind === 'voice' && voiceUsers.length" class="voice-users">
-    <div v-for="[uid, vs] in voiceUsers" :key="uid" class="voice-user">
-      <span class="voice-dot" :class="{ speaking: !vs.muted && !vs.deafened && isUserSpeaking(uid) }"></span>
-      <span class="voice-user-name">{{ resolveUser(uid) }}</span>
-      <MicOff v-if="vs.muted || vs.force_muted" class="voice-status-icon" :class="{ forced: vs.force_muted }" :size="12" />
-      <Headphones v-if="vs.deafened || vs.force_deafened" class="voice-status-icon" :class="{ forced: vs.force_deafened }" :size="12" />
+  <div class="channel-item-wrapper">
+    <div
+      v-if="channel.kind === 'text'"
+      class="channel-item"
+      :class="{ active: channel.id === state?.activeChannelId }"
+      :data-channel-id="channel.id"
+      @click="selectChannel(channel.id)"
+      @contextmenu.prevent.stop="emit('contextmenu', $event)"
+    >
+      <Hash class="channel-icon" :size="20" />
+      <span class="channel-name">{{ channel.name }}</span>
+      <span class="channel-actions"><slot name="actions" /></span>
     </div>
+    <div
+      v-else
+      class="channel-item voice"
+      :class="{
+        active: channel.id === state?.activeChannelId,
+        joined: state?.voiceChannelId === channel.id,
+      }"
+      :data-channel-id="channel.id"
+      @click="handleVoiceClick(channel.id)"
+      @contextmenu.prevent.stop="emit('contextmenu', $event)"
+    >
+      <Volume2 class="channel-icon" :size="20" />
+      <span class="channel-name">{{ channel.name }}</span>
+      <span class="channel-actions"><slot name="actions" /></span>
+    </div>
+    <div v-if="channel.kind === 'voice' && voiceUsers.length" class="voice-users">
+      <div
+        v-for="[uid, vs] in voiceUsers"
+        :key="uid"
+        class="voice-user"
+        @click="openCard(uid, $event)"
+        @contextmenu.prevent.stop="onVoiceUserContext(uid, vs, $event)"
+      >
+        <div class="voice-avatar" :class="{ speaking: !vs.muted && !vs.deafened && isUserSpeaking(uid) }">
+          <img v-if="resolveAvatarUrl(uid)" :src="resolveAvatarUrl(uid)!" />
+          <span v-else>{{ resolveUser(uid)[0]?.toUpperCase() }}</span>
+        </div>
+        <span class="voice-user-name">{{ resolveUser(uid) }}</span>
+        <MicOff v-if="vs.muted || vs.force_muted" class="voice-status-icon" :class="{ forced: vs.force_muted }" :size="12" />
+        <Headphones v-if="vs.deafened || vs.force_deafened" class="voice-status-icon" :class="{ forced: vs.force_deafened }" :size="12" />
+      </div>
+    </div>
+
+    <UserCard
+      v-if="cardUser"
+      :user="cardUser"
+      :x="cardX"
+      :y="cardY"
+      @close="cardUser = null"
+    />
+
+    <ContextMenu
+      v-if="voiceCtx"
+      :x="voiceCtx.x"
+      :y="voiceCtx.y"
+      :items="voiceCtx.items"
+      @close="voiceCtx = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { Hash, Volume2, MicOff, Headphones } from "lucide-vue-next";
-import { activeState, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking } from "../store";
-import type { Channel, VoiceUserState } from "../api";
+import { computed, ref } from "vue";
+import { Hash, Volume2, MicOff, Headphones, HeadphoneOff } from "lucide-vue-next";
+import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
+import * as perms from "../permissions";
+import type { Channel, User, VoiceUserState } from "../api";
+import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
+import UserCard from "./UserCard.vue";
 
 const props = defineProps<{ channel: Channel }>();
 const emit = defineEmits<{ contextmenu: [e: MouseEvent] }>();
 
 const state = computed(() => activeState());
+const server = computed(() => activeServer());
 
 const voiceUsers = computed((): [number, VoiceUserState][] => {
   const map = state.value?.voiceState.get(props.channel.id);
@@ -55,6 +88,56 @@ function handleVoiceClick(channelId: number) {
     state.value.activeChannelId = channelId;
   } else {
     joinVoiceChannel(channelId);
+  }
+}
+
+const cardUser = ref<User | null>(null);
+const cardX = ref(0);
+const cardY = ref(0);
+
+function openCard(uid: number, e: MouseEvent) {
+  const user = state.value?.users.get(uid);
+  if (!user) return;
+  const el = e.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  cardX.value = rect.right + 8;
+  cardY.value = rect.top;
+  cardUser.value = user;
+}
+
+const voiceCtx = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
+  const s = server.value;
+  const st = state.value;
+  if (!s || !st || uid === st.user?.id) return;
+
+  const items: MenuItem[] = [];
+  const canMute = perms.has(st.permissions, perms.MUTE_MEMBERS);
+  const canDeafen = perms.has(st.permissions, perms.DEAFEN_MEMBERS);
+
+  if (canMute) {
+    items.push({
+      label: vs.force_muted ? "Unmute" : "Mute",
+      icon: vs.force_muted ? Volume2 : MicOff,
+      action: () => {
+        st.ws?.send(JSON.stringify({ type: "ForceMute", data: { user_id: uid, muted: !vs.force_muted } }));
+      },
+    });
+  }
+
+  if (canDeafen) {
+    items.push({
+      label: vs.force_deafened ? "Undeafen" : "Deafen",
+      icon: vs.force_deafened ? Headphones : HeadphoneOff,
+      action: () => {
+        st.ws?.send(JSON.stringify({ type: "ForceDeafen", data: { user_id: uid, deafened: !vs.force_deafened } }));
+      },
+    });
+  }
+
+  if (items.length) {
+    voiceCtx.value = { x: e.clientX, y: e.clientY, items };
   }
 }
 </script>
@@ -85,6 +168,24 @@ function handleVoiceClick(channelId: number) {
   color: var(--header-primary);
 }
 
+.channel-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.channel-item:hover .channel-actions { opacity: 1; }
+
 .channel-icon {
   color: var(--text-faint);
   width: 20px;
@@ -100,16 +201,24 @@ function handleVoiceClick(channelId: number) {
 }
 
 .voice-users {
-  padding: 0 0 2px 48px;
+  padding: 0 12px 2px 20px;
 }
 
 .voice-user {
   font-size: 0.8125rem;
   color: var(--text-muted);
-  padding: 2px 0;
+  padding: 4px 8px;
+  margin: 1px 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.1s, color 0.1s;
+}
+.voice-user:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
 }
 
 .voice-user-name {
@@ -120,17 +229,30 @@ function handleVoiceClick(channelId: number) {
   white-space: nowrap;
 }
 
-.voice-dot {
-  width: 10px;
-  height: 10px;
+.voice-avatar {
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--text-faint);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  transition: background 0.15s;
+  overflow: hidden;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  transition: box-shadow 0.15s;
 }
 
-.voice-dot.speaking {
-  background: var(--green);
+.voice-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.voice-avatar.speaking {
+  box-shadow: 0 0 0 2px var(--green);
 }
 
 .voice-status-icon {

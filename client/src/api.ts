@@ -25,14 +25,41 @@ export const api = {
   async serverInfo(baseUrl: string) {
     const res = await fetch(`${baseUrl}/info`);
     if (!res.ok) throw new Error(`${res.status}`);
-    return res.json() as Promise<{ name: string }>;
+    return res.json() as Promise<{ name: string; description?: string; icon_url?: string }>;
   },
 
-  async login(baseUrl: string, username: string, password: string, serverPassword?: string) {
+  updateServer(baseUrl: string, token: string, data: { name?: string; description?: string }) {
+    return request<void>(baseUrl, "/server", token, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadServerIcon(baseUrl: string, token: string, file: File) {
+    const formData = new FormData();
+    formData.append("icon", file);
+    const res = await fetch(`${baseUrl}/api/server/icon`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<{ icon_url: string }>;
+  },
+
+  async deleteServerIcon(baseUrl: string, token: string) {
+    const res = await fetch(`${baseUrl}/api/server/icon`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+  },
+
+  async login(baseUrl: string, username: string, password: string, inviteCode?: string) {
     const hashed = await hashPassword(password);
     return request<{ token: string; user: User }>(baseUrl, "/auth/login", undefined, {
       method: "POST",
-      body: JSON.stringify({ username, password: hashed, server_password: serverPassword }),
+      body: JSON.stringify({ username, password: hashed, invite_code: inviteCode }),
     });
   },
 
@@ -147,8 +174,56 @@ export const api = {
     });
   },
 
-  kickUser(baseUrl: string, token: string, userId: number) {
-    return request<void>(baseUrl, `/users/${userId}`, token, { method: "DELETE" });
+  async uploadAvatar(baseUrl: string, token: string, file: File) {
+    const formData = new FormData();
+    formData.append("avatar", file);
+    const res = await fetch(`${baseUrl}/api/users/me/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<User>;
+  },
+
+  async changePassword(baseUrl: string, token: string, currentPassword: string, newPassword: string) {
+    const currentHashed = await hashPassword(currentPassword);
+    const newHashed = await hashPassword(newPassword);
+    return request<void>(baseUrl, "/users/me/password", token, {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentHashed, new_password: newHashed }),
+    });
+  },
+
+  async deleteAvatar(baseUrl: string, token: string) {
+    const res = await fetch(`${baseUrl}/api/users/me/avatar`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+  },
+
+  banUser(baseUrl: string, token: string, userId: number) {
+    return request<void>(baseUrl, `/users/${userId}/ban`, token, { method: "POST" });
+  },
+
+  unbanUser(baseUrl: string, token: string, userId: number) {
+    return request<void>(baseUrl, `/users/${userId}/ban`, token, { method: "DELETE" });
+  },
+
+  listInvites(baseUrl: string, token: string) {
+    return request<Invite[]>(baseUrl, "/invites", token);
+  },
+
+  createInvite(baseUrl: string, token: string, data: { max_uses?: number | null; expires_at?: number | null }) {
+    return request<Invite>(baseUrl, "/invites", token, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteInvite(baseUrl: string, token: string, code: string) {
+    return request<void>(baseUrl, `/invites/${code}`, token, { method: "DELETE" });
   },
 
   getUserRoles(baseUrl: string, token: string, userId: number) {
@@ -214,6 +289,7 @@ export const api = {
 export interface User {
   id: number;
   display_name: string;
+  avatar_url: string | null;
 }
 
 export interface ChannelGroup {
@@ -260,6 +336,15 @@ export interface VoiceUserState {
   deafened: boolean;
   force_muted: boolean;
   force_deafened: boolean;
+}
+
+export interface Invite {
+  code: string;
+  created_by: number;
+  max_uses: number | null;
+  uses: number;
+  expires_at: number | null;
+  created_at: number;
 }
 
 export interface ChannelOverwrite {

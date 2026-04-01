@@ -64,6 +64,11 @@ where
         let claims = verify_token(token, &app_state.jwt_secret)
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
+        // Check if user is banned (in-memory lookup, no DB)
+        if app_state.banned_users.read().unwrap().contains(&claims.sub) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
         Ok(AuthUser(claims.sub))
     }
 }

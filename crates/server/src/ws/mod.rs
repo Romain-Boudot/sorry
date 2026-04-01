@@ -256,13 +256,24 @@ async fn handle_client_event(
                 for (cid, users) in voice.iter_mut() {
                     if let Some(vs) = users.get_mut(&target_id) {
                         vs.force_muted = muted;
-                        if muted { vs.muted = true; }
                         result = Some((*cid, vs.clone()));
                         break;
                     }
                 }
             }
             if let Some((cid, vs)) = result {
+                // Server-side mute via LiveKit API
+                let room = format!("voice-{}", cid);
+                let identity = format!("user-{}", target_id);
+                let lk_url = state.livekit_url.clone();
+                let lk_key = state.livekit_api_key.clone();
+                let lk_secret = state.livekit_api_secret.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::livekit::set_participant_muted(&lk_url, &lk_key, &lk_secret, &room, &identity, muted).await {
+                        tracing::error!("LiveKit force mute failed: {}", e);
+                    }
+                });
+
                 let _ = state.event_tx.send(ServerEvent::VoiceStateUpdate {
                     user_id: target_id,
                     channel_id: cid,
@@ -283,9 +294,9 @@ async fn handle_client_event(
                     if let Some(vs) = users.get_mut(&target_id) {
                         vs.force_deafened = deafened;
                         if deafened {
-                            vs.deafened = true;
                             vs.force_muted = true;
-                            vs.muted = true;
+                        } else {
+                            vs.force_muted = false;
                         }
                         result = Some((*cid, vs.clone()));
                         break;
@@ -293,6 +304,18 @@ async fn handle_client_event(
                 }
             }
             if let Some((cid, vs)) = result {
+                // Server-side mute via LiveKit API (deafen = also mute audio)
+                let room = format!("voice-{}", cid);
+                let identity = format!("user-{}", target_id);
+                let lk_url = state.livekit_url.clone();
+                let lk_key = state.livekit_api_key.clone();
+                let lk_secret = state.livekit_api_secret.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::livekit::set_participant_muted(&lk_url, &lk_key, &lk_secret, &room, &identity, deafened).await {
+                        tracing::error!("LiveKit force deafen failed: {}", e);
+                    }
+                });
+
                 let _ = state.event_tx.send(ServerEvent::VoiceStateUpdate {
                     user_id: target_id,
                     channel_id: cid,
