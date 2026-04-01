@@ -1,0 +1,31 @@
+Essentiel
+---------
+x Avatars utilisateur — pas de photo de profil, le modele User n'a que id + display_name
+x Scroll infini des messages — l'API supporte ?before=, mais le client ne charge que 50 messages sans "load more"
+x Mot de passe — update_password existe en DB mais aucune route ni UI
+x Ban — kick supprime le user, pas de systeme ban/unban
+- Channel topic/description — aucun champ description sur les channels
+x Icone/description du serveur — rien cote serveur info
+
+Important
+---------
+- Reponses/quotes — pas de reply a un message
+- Mentions (@user) — pas de parsing ni notification
+- Reactions emoji — pas de reactions sur les messages
+- Recherche de messages
+- Notifications desktop — aucune notif push/desktop
+- Unread par channel — le badge unread est global par serveur, pas par channel
+- Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
+
+Nice to have
+------------
+- Markdown/formatage dans les messages
+- Screen sharing — LiveKit le supporte, pas cable
+- Move user entre channels voice (action admin)
+- Limite d'utilisateurs par channel voice
+- Audit log pour les actions admin
+- Statut utilisateur (away/busy/DND)
+
+Bugs
+------------
+x ws event pour les display name
