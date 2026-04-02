@@ -265,18 +265,19 @@
           <div class="card">
             <div class="card-title">Creer une invitation</div>
             <p class="card-hint">Genere un code pour inviter quelqu'un sur le serveur.</p>
-            <div class="invite-create">
-              <div class="field-group" style="margin-bottom: 0;">
-                <div class="field" style="margin-bottom: 0;">
-                  <label>Utilisations max</label>
-                  <input v-model.number="newInviteMaxUses" type="number" min="1" placeholder="Illimite" />
-                </div>
-                <div class="field" style="margin-bottom: 0;">
-                  <label>Expiration (heures)</label>
-                  <input v-model.number="newInviteExpireHours" type="number" min="1" placeholder="Jamais" />
-                </div>
+            <div class="invite-create-row">
+              <div class="invite-field">
+                <label>Utilisations max</label>
+                <input v-model.number="newInviteMaxUses" type="number" min="1" placeholder="Illimite" />
               </div>
-              <button class="btn-sm" style="margin-top: 10px;" @click="createInvite">Creer</button>
+              <div class="invite-field">
+                <label>Expiration (heures)</label>
+                <input v-model.number="newInviteExpireHours" type="number" min="1" placeholder="Jamais" />
+              </div>
+              <button class="btn-sm invite-create-btn" @click="createInvite">
+                <TicketPlus :size="14" />
+                Creer
+              </button>
             </div>
           </div>
 
@@ -284,19 +285,32 @@
             <div class="card-title">Invitations actives</div>
             <div class="invite-list">
               <div v-for="inv in invites" :key="inv.code" class="invite-row">
-                <code class="invite-code">{{ inv.code }}</code>
-                <span class="invite-meta">
-                  par {{ resolveUser(inv.created_by) }}
-                  · {{ inv.uses }}{{ inv.max_uses ? `/${inv.max_uses}` : '' }} utilisations
-                  <template v-if="inv.expires_at"> · expire {{ formatExpiry(inv.expires_at) }}</template>
-                </span>
-                <button class="btn-icon-danger" @click="revokeInvite(inv.code)" title="Revoquer">
+                <div class="invite-info">
+                  <div class="invite-code-row">
+                    <code class="invite-code">{{ inv.code }}</code>
+                    <button class="invite-copy" @click="copyInvite(inv.code)" :title="copiedCode === inv.code ? 'Copie !' : 'Copier'">
+                      <Check v-if="copiedCode === inv.code" :size="12" />
+                      <Copy v-else :size="12" />
+                    </button>
+                  </div>
+                  <span class="invite-meta">
+                    par {{ resolveUser(inv.created_by) }}
+                    · {{ inv.uses }}{{ inv.max_uses ? `/${inv.max_uses}` : '' }} utilisations
+                    <template v-if="inv.expires_at"> · {{ formatExpiry(inv.expires_at) }}</template>
+                  </span>
+                </div>
+                <button class="invite-revoke" @click="revokeInvite(inv.code)" title="Revoquer">
                   <Trash2 :size="14" />
                 </button>
               </div>
             </div>
           </div>
-          <p v-else class="card-hint" style="margin-top: 8px;">Aucune invitation.</p>
+          <div v-else class="card">
+            <div class="invite-empty">
+              <TicketPlus :size="24" />
+              <p>Aucune invitation</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -305,7 +319,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus } from "lucide-vue-next";
+import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import { store, activeState, activeServer, persistServers, resolveUser } from "../store";
 import { api, type Invite } from "../api";
@@ -674,6 +688,14 @@ async function createInvite() {
   newInviteExpireHours.value = null;
 }
 
+const copiedCode = ref("");
+
+async function copyInvite(code: string) {
+  await navigator.clipboard.writeText(code);
+  copiedCode.value = code;
+  setTimeout(() => { if (copiedCode.value === code) copiedCode.value = ""; }, 2000);
+}
+
 async function revokeInvite(code: string) {
   const s = activeServer();
   if (!s) return;
@@ -1004,10 +1026,55 @@ function close() {
   margin-top: 6px;
 }
 
+.invite-create-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.invite-field {
+  flex: 1;
+}
+
+.invite-field label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+
+.invite-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.invite-field input::placeholder { color: var(--text-faint); }
+.invite-field input::-webkit-inner-spin-button,
+.invite-field input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+.invite-create-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .invite-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   margin-top: 8px;
 }
 
@@ -1015,27 +1082,78 @@ function close() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 6px;
   background: var(--bg-tertiary);
 }
 
+.invite-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.invite-code-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .invite-code {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--accent);
   background: none;
   padding: 0;
+  letter-spacing: 0.05em;
 }
+
+.invite-copy {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border: none;
+}
+.invite-copy:hover { color: var(--text-normal); background: var(--bg-modifier-hover); box-shadow: none; }
 
 .invite-meta {
-  flex: 1;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--text-faint);
+  margin-top: 2px;
 }
 
-.invite-create .field-group {
-  margin-bottom: 0;
+.invite-revoke {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border: none;
+  flex-shrink: 0;
+}
+.invite-revoke:hover { color: var(--danger); background: rgba(208, 80, 80, 0.1); box-shadow: none; }
+
+.invite-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-faint);
+  font-size: 0.8125rem;
 }
 
 /* ── Item list (channels, roles, users) ── */
