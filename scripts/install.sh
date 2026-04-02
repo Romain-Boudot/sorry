@@ -117,83 +117,38 @@ if [ -z "$ADMIN_PASSWORD" ]; then
   info "Password genere: $ADMIN_PASSWORD"
 fi
 
+# Voice capacity
+echo ""
+echo -e "${bold}Capacite vocale${reset}"
+echo ""
+echo -e "  ${dim}Chaque utilisateur en vocal utilise des ports UDP dedies.${reset}"
+echo -e "  ${dim}Ce n'est pas une limite stricte : au-dela de ce quota, les${reset}"
+echo -e "  ${dim}utilisateurs peuvent toujours se connecter mais la qualite${reset}"
+echo -e "  ${dim}audio/video peut etre degradee (latence plus elevee).${reset}"
+echo ""
+ask "Slots voix simultanes [25]:"
+read -r VOICE_SLOTS < /dev/tty
+VOICE_SLOTS="${VOICE_SLOTS:-25}"
+
+ask "Slots video simultanes [0]:"
+read -r VIDEO_SLOTS < /dev/tty
+VIDEO_SLOTS="${VIDEO_SLOTS:-0}"
+
+UDP_PORTS=$(( VOICE_SLOTS * 2 + VIDEO_SLOTS * 2 ))
+if [ "$UDP_PORTS" -gt 200 ]; then
+  USE_HOST_NETWORK=true
+  ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — mode reseau direct"
+else
+  USE_HOST_NETWORK=false
+  UDP_START=50000
+  UDP_END=$((UDP_START + UDP_PORTS))
+  ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — ${UDP_PORTS} ports UDP"
+fi
+
 # Generate secrets
 JWT_SECRET="$(gen_secret)"
 LIVEKIT_API_KEY="sorry_$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
 LIVEKIT_API_SECRET="$(gen_secret)"
-
-# Find the largest free UDP port range (between 49152-65535)
-find_largest_free_range() {
-  local used_system="" used_containers=""
-
-  # System ports (listening + established)
-  if command -v ss &>/dev/null; then
-    used_system=$(ss -aunH 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$')
-  elif command -v netstat &>/dev/null; then
-    used_system=$(netstat -an 2>/dev/null | grep udp | awk '{print $4}' | grep -oE '[0-9]+$')
-  fi
-
-  # Avoid kernel ephemeral port range entirely
-  local eph_start=32768 eph_end=60999
-  if [ -f /proc/sys/net/ipv4/ip_local_port_range ]; then
-    read -r eph_start eph_end < /proc/sys/net/ipv4/ip_local_port_range
-  fi
-
-  # Container-allocated ports (docker/podman)
-  if command -v "$ENGINE" &>/dev/null; then
-    used_containers=$($ENGINE ps --format '{{.Ports}}' 2>/dev/null | grep -oE '[0-9]+-[0-9]+' | while read -r range; do
-      start="${range%-*}"; end="${range#*-}"
-      seq "$start" "$end"
-    done)
-    used_containers="$used_containers
-$($ENGINE ps --format '{{.Ports}}' 2>/dev/null | grep -oE ':[0-9]+->|:[0-9]+/' | grep -oE '[0-9]+')"
-  fi
-
-  local used
-  used=$(printf '%s\n%s' "$used_system" "$used_containers" | grep -E '^[0-9]+$' | sort -nu)
-
-  # Search in two safe zones: before and after the ephemeral range
-  # Zone 1: 10000 - eph_start
-  # Zone 2: eph_end+1 - 65535
-  local best_start=10000 best_size=0
-
-  for zone_start in 10000 $((eph_end + 1)); do
-    if [ "$zone_start" -eq 10000 ]; then
-      zone_end=$((eph_start - 1))
-    else
-      zone_end=65535
-    fi
-    [ "$zone_start" -ge "$zone_end" ] && continue
-
-    local cursor=$zone_start
-    for port in $used; do
-      [ "$port" -lt "$cursor" ] && continue
-      [ "$port" -gt "$zone_end" ] && break
-      local gap=$((port - cursor))
-      if [ "$gap" -gt "$best_size" ]; then
-        best_start=$cursor
-        best_size=$gap
-      fi
-      cursor=$((port + 1))
-    done
-
-    local gap=$((zone_end + 1 - cursor))
-    if [ "$gap" -gt "$best_size" ]; then
-      best_start=$cursor
-      best_size=$gap
-    fi
-  done
-
-  echo "$best_start $best_size"
-}
-
-read -r UDP_START UDP_SIZE <<< "$(find_largest_free_range)"
-# Cap at 10000 ports max (more than enough)
-[ "$UDP_SIZE" -gt 10000 ] && UDP_SIZE=10000
-UDP_END=$((UDP_START + UDP_SIZE - 1))
-UDP_VOICE=$((UDP_SIZE / 2))
-UDP_VIDEO=$((UDP_SIZE / 4))
-ok "Ports UDP: ${UDP_START}-${UDP_END} (${UDP_SIZE} ports, ~${UDP_VOICE} voix | ~${UDP_VIDEO} voix+video)"
 
 # Derive LiveKit URL
 if [ "$USE_HTTPS" = true ]; then
@@ -261,11 +216,15 @@ EOF
 fi
 
 # docker-compose.yml
-cat > docker-compose.yml <<'COMPOSE'
+if [ "$USE_HOST_NETWORK" = true ]; then
+  # Host network mode — LiveKit binds directly, no port mapping
+  cat > docker-compose.yml <<'COMPOSE'
 services:
   sorry:
     image: ${IMAGE:-sorry:latest}
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -279,7 +238,7 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - LIVEKIT_URL=${LIVEKIT_URL}
-      - LIVEKIT_INTERNAL_URL=http://livekit:7880
+      - LIVEKIT_INTERNAL_URL=http://host.docker.internal:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - UPLOAD_DIR=./data/uploads
@@ -289,16 +248,16 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     restart: unless-stopped
+    network_mode: host
     command: --config /etc/livekit.yaml
-    ports:
-      - "7881:7881"
-      - "UDPRANGE"
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    extra_hosts:
+      - "livekit:host-gateway"
     ports:
       - "80:80"
       - "443:443"
@@ -309,6 +268,57 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy:/data
 COMPOSE
+else
+  # Port mapping mode — LiveKit ports mapped by Docker
+  cat > docker-compose.yml <<COMPOSE
+services:
+  sorry:
+    image: \${IMAGE:-sorry:latest}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      - DATABASE_URL=sqlite:./data/data.db
+      - JWT_SECRET=\${JWT_SECRET}
+      - SERVER_NAME=\${SERVER_NAME:-Sorry Server}
+      - ADMIN_USERNAME=\${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-}
+      - LIVEKIT_URL=\${LIVEKIT_URL}
+      - LIVEKIT_INTERNAL_URL=http://livekit:7880
+      - LIVEKIT_API_KEY=\${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=\${LIVEKIT_API_SECRET}
+      - UPLOAD_DIR=./data/uploads
+    volumes:
+      - ./data:/app/data
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7881:7881"
+      - "${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CADDY_HOST=\${CADDY_HOST:-localhost}
+      - PORT=\${PORT:-80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy:/data
+COMPOSE
+fi
 
 # Caddyfile
 cat > Caddyfile <<'CADDY'
@@ -324,27 +334,24 @@ cat > Caddyfile <<'CADDY'
 CADDY
 
 # LiveKit config
-cat > livekit.yaml <<'LK'
+if [ "$USE_HOST_NETWORK" = true ]; then
+  LK_PORT_START=50000
+  LK_PORT_END=60000
+else
+  LK_PORT_START=$UDP_START
+  LK_PORT_END=$UDP_END
+fi
+
+cat > livekit.yaml <<LK
 port: 7880
 rtc:
   tcp_port: 7881
-  port_range_start: UDPSTART
-  port_range_end: UDPEND
+  port_range_start: $LK_PORT_START
+  port_range_end: $LK_PORT_END
   use_external_ip: true
 keys:
-  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+  \${LIVEKIT_API_KEY}: \${LIVEKIT_API_SECRET}
 LK
-
-# Inject dynamic port range (sed -i works differently on macOS vs Linux)
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' "s|UDPRANGE|${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp|g" docker-compose.yml
-  sed -i '' "s|UDPSTART|${UDP_START}|g" livekit.yaml
-  sed -i '' "s|UDPEND|${UDP_END}|g" livekit.yaml
-else
-  sed -i "s|UDPRANGE|${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp|g" docker-compose.yml
-  sed -i "s|UDPSTART|${UDP_START}|g" livekit.yaml
-  sed -i "s|UDPEND|${UDP_END}|g" livekit.yaml
-fi
 
 # ── Start ──
 echo ""
@@ -362,7 +369,6 @@ fi
 echo ""
 echo -e "  ${bold}Admin${reset}      $ADMIN_USERNAME"
 echo -e "  ${bold}Password${reset}   $ADMIN_PASSWORD"
-echo -e "  ${bold}UDP${reset}        ${UDP_START}-${UDP_END} (~${UDP_VOICE} voix | ~${UDP_VIDEO} voix+video)"
 echo ""
 echo -e "  ${dim}Config:  $INSTALL_DIR/.env${reset}"
 echo -e "  ${dim}Logs:    cd $INSTALL_DIR && $COMPOSE logs -f${reset}"
