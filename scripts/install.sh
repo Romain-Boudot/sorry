@@ -121,8 +121,6 @@ fi
 JWT_SECRET="$(gen_secret)"
 LIVEKIT_API_KEY="sorry_$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
 LIVEKIT_API_SECRET="$(gen_secret)"
-S3_ACCESS_KEY="sorry_s3"
-S3_SECRET_KEY="$(gen_secret)"
 
 # Find the largest free UDP port range (between 49152-65535)
 find_largest_free_range() {
@@ -229,17 +227,13 @@ if [ -f "$INSTALL_DIR/.env" ]; then
   EXISTING_JWT=$(grep '^JWT_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
   EXISTING_LK_KEY=$(grep '^LIVEKIT_API_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
   EXISTING_LK_SECRET=$(grep '^LIVEKIT_API_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-  EXISTING_S3_KEY=$(grep '^S3_ACCESS_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-  EXISTING_S3_SECRET=$(grep '^S3_SECRET_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
   [ -n "$EXISTING_JWT" ] && JWT_SECRET="$EXISTING_JWT"
   [ -n "$EXISTING_LK_KEY" ] && LIVEKIT_API_KEY="$EXISTING_LK_KEY"
   [ -n "$EXISTING_LK_SECRET" ] && LIVEKIT_API_SECRET="$EXISTING_LK_SECRET"
-  [ -n "$EXISTING_S3_KEY" ] && S3_ACCESS_KEY="$EXISTING_S3_KEY"
-  [ -n "$EXISTING_S3_SECRET" ] && S3_SECRET_KEY="$EXISTING_S3_SECRET"
 fi
 
 info "Installation dans $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/minio" "$INSTALL_DIR/caddy"
+mkdir -p "$INSTALL_DIR/data/uploads" "$INSTALL_DIR/caddy"
 cd "$INSTALL_DIR"
 
 # .env
@@ -252,8 +246,6 @@ JWT_SECRET=$JWT_SECRET
 LIVEKIT_URL=$LIVEKIT_URL
 LIVEKIT_API_KEY=$LIVEKIT_API_KEY
 LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
-S3_ACCESS_KEY=$S3_ACCESS_KEY
-S3_SECRET_KEY=$S3_SECRET_KEY
 EOF
 
 if [ "$USE_HTTPS" = true ]; then
@@ -290,24 +282,9 @@ services:
       - LIVEKIT_INTERNAL_URL=http://livekit:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-      - S3_ENDPOINT=http://minio:9000
-      - S3_BUCKET=${S3_BUCKET:-uploads}
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
-      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - UPLOAD_DIR=./data/uploads
     volumes:
       - ./data:/app/data
-    depends_on:
-      - minio
-
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
-    volumes:
-      - ./minio:/data
 
   livekit:
     image: livekit/livekit-server:latest

@@ -1,91 +1,79 @@
-use s3::bucket::Bucket;
-use s3::creds::Credentials;
-use s3::Region;
+use std::path::{Path, PathBuf};
+use tokio::fs;
 
-pub async fn create_bucket(
-    endpoint: &str,
-    bucket_name: &str,
-    access_key: &str,
-    secret_key: &str,
-) -> Box<Bucket> {
-    let region = Region::Custom {
-        region: "us-east-1".to_string(),
-        endpoint: endpoint.to_string(),
-    };
-
-    let credentials = Credentials::new(Some(access_key), Some(secret_key), None, None, None)
-        .expect("Failed to create S3 credentials");
-
-    let bucket = Bucket::new(bucket_name, region.clone(), credentials.clone())
-        .expect("Failed to create S3 bucket handle")
-        .with_path_style();
-
-    // Create bucket if it doesn't exist (MinIO)
-    match s3::bucket::Bucket::create_with_path_style(
-        bucket_name,
-        region,
-        credentials,
-        s3::BucketConfiguration::default(),
-    )
-    .await
-    {
-        Ok(_) => tracing::info!("S3 bucket '{}' created or already exists", bucket_name),
-        Err(e) => tracing::warn!("S3 bucket creation: {e} (may already exist)"),
-    }
-
-    // Verify connectivity with a list call
-    match bucket.list("__ping__".to_string(), Some("/".to_string())).await {
-        Ok(_) => tracing::info!("S3 connectivity verified"),
-        Err(e) => tracing::error!("S3 connectivity check FAILED: {e}"),
-    }
-
-    bucket
+/// Base directory for file storage
+#[derive(Clone)]
+pub struct Storage {
+    pub base_dir: PathBuf,
 }
 
-/// Delete all objects with a given prefix.
-pub async fn delete_prefix(bucket: &Bucket, prefix: &str) -> Result<(), String> {
-    let list = bucket
-        .list(prefix.to_string(), None)
-        .await
-        .map_err(|e| format!("S3 list failed: {e}"))?;
-
-    for item in list {
-        for obj in item.contents {
-            bucket
-                .delete_object(&obj.key)
-                .await
-                .map_err(|e| format!("S3 delete failed for {}: {e}", obj.key))?;
+impl Storage {
+    pub fn new(base_dir: &str) -> Self {
+        Self {
+            base_dir: PathBuf::from(base_dir),
         }
     }
-    Ok(())
 }
 
-/// Upload a file to S3/MinIO.
-/// Returns the object key.
-pub async fn upload(
-    bucket: &Bucket,
-    key: &str,
-    data: &[u8],
-    content_type: &str,
-) -> Result<(), String> {
-    bucket
-        .put_object_with_content_type(key, data, content_type)
+/// Initialize storage directory
+pub async fn init(base_dir: &str) -> Storage {
+    let storage = Storage::new(base_dir);
+    fs::create_dir_all(&storage.base_dir)
         .await
-        .map_err(|e| format!("S3 upload failed: {e}"))?;
-    Ok(())
+        .expect("Failed to create storage directory");
+    tracing::info!("File storage ready (dir={})", base_dir);
+    storage
 }
 
-/// Download a file from S3/MinIO.
-/// Returns (data, content_type).
-pub async fn download(bucket: &Bucket, key: &str) -> Result<Vec<u8>, String> {
-    let response = bucket
-        .get_object(key)
-        .await
-        .map_err(|e| format!("S3 download failed: {e}"))?;
-
-    if response.status_code() != 200 {
-        return Err(format!("S3 returned status {}", response.status_code()));
+/// Upload a file
+pub async fn upload(storage: &Storage, key: &str, data: &[u8], _content_type: &str) -> Result<(), String> {
+    let path = storage.base_dir.join(key);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create directory: {e}"))?;
     }
+    fs::write(&path, data)
+        .await
+        .map_err(|e| format!("Failed to write file: {e}"))?;
+    Ok(())
+}
 
-    Ok(response.to_vec())
+/// Download a file
+pub async fn download(storage: &Storage, key: &str) -> Result<Vec<u8>, String> {
+    let path = storage.base_dir.join(key);
+    fs::read(&path)
+        .await
+        .map_err(|e| format!("Failed to read file: {e}"))
+}
+
+/// Delete all files with a given prefix
+pub async fn delete_prefix(storage: &Storage, prefix: &str) -> Result<(), String> {
+    let path = storage.base_dir.join(prefix);
+    let dir = if path.is_dir() {
+        path
+    } else if let Some(parent) = path.parent() {
+        // prefix might be "123/" — treat as directory
+        if parent.exists() { parent.to_path_buf() } else { return Ok(()); }
+    } else {
+        return Ok(());
+    };
+
+    if dir.exists() {
+        fs::remove_dir_all(&dir)
+            .await
+            .map_err(|e| format!("Failed to delete: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Delete a single file
+pub async fn delete_file(storage: &Storage, key: &str) -> Result<(), String> {
+    let path = storage.base_dir.join(key);
+    if path.exists() {
+        fs::remove_file(&path)
+            .await
+            .map_err(|e| format!("Failed to delete file: {e}"))?;
+    }
+    Ok(())
 }

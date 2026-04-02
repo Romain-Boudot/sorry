@@ -258,13 +258,13 @@ async fn upload_avatar(
     let (data, content_type, ext) = file_data.ok_or(StatusCode::BAD_REQUEST)?;
 
     // Delete old avatar from S3
-    let _ = crate::storage::delete_prefix(&state.bucket, &format!("avatars/{}/", auth.0)).await;
+    let _ = crate::storage::delete_prefix(&state.storage, &format!("avatars/{}/", auth.0)).await;
 
     // Upload new avatar
     let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
     let key = format!("avatars/{}/{}", auth.0, stored_name);
 
-    crate::storage::upload(&state.bucket, &key, &data, &content_type)
+    crate::storage::upload(&state.storage, &key, &data, &content_type)
         .await
         .map_err(|e| {
             tracing::error!("Avatar upload failed: {e}");
@@ -291,7 +291,7 @@ async fn delete_avatar(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<StatusCode, StatusCode> {
-    let _ = crate::storage::delete_prefix(&state.bucket, &format!("avatars/{}/", auth.0)).await;
+    let _ = crate::storage::delete_prefix(&state.storage, &format!("avatars/{}/", auth.0)).await;
     crate::db::users::update_avatar_url(&state.db, auth.0, None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -316,7 +316,7 @@ pub async fn serve_avatar(
     }
 
     let key = format!("avatars/{}/{}", user_id, filename);
-    let data = crate::storage::download(&state.bucket, &key)
+    let data = crate::storage::download(&state.storage, &key)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 

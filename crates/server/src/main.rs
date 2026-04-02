@@ -47,10 +47,7 @@ async fn main() {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(25) * 1024 * 1024;
 
-    let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string());
-    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "uploads".to_string());
-    let s3_access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
-    let s3_secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./data/uploads".to_string());
 
     let connect_options: SqliteConnectOptions = database_url
         .parse::<SqliteConnectOptions>()
@@ -70,9 +67,8 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
-    // ── Init S3/MinIO ──
-    let bucket = storage::create_bucket(&s3_endpoint, &s3_bucket, &s3_access_key, &s3_secret_key).await;
-    tracing::info!("S3 storage ready (endpoint={}, bucket={})", s3_endpoint, s3_bucket);
+    // ── Init file storage ──
+    let file_storage = storage::init(&upload_dir).await;
 
     // ── Admin account bootstrap ──
     ensure_admin(&db).await;
@@ -86,7 +82,7 @@ async fn main() {
     let banned_set: std::collections::HashSet<i64> = banned_ids.into_iter().collect();
     tracing::info!("Loaded {} banned users into memory", banned_set.len());
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_internal_url, livekit_api_key, livekit_api_secret, bucket, max_file_size, banned_set));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_internal_url, livekit_api_key, livekit_api_secret, file_storage, max_file_size, banned_set));
 
     let info_state = state.clone();
     let app = Router::new()

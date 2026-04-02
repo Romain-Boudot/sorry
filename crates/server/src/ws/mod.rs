@@ -174,10 +174,10 @@ async fn handle_client_event(
             // Delete message (CASCADE deletes attachment rows)
             crate::db::messages::delete(&state.db, message_id).await?;
             // Clean up files from S3/MinIO
-            let bucket = state.bucket.clone();
+            let storage = state.storage.clone();
             tokio::spawn(async move {
-                if let Err(e) = crate::storage::delete_prefix(&bucket, &format!("{}/", message_id)).await {
-                    tracing::error!("Failed to clean up S3 files for message {}: {}", message_id, e);
+                if let Err(e) = crate::storage::delete_prefix(&storage, &format!("{}/", message_id)).await {
+                    tracing::error!("Failed to clean up files for message {}: {}", message_id, e);
                 }
             });
             let _ = state.event_tx.send(ServerEvent::MessageDelete { id: message_id });

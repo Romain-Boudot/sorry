@@ -113,13 +113,13 @@ async fn upload_icon(
     let (data, content_type, ext) = file_data.ok_or(StatusCode::BAD_REQUEST)?;
 
     // Delete old icon
-    let _ = crate::storage::delete_prefix(&state.bucket, "server-icon/").await;
+    let _ = crate::storage::delete_prefix(&state.storage, "server-icon/").await;
 
     // Upload new icon
     let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
     let key = format!("server-icon/{}", stored_name);
 
-    crate::storage::upload(&state.bucket, &key, &data, &content_type)
+    crate::storage::upload(&state.storage, &key, &data, &content_type)
         .await
         .map_err(|e| {
             tracing::error!("Server icon upload failed: {e}");
@@ -148,7 +148,7 @@ async fn delete_icon(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let _ = crate::storage::delete_prefix(&state.bucket, "server-icon/").await;
+    let _ = crate::storage::delete_prefix(&state.storage, "server-icon/").await;
     let _ = crate::db::servers::delete_setting(&state.db, "icon_url").await;
 
     broadcast_server_update(&state).await;
@@ -168,7 +168,7 @@ pub async fn serve_icon(
     }
 
     let key = format!("server-icon/{}", filename);
-    let data = crate::storage::download(&state.bucket, &key)
+    let data = crate::storage::download(&state.storage, &key)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 

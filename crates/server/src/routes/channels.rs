@@ -172,13 +172,13 @@ async fn delete_channel(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Clean up S3 files for all deleted messages
+    // Clean up files for all deleted messages
     if !message_ids.is_empty() {
-        let bucket = state.bucket.clone();
+        let storage = state.storage.clone();
         tokio::spawn(async move {
             for msg_id in message_ids {
-                if let Err(e) = crate::storage::delete_prefix(&bucket, &format!("{}/", msg_id)).await {
-                    tracing::error!("Failed to clean up S3 for message {}: {}", msg_id, e);
+                if let Err(e) = crate::storage::delete_prefix(&storage, &format!("{}/", msg_id)).await {
+                    tracing::error!("Failed to clean up files for message {}: {}", msg_id, e);
                 }
             }
         });
@@ -338,8 +338,8 @@ async fn send_message_upload(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Upload files to S3 and create attachment records
-    // On failure: clean up already-uploaded S3 objects and delete the message
+    // Upload files and create attachment records
+    // On failure: clean up already-uploaded files + delete the message
     if !files.is_empty() {
         let mut uploaded_keys: Vec<String> = Vec::new();
 
@@ -347,11 +347,10 @@ async fn send_message_upload(
             let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
             let key = format!("{}/{}", message.id, stored_name);
 
-            if let Err(e) = crate::storage::upload(&state.bucket, &key, data, content_type).await {
-                tracing::error!("S3 upload failed: {e}");
-                // Cleanup: delete already-uploaded files + the DB message
+            if let Err(e) = crate::storage::upload(&state.storage, &key, data, content_type).await {
+                tracing::error!("File upload failed: {e}");
                 for k in &uploaded_keys {
-                    let _ = state.bucket.delete_object(k).await;
+                    let _ = crate::storage::delete_file(&state.storage, k).await;
                 }
                 let _ = crate::db::messages::delete(&state.db, message.id).await;
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);

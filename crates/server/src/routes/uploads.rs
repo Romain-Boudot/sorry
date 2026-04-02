@@ -20,7 +20,7 @@ pub async fn serve_upload(
 
     let key = format!("{}/{}", msg_id, filename);
 
-    let data = crate::storage::download(&state.bucket, &key)
+    let data = crate::storage::download(&state.storage, &key)
         .await
         .map_err(|e| {
             tracing::error!("Failed to download '{}': {}", key, e);
