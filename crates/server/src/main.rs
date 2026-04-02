@@ -38,6 +38,8 @@ async fn main() {
     let server_name = std::env::var("SERVER_NAME").unwrap_or_else(|_| "Sorry Server".to_string());
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let livekit_url = std::env::var("LIVEKIT_URL").unwrap_or_default();
+    let livekit_internal_url = std::env::var("LIVEKIT_INTERNAL_URL")
+        .unwrap_or_else(|_| "http://livekit:7880".to_string());
     let livekit_api_key = std::env::var("LIVEKIT_API_KEY").unwrap_or_default();
     let livekit_api_secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_default();
     let max_file_size: usize = std::env::var("MAX_FILE_SIZE_MB")
@@ -77,7 +79,7 @@ async fn main() {
     let banned_set: std::collections::HashSet<i64> = banned_ids.into_iter().collect();
     tracing::info!("Loaded {} banned users into memory", banned_set.len());
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_api_key, livekit_api_secret, bucket, max_file_size, banned_set));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_internal_url, livekit_api_key, livekit_api_secret, bucket, max_file_size, banned_set));
 
     let info_state = state.clone();
     let app = Router::new()

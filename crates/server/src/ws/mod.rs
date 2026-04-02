@@ -265,7 +265,7 @@ async fn handle_client_event(
                 // Server-side mute via LiveKit API
                 let room = format!("voice-{}", cid);
                 let identity = format!("user-{}", target_id);
-                let lk_url = state.livekit_url.clone();
+                let lk_url = state.livekit_internal_url.clone();
                 let lk_key = state.livekit_api_key.clone();
                 let lk_secret = state.livekit_api_secret.clone();
                 tokio::spawn(async move {
@@ -307,7 +307,7 @@ async fn handle_client_event(
                 // Server-side mute via LiveKit API (deafen = also mute audio)
                 let room = format!("voice-{}", cid);
                 let identity = format!("user-{}", target_id);
-                let lk_url = state.livekit_url.clone();
+                let lk_url = state.livekit_internal_url.clone();
                 let lk_key = state.livekit_api_key.clone();
                 let lk_secret = state.livekit_api_secret.clone();
                 tokio::spawn(async move {

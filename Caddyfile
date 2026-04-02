@@ -1,7 +1,9 @@
-{$DOMAIN:sorry.example.com}:{$HTTPS_PORT:443} {
-    reverse_proxy sorry:3000
-}
-
-livekit.{$DOMAIN:sorry.example.com}:{$HTTPS_PORT:443} {
-    reverse_proxy livekit:7880
+{$CADDY_HOST:localhost}:{$PORT:80} {
+    handle /livekit/* {
+        uri strip_prefix /livekit
+        reverse_proxy livekit:7880
+    }
+    handle {
+        reverse_proxy sorry:3000
+    }
 }

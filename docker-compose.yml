@@ -1,41 +1,25 @@
 services:
   sorry:
-    build: .
+    image: ${IMAGE:-sorry:latest}
     restart: unless-stopped
     environment:
-      - BIND_ADDR=0.0.0.0:3000
       - DATABASE_URL=sqlite:./data/data.db
       - JWT_SECRET=${JWT_SECRET}
       - SERVER_NAME=${SERVER_NAME:-Sorry Server}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      - SERVER_PASSWORD=${SERVER_PASSWORD:-}
-      - LIVEKIT_URL=wss://livekit.${DOMAIN}
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_INTERNAL_URL=http://livekit:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET:-uploads}
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
-      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
     volumes:
       - sorry-data:/app/data
     depends_on:
       - minio
-
-  livekit:
-    image: livekit/livekit-server:latest
-    restart: unless-stopped
-    command: --config /etc/livekit.yaml
-    ports:
-      - "7881:7881"
-      - "443:443/udp"
-      - "50000-60000:50000-60000/udp"
-    environment:
-      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
-      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-      - LIVEKIT_DOMAIN=livekit.${DOMAIN}
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml
 
   minio:
     image: minio/minio:latest
@@ -47,15 +31,25 @@ services:
     volumes:
       - minio-data:/data
 
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7881:7881"
+      - "50000-60000:50000-60000/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     ports:
       - "80:80"
-      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}"
+      - "443:443"
     environment:
-      - DOMAIN=${DOMAIN}
-      - HTTPS_PORT=${HTTPS_PORT:-443}
+      - CADDY_HOST=${CADDY_HOST:-localhost}
+      - PORT=${PORT:-80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy-data:/data

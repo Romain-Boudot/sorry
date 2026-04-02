@@ -5,8 +5,4 @@ rtc:
   port_range_end: 60000
   use_external_ip: true
 keys:
-  ${LIVEKIT_API_KEY:devkey}: ${LIVEKIT_API_SECRET:devsecret}
-turn:
-  enabled: true
-  udp_port: 443
-  domain: ${LIVEKIT_DOMAIN:livekit.sorry.example.com}
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
