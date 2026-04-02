@@ -20,11 +20,19 @@
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+      "additionalBrowserArgs": "--ignore-certificate-errors"
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sorry"]
+      }
     }
   },
   "bundle": {

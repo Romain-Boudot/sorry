@@ -288,9 +288,13 @@
                 <div class="invite-info">
                   <div class="invite-code-row">
                     <code class="invite-code">{{ inv.code }}</code>
-                    <button class="invite-copy" @click="copyInvite(inv.code)" :title="copiedCode === inv.code ? 'Copie !' : 'Copier'">
+                    <button class="invite-copy" @click="copyInvite(inv.code)" :title="copiedCode === inv.code ? 'Copie !' : 'Copier le code'">
                       <Check v-if="copiedCode === inv.code" :size="12" />
                       <Copy v-else :size="12" />
+                    </button>
+                    <button class="invite-copy" @click="copyInviteLink(inv.code)" :title="copiedLink === inv.code ? 'Copie !' : 'Copier le lien'">
+                      <Check v-if="copiedLink === inv.code" :size="12" />
+                      <Link2 v-else :size="12" />
                     </button>
                   </div>
                   <span class="invite-meta">
@@ -319,7 +323,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check } from "lucide-vue-next";
+import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check, Link2 } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import { store, activeState, activeServer, persistServers, resolveUser } from "../store";
 import { api, type Invite } from "../api";
@@ -689,11 +693,21 @@ async function createInvite() {
 }
 
 const copiedCode = ref("");
+const copiedLink = ref("");
 
 async function copyInvite(code: string) {
   await navigator.clipboard.writeText(code);
   copiedCode.value = code;
   setTimeout(() => { if (copiedCode.value === code) copiedCode.value = ""; }, 2000);
+}
+
+async function copyInviteLink(code: string) {
+  const s = activeServer();
+  if (!s) return;
+  const link = `https://sorry.boudot.codes/#invite=${code}&server=${encodeURIComponent(s.url)}`;
+  await navigator.clipboard.writeText(link);
+  copiedLink.value = code;
+  setTimeout(() => { if (copiedLink.value === code) copiedLink.value = ""; }, 2000);
 }
 
 async function revokeInvite(code: string) {

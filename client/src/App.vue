@@ -70,7 +70,53 @@ const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
 const isTauri = ref("__TAURI_INTERNALS__" in window);
 
-onMounted(() => {
+function handleInviteParams(params: URLSearchParams) {
+  const invite = params.get("invite");
+  const server = params.get("server");
+  if (invite && server) {
+    store.prefillServerUrl = server;
+    store.prefillInviteCode = invite;
+    store.showAddServerModal = true;
+  }
+}
+
+function parseDeepLink(url: string) {
+  // sorry://invite?code=ABC&server=https://...
+  try {
+    const parsed = new URL(url);
+    const params = new URLSearchParams(parsed.search);
+    // Remap code → invite for consistency
+    if (params.has("code")) {
+      params.set("invite", params.get("code")!);
+    }
+    handleInviteParams(params);
+  } catch {}
+}
+
+onMounted(async () => {
+  // Parse invite from hash: #invite=CODE&server=URL
+  const hash = window.location.hash.slice(1);
+  if (hash) {
+    handleInviteParams(new URLSearchParams(hash));
+    window.location.hash = "";
+  }
+
+  // Listen for deep links (Tauri)
+  if ("__TAURI_INTERNALS__" in window) {
+    try {
+      const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+      await onOpenUrl((urls) => {
+        for (const url of urls) parseDeepLink(url);
+      });
+    } catch {}
+
+    // Also listen for single-instance forwarded events
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<string>("deep-link-open", (event) => {
+      parseDeepLink(event.payload);
+    });
+  }
+
   connectAll();
 });
 </script>

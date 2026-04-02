@@ -11,4 +11,4 @@ services:
       - "7881:7881"
       - "50000-50100:50000-50100/udp"
     volumes:
-      - ./livekit.local.yaml:/etc/livekit.yaml
+      - ./livekit.yaml:/etc/livekit.yaml

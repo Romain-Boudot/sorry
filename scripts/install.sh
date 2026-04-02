@@ -135,15 +135,9 @@ read -r VIDEO_SLOTS < /dev/tty
 VIDEO_SLOTS="${VIDEO_SLOTS:-0}"
 
 UDP_PORTS=$(( VOICE_SLOTS * 2 + VIDEO_SLOTS * 2 ))
-if [ "$UDP_PORTS" -gt 200 ]; then
-  USE_HOST_NETWORK=true
-  ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — mode reseau direct"
-else
-  USE_HOST_NETWORK=false
-  UDP_START=50000
-  UDP_END=$((UDP_START + UDP_PORTS))
-  ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — ${UDP_PORTS} ports UDP"
-fi
+UDP_START=50000
+UDP_END=$((UDP_START + UDP_PORTS))
+ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — ${UDP_PORTS} ports UDP"
 
 # Generate secrets
 JWT_SECRET="$(gen_secret)"
@@ -188,7 +182,7 @@ if [ -f "$INSTALL_DIR/.env" ]; then
 fi
 
 info "Installation dans $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/data/uploads" "$INSTALL_DIR/caddy"
+mkdir -p "$INSTALL_DIR/data/uploads"
 cd "$INSTALL_DIR"
 
 # .env
@@ -201,30 +195,26 @@ JWT_SECRET=$JWT_SECRET
 LIVEKIT_URL=$LIVEKIT_URL
 LIVEKIT_API_KEY=$LIVEKIT_API_KEY
 LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
+CADDY_HOST=$HOST
 EOF
 
 if [ "$USE_HTTPS" = true ]; then
   cat >> .env <<EOF
-CADDY_HOST=$HOST
 PORT=443
 EOF
 else
   cat >> .env <<EOF
-CADDY_HOST=$HOST
 PORT=80
 EOF
 fi
 
 # docker-compose.yml
-if [ "$USE_HOST_NETWORK" = true ]; then
-  # Host network mode — LiveKit binds directly, no port mapping
-  cat > docker-compose.yml <<'COMPOSE'
+cat > docker-compose.yml <<COMPOSE
 services:
   sorry:
-    image: ${IMAGE:-sorry:latest}
+    image: \${IMAGE:-sorry:latest}
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -233,15 +223,16 @@ services:
       start_period: 10s
     environment:
       - DATABASE_URL=sqlite:./data/data.db
-      - JWT_SECRET=${JWT_SECRET}
-      - SERVER_NAME=${SERVER_NAME:-Sorry Server}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      - LIVEKIT_URL=${LIVEKIT_URL}
-      - LIVEKIT_INTERNAL_URL=http://host.docker.internal:7880
-      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
-      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-      - UPLOAD_DIR=./data/uploads
+      - JWT_SECRET=\${JWT_SECRET}
+      - SERVER_NAME=\${SERVER_NAME:-Sorry Server}
+      - ADMIN_USERNAME=\${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-}
+      - LIVEKIT_URL=\${LIVEKIT_URL}
+      - LIVEKIT_INTERNAL_URL=http://localhost:7880
+      - LIVEKIT_API_KEY=\${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=\${LIVEKIT_API_SECRET}
+      - UPLOAD_DIR=\${UPLOAD_DIR:-./data/uploads}
+      - MAX_FILE_SIZE_MB=\${MAX_FILE_SIZE_MB:-25}
     volumes:
       - ./data:/app/data
 
@@ -256,61 +247,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
-    extra_hosts:
-      - "livekit:host-gateway"
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - CADDY_HOST=${CADDY_HOST:-localhost}
-      - PORT=${PORT:-80}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - ./caddy:/data
-COMPOSE
-else
-  # Port mapping mode — LiveKit ports mapped by Docker
-  cat > docker-compose.yml <<COMPOSE
-services:
-  sorry:
-    image: \${IMAGE:-sorry:latest}
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    environment:
-      - DATABASE_URL=sqlite:./data/data.db
-      - JWT_SECRET=\${JWT_SECRET}
-      - SERVER_NAME=\${SERVER_NAME:-Sorry Server}
-      - ADMIN_USERNAME=\${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-}
-      - LIVEKIT_URL=\${LIVEKIT_URL}
-      - LIVEKIT_INTERNAL_URL=http://livekit:7880
-      - LIVEKIT_API_KEY=\${LIVEKIT_API_KEY}
-      - LIVEKIT_API_SECRET=\${LIVEKIT_API_SECRET}
-      - UPLOAD_DIR=./data/uploads
-    volumes:
-      - ./data:/app/data
-
-  livekit:
-    image: livekit/livekit-server:latest
-    restart: unless-stopped
-    command: --config /etc/livekit.yaml
-    ports:
-      - "7881:7881"
-      - "${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp"
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml
-
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     environment:
       - CADDY_HOST=\${CADDY_HOST:-localhost}
       - PORT=\${PORT:-80}
@@ -318,39 +255,35 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy:/data
 COMPOSE
-fi
 
 # Caddyfile
 cat > Caddyfile <<'CADDY'
 {$CADDY_HOST:localhost}:{$PORT:80} {
     handle /livekit/* {
         uri strip_prefix /livekit
-        reverse_proxy livekit:7880
+        reverse_proxy localhost:7880
     }
     handle {
-        reverse_proxy sorry:3000
+        reverse_proxy localhost:3000
     }
 }
 CADDY
 
-# LiveKit config
-if [ "$USE_HOST_NETWORK" = true ]; then
-  LK_PORT_START=50000
-  LK_PORT_END=60000
-else
-  LK_PORT_START=$UDP_START
-  LK_PORT_END=$UDP_END
-fi
-
+# livekit.yaml
 cat > livekit.yaml <<LK
 port: 7880
 rtc:
   tcp_port: 7881
-  port_range_start: $LK_PORT_START
-  port_range_end: $LK_PORT_END
+  port_range_start: $UDP_START
+  port_range_end: $UDP_END
   use_external_ip: true
+turn:
+  enabled: true
+  domain: $HOST
+  udp_port: 3478
+  tls_port: 0
 keys:
-  \${LIVEKIT_API_KEY}: \${LIVEKIT_API_SECRET}
+  $LIVEKIT_API_KEY: $LIVEKIT_API_SECRET
 LK
 
 # ── Start ──

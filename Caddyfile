@@ -1,9 +1,9 @@
 {$CADDY_HOST:localhost}:{$PORT:80} {
     handle /livekit/* {
         uri strip_prefix /livekit
-        reverse_proxy livekit:7880
+        reverse_proxy localhost:7880
     }
     handle {
-        reverse_proxy sorry:3000
+        reverse_proxy localhost:3000
     }
 }

@@ -1,7 +1,8 @@
 services:
   sorry:
-    image: ${IMAGE:-sorry:latest}
+    image: ${IMAGE:-rg.fr-par.scw.cloud/sorry/sorry:latest}
     restart: unless-stopped
+    network_mode: host
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -15,29 +16,26 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - LIVEKIT_URL=${LIVEKIT_URL}
-      - LIVEKIT_INTERNAL_URL=http://livekit:7880
+      - LIVEKIT_INTERNAL_URL=http://localhost:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-      - UPLOAD_DIR=./data/uploads
+      - UPLOAD_DIR=${UPLOAD_DIR:-./data/uploads}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-25}
     volumes:
       - sorry-data:/app/data
 
   livekit:
     image: livekit/livekit-server:latest
     restart: unless-stopped
+    network_mode: host
     command: --config /etc/livekit.yaml
-    ports:
-      - "7881:7881"
-      - "50000-50100:50000-50100/udp"
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
 
   caddy:
     image: caddy:2
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     environment:
       - CADDY_HOST=${CADDY_HOST:-localhost}
       - PORT=${PORT:-80}

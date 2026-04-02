@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState } from "./api";
+import { api, resolveBaseUrl, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState } from "./api";
 import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened } from "./voice";
 
 export interface SavedServer {
@@ -89,6 +89,8 @@ export const store = reactive({
   activeServerId: null as string | null,
   serverStates: new Map<string, ServerState>(),
   showAddServerModal: false,
+  prefillServerUrl: "",
+  prefillInviteCode: "",
   showSettingsModal: false,
   audioInputDevice: localStorage.getItem("audioInputDevice") || "",
   audioOutputDevice: localStorage.getItem("audioOutputDevice") || "",
@@ -181,7 +183,7 @@ export async function addServer(
   displayName?: string,
   defaultAvatar?: File
 ) {
-  const baseUrl = url.replace(/\/+$/, "");
+  const baseUrl = await resolveBaseUrl(url);
 
   const duplicate = store.savedServers.find(
     (s) => s.url === baseUrl && s.username === username
@@ -234,6 +236,13 @@ export async function connectToServer(serverId: string) {
   store.serverStates.set(serverId, state);
 
   try {
+    // Resolve protocol if needed (fixes saved http:// URLs when server uses https)
+    const resolvedUrl = await resolveBaseUrl(server.url);
+    if (resolvedUrl !== server.url) {
+      server.url = resolvedUrl;
+      persistServers();
+    }
+
     const [me, channels, groups, info] = await Promise.all([
       api.me(server.url, server.token),
       api.listChannels(server.url, server.token),

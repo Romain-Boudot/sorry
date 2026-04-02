@@ -4,6 +4,18 @@ async function hashPassword(password: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function resolveBaseUrl(input: string): Promise<string> {
+  const stripped = input.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  for (const scheme of ["https", "http"]) {
+    try {
+      const url = `${scheme}://${stripped}`;
+      const res = await fetch(`${url}/info`, { mode: "cors" });
+      if (res.ok) return url;
+    } catch {}
+  }
+  throw new Error("Server unreachable");
+}
+
 async function request<T>(
   baseUrl: string,
   path: string,
@@ -20,6 +32,8 @@ async function request<T>(
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+export { resolveBaseUrl };
 
 export const api = {
   async serverInfo(baseUrl: string) {

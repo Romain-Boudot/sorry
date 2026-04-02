@@ -74,7 +74,7 @@
         <div class="step-actions">
           <button class="btn-back" @click="step = 1">Retour</button>
           <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim()">
-            {{ loading ? "Connexion..." : "Se connecter" }}
+            {{ loading ? "Connexion..." : showNewAccount ? "S'inscrire" : "Se connecter" }}
           </button>
         </div>
       </template>
@@ -83,16 +83,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { store, addServer } from "../store";
-import { api } from "../api";
+import { api, resolveBaseUrl } from "../api";
 
 const step = ref(1);
 const loading = ref(false);
 const error = ref("");
 
 // Step 1
-const url = ref("http://localhost:3000");
+const url = ref("main.sorry.boudot.codes");
 const serverName = ref("");
 
 // Step 2
@@ -104,15 +104,32 @@ const showNewAccount = ref(false);
 const serverIconUrl = ref<string | null>(null);
 const serverDescription = ref<string | null>(null);
 
-// Returns the URL(s) to try in order. If the user typed an explicit protocol,
-// we respect it and try only that. If no protocol, we try https first, then
-// http — but only if we're not in a browser served over https (mixed content).
-function candidateUrls(raw: string): string[] {
-  const trimmed = raw.trim().replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(trimmed)) return [trimmed];
-  const canTryHttp = window.location.protocol !== "https:"; // tauri: or http: → ok
-  return canTryHttp ? [`https://${trimmed}`, `http://${trimmed}`] : [`https://${trimmed}`];
-}
+// Handle prefilled invite link
+onMounted(async () => {
+  if (store.prefillServerUrl && store.prefillInviteCode) {
+    url.value = store.prefillServerUrl;
+    inviteCode.value = store.prefillInviteCode;
+    showNewAccount.value = true;
+    const prefillUrl = store.prefillServerUrl;
+    store.prefillServerUrl = "";
+    store.prefillInviteCode = "";
+    // Auto-resolve and skip to step 2
+    loading.value = true;
+    try {
+      const resolved = await resolveBaseUrl(prefillUrl);
+      url.value = resolved;
+      const info = await api.serverInfo(resolved);
+      serverName.value = info.name;
+      serverIconUrl.value = info.icon_url ? `${resolved}${info.icon_url}` : null;
+      serverDescription.value = info.description ?? null;
+      step.value = 2;
+    } catch {
+      error.value = "Impossible de joindre ce serveur";
+    } finally {
+      loading.value = false;
+    }
+  }
+});
 
 async function nextStep() {
   error.value = "";
@@ -120,18 +137,9 @@ async function nextStep() {
 
   try {
     if (step.value === 1) {
-      const candidates = candidateUrls(url.value);
-      let info: { name: string; description?: string; icon_url?: string } | null = null;
-      for (const candidate of candidates) {
-        try {
-          info = await api.serverInfo(candidate);
-          url.value = candidate;
-          break;
-        } catch {
-          // try next
-        }
-      }
-      if (!info) throw new Error("unreachable");
+      const resolved = await resolveBaseUrl(url.value);
+      url.value = resolved;
+      const info = await api.serverInfo(resolved);
       serverName.value = info.name;
       serverIconUrl.value = info.icon_url ? `${url.value}${info.icon_url}` : null;
       serverDescription.value = info.description ?? null;
