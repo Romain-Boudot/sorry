@@ -210,6 +210,34 @@ ask "Dossier d'installation [$INSTALL_DIR]:"
 read -r CUSTOM_DIR < /dev/tty
 INSTALL_DIR="${CUSTOM_DIR:-$INSTALL_DIR}"
 
+# Check if already installed
+if [ -f "$INSTALL_DIR/.env" ]; then
+  warn "Installation existante detectee dans $INSTALL_DIR"
+  ask "Ecraser la configuration ? Les donnees seront conservees. [o/N]:"
+  read -r OVERWRITE < /dev/tty
+  OVERWRITE="${OVERWRITE:-n}"
+  if [[ ! "$OVERWRITE" =~ ^[oOyY] ]]; then
+    info "Mise a jour uniquement (pull + restart)..."
+    cd "$INSTALL_DIR"
+    $COMPOSE pull
+    $COMPOSE up -d
+    ok "Mis a jour !"
+    exit 0
+  fi
+  # Keep existing secrets
+  info "Conservation des secrets existants..."
+  EXISTING_JWT=$(grep '^JWT_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+  EXISTING_LK_KEY=$(grep '^LIVEKIT_API_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+  EXISTING_LK_SECRET=$(grep '^LIVEKIT_API_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+  EXISTING_S3_KEY=$(grep '^S3_ACCESS_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+  EXISTING_S3_SECRET=$(grep '^S3_SECRET_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+  [ -n "$EXISTING_JWT" ] && JWT_SECRET="$EXISTING_JWT"
+  [ -n "$EXISTING_LK_KEY" ] && LIVEKIT_API_KEY="$EXISTING_LK_KEY"
+  [ -n "$EXISTING_LK_SECRET" ] && LIVEKIT_API_SECRET="$EXISTING_LK_SECRET"
+  [ -n "$EXISTING_S3_KEY" ] && S3_ACCESS_KEY="$EXISTING_S3_KEY"
+  [ -n "$EXISTING_S3_SECRET" ] && S3_SECRET_KEY="$EXISTING_S3_SECRET"
+fi
+
 info "Installation dans $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/minio" "$INSTALL_DIR/caddy"
 cd "$INSTALL_DIR"
@@ -246,6 +274,12 @@ services:
   sorry:
     image: ${IMAGE:-sorry:latest}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - DATABASE_URL=sqlite:./data/data.db
       - JWT_SECRET=${JWT_SECRET}

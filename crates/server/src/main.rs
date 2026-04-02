@@ -11,7 +11,7 @@ use argon2::{
     Argon2, PasswordHasher,
 };
 use axum::{routing::get, Router};
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -52,9 +52,15 @@ async fn main() {
     let s3_access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
     let s3_secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
 
+    let connect_options: SqliteConnectOptions = database_url
+        .parse::<SqliteConnectOptions>()
+        .expect("Invalid DATABASE_URL")
+        .foreign_keys(true)
+        .create_if_missing(true);
+
     let db = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&database_url)
+        .connect_with(connect_options)
         .await
         .expect("Failed to connect to database");
 
@@ -98,8 +104,9 @@ async fn main() {
                 .await
                 .ok()
                 .flatten();
-            axum::Json(serde_json::json!({ "name": name, "description": description, "icon_url": icon_url }))
+            axum::Json(serde_json::json!({ "name": name, "description": description, "icon_url": icon_url, "version": env!("CARGO_PKG_VERSION") }))
         }))
+        .route("/version", get(|| async { env!("CARGO_PKG_VERSION") }))
         .route("/ws", get(ws::handler))
         .nest("/api", routes::router())
         .route("/uploads/:msg_id/:filename", get(routes::uploads::serve_upload))
@@ -148,33 +155,11 @@ async fn ensure_admin(db: &sqlx::SqlitePool) {
         .expect("Failed to check admin user");
 
     match existing {
-        Some(user) => {
-            // Le compte id=1 existe — s'assurer qu'il est bien configuré
-            if user.username != admin_username {
-                db::users::update_username(db, 1, &admin_username)
-                    .await
-                    .expect("Failed to update admin username");
-                tracing::info!("Admin username updated to '{}'", admin_username);
-            }
-
-            // Si ADMIN_PASSWORD est défini en env, reset le mot de passe
-            if let Some(ref password) = admin_password_env {
-                let pre_hashed = sha256_password(password);
-                let salt = SaltString::generate(&mut OsRng);
-                let hash = Argon2::default()
-                    .hash_password(pre_hashed.as_bytes(), &salt)
-                    .expect("Failed to hash admin password")
-                    .to_string();
-                db::users::update_password(db, 1, &hash)
-                    .await
-                    .expect("Failed to update admin password");
-            }
-
-            // S'assurer que le rôle Admin est toujours assigné
+        Some(_) => {
+            // Le compte id=1 existe — s'assurer que les rôles sont assignés
             let _ = db::roles::assign_to_user(db, 1, 1).await;
             let _ = db::roles::assign_to_user(db, 1, 2).await;
-
-            tracing::info!("Admin account '{}' (id=1) verified", admin_username);
+            tracing::info!("Admin account (id=1) verified");
         }
         None => {
             // Le compte n'existe pas — le créer
