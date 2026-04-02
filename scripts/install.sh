@@ -61,7 +61,7 @@ echo -e "  ${dim}1)${reset} Local   — acces depuis cette machine uniquement"
 echo -e "  ${dim}2)${reset} Public  — accessible depuis le reseau / internet"
 echo ""
 ask "Mode [1/2]:"
-read -r DEPLOY_MODE
+read -r DEPLOY_MODE < /dev/tty
 DEPLOY_MODE="${DEPLOY_MODE:-1}"
 
 DOMAIN=""
@@ -77,12 +77,12 @@ if [ "$DEPLOY_MODE" = "2" ]; then
   echo ""
 
   ask "Nom de domaine (vide = utiliser l'IP):"
-  read -r DOMAIN
+  read -r DOMAIN < /dev/tty
 
   if [ -n "$DOMAIN" ]; then
     HOST="$DOMAIN"
     ask "Activer HTTPS ? (TLS auto via Caddy) [O/n]:"
-    read -r HTTPS_CHOICE
+    read -r HTTPS_CHOICE < /dev/tty
     HTTPS_CHOICE="${HTTPS_CHOICE:-o}"
     if [[ "$HTTPS_CHOICE" =~ ^[oOyY] ]]; then
       USE_HTTPS=true
@@ -95,15 +95,15 @@ fi
 
 echo ""
 ask "Nom du serveur [Sorry Server]:"
-read -r SERVER_NAME
+read -r SERVER_NAME < /dev/tty
 SERVER_NAME="${SERVER_NAME:-Sorry Server}"
 
 ask "Admin username [admin]:"
-read -r ADMIN_USERNAME
+read -r ADMIN_USERNAME < /dev/tty
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 
 ask "Admin password (vide = auto-genere):"
-read -rs ADMIN_PASSWORD
+read -rs ADMIN_PASSWORD < /dev/tty
 echo ""
 if [ -z "$ADMIN_PASSWORD" ]; then
   ADMIN_PASSWORD="$(gen_secret)"
@@ -127,7 +127,7 @@ fi
 # ── Install ──
 echo ""
 ask "Dossier d'installation [$INSTALL_DIR]:"
-read -r CUSTOM_DIR
+read -r CUSTOM_DIR < /dev/tty
 INSTALL_DIR="${CUSTOM_DIR:-$INSTALL_DIR}"
 
 info "Installation dans $INSTALL_DIR"
