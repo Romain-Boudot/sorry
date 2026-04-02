@@ -9,25 +9,67 @@
       </div>
       <div class="voice-bar-server">{{ voiceEntry.server.name }} - {{ channelName }}</div>
     </div>
-    <button
-      class="voice-bar-btn danger"
-      @click="leaveVoiceChannel()"
-      title="Deconnecter"
-    >
-      <PhoneOff :size="16" />
-    </button>
+    <div class="voice-bar-actions">
+      <div ref="connRef" class="conn-wrapper" @mouseenter="openTooltip" @mouseleave="showTooltip = false">
+        <div class="conn-indicator" :class="connClass">
+          <Loader2 v-if="!connStats" :size="14" class="spin" />
+          <RadioTower v-else :size="14" />
+        </div>
+      </div>
+      <Teleport to="body">
+        <Transition name="tooltip">
+          <div v-if="showTooltip" class="conn-tooltip" :style="tooltipStyle">
+            <template v-if="connStats">
+              <div class="tooltip-row tooltip-transport">
+                <span class="tooltip-dot" :class="connClass"></span>
+                <span>{{ transportLabel }}</span>
+                <span v-if="connStats.rtt" class="tooltip-rtt">{{ connStats.rtt }}ms</span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="tooltip-row tooltip-pending">Analyse de la connexion...</div>
+            </template>
+          </div>
+        </Transition>
+      </Teleport>
+      <button
+        class="voice-bar-btn danger"
+        @click="leaveVoiceChannel()"
+        title="Deconnecter"
+      >
+        <PhoneOff :size="16" />
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { Phone, PhoneOff, Loader2, AlertCircle } from "lucide-vue-next";
+import { computed, ref, watch, onUnmounted } from "vue";
+import { Phone, PhoneOff, Loader2, AlertCircle, RadioTower } from "lucide-vue-next";
 import { store, leaveVoiceChannel } from "../store";
+import { getConnectionStats, type ConnectionStats } from "../voice";
+
+const showTooltip = ref(false);
+const connRef = ref<HTMLElement | null>(null);
+const tooltipStyle = ref<Record<string, string>>({});
+
+function openTooltip() {
+  if (connRef.value) {
+    const rect = connRef.value.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    tooltipStyle.value = {
+      position: "fixed",
+      bottom: `${window.innerHeight - rect.top + 8}px`,
+      left: `${centerX}px`,
+      transform: "translateX(-50%)",
+    };
+  }
+  showTooltip.value = true;
+}
 
 const voiceEntry = computed(() => {
   for (const server of store.savedServers) {
     const state = store.serverStates.get(server.id);
-    console.log(state?.voiceStatus, state?.voiceConnectingChannelId)
     if (state && state.voiceStatus !== "idle") return { server, state };
   }
   return null;
@@ -37,20 +79,51 @@ const channelName = computed(() => {
   if (!voiceEntry.value) return "";
   const { state } = voiceEntry.value;
   const targetId = state.voiceChannelId ?? state.voiceConnectingChannelId;
-  console.log(targetId)
   const ch = state.channels.find((c) => c.id === targetId);
-  return ch?.name
-})
+  return ch?.name;
+});
 
 const statusLabel = computed(() => {
   if (!voiceEntry.value) return "";
   const { state } = voiceEntry.value;
   if (state.voiceStatus === "connecting") return "Connexion...";
   if (state.voiceStatus === "error") return "Erreur de connexion";
-  const ch = state.channels.find(
-    (c) => c.id === state.voiceChannelId
-  );
+  const ch = state.channels.find((c) => c.id === state.voiceChannelId);
   return ch?.name ?? "";
+});
+
+// Connection stats
+const connStats = ref<ConnectionStats | null>(null);
+let statsInterval: ReturnType<typeof setInterval> | null = null;
+
+async function pollStats() {
+  connStats.value = await getConnectionStats();
+}
+
+watch(() => voiceEntry.value?.state.voiceStatus, (status) => {
+  if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+  if (status === "connected") {
+    setTimeout(pollStats, 1500);
+    statsInterval = setInterval(pollStats, 3000);
+  } else {
+    connStats.value = null;
+  }
+}, { immediate: true });
+
+onUnmounted(() => {
+  if (statsInterval) clearInterval(statsInterval);
+});
+
+const connClass = computed(() => connStats.value?.transport ?? "pending");
+
+const transportLabel = computed(() => {
+  switch (connStats.value?.transport) {
+    case "udp": return "UDP direct";
+    case "tcp": return "TCP fallback";
+    case "turn-udp": return "Relais TURN (UDP)";
+    case "turn-tcp": return "Relais TURN (TCP)";
+    default: return "Connexion...";
+  }
 });
 </script>
 
@@ -79,19 +152,47 @@ const statusLabel = computed(() => {
   font-size: 0.8125rem;
 }
 
-.voice-bar-status.connecting {
-  color: var(--text-muted);
-}
-
-.voice-bar-status.error {
-  color: var(--danger);
-}
+.voice-bar-status.connecting { color: var(--text-muted); }
+.voice-bar-status.error { color: var(--danger); }
 
 .voice-bar-server {
   font-size: 0.6875rem;
   color: var(--text-muted);
   font-weight: 400;
 }
+
+.voice-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.conn-wrapper {
+  position: relative;
+}
+
+.conn-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.conn-indicator:hover {
+  background: var(--bg-modifier-hover);
+}
+
+.conn-indicator.udp { color: var(--green); }
+.conn-indicator.tcp { color: var(--yellow, #f0b232); }
+.conn-indicator.turn-udp { color: var(--blue, #5865f2); }
+.conn-indicator.turn-tcp { color: var(--orange, #e67e22); }
+.conn-indicator.unknown,
+.conn-indicator.pending { color: var(--text-faint); }
+
 
 .voice-bar-btn {
   width: 32px;
@@ -121,5 +222,65 @@ const statusLabel = computed(() => {
 
 .spin {
   animation: spin 1s linear infinite;
+}
+</style>
+
+<style>
+.conn-tooltip {
+  background: var(--bg-floating, #18191c);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.conn-tooltip .tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.conn-tooltip .tooltip-transport {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.conn-tooltip .tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.conn-tooltip .tooltip-dot.udp { background: var(--green); }
+.conn-tooltip .tooltip-dot.tcp { background: var(--yellow, #f0b232); }
+.conn-tooltip .tooltip-dot.turn-udp { background: var(--blue, #5865f2); }
+.conn-tooltip .tooltip-dot.turn-tcp { background: var(--orange, #e67e22); }
+.conn-tooltip .tooltip-dot.unknown,
+.conn-tooltip .tooltip-dot.pending { background: var(--text-faint); }
+
+.conn-tooltip .tooltip-rtt {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.conn-tooltip .tooltip-pending {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tooltip-enter-active { transition: opacity 0.12s, transform 0.12s; }
+.tooltip-leave-active { transition: opacity 0.08s, transform 0.08s; }
+.tooltip-enter-from,
+.tooltip-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
 }
 </style>

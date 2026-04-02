@@ -180,3 +180,63 @@ export function setMicEnabled(enabled: boolean) {
   if (!currentRoom) return;
   currentRoom.localParticipant.setMicrophoneEnabled(enabled);
 }
+
+/// Get WebRTC connection stats
+export interface ConnectionStats {
+  transport: "udp" | "tcp" | "turn-udp" | "turn-tcp" | "unknown";
+  localAddress: string;
+  remoteAddress: string;
+  rtt: number; // ms
+}
+
+export async function getConnectionStats(): Promise<ConnectionStats | null> {
+  if (!currentRoom) return null;
+
+  try {
+    // Find the peer connection via Room internals
+    const engine = (currentRoom as any).engine;
+    const pc: RTCPeerConnection | undefined =
+      engine?.pcManager?.publisher?.pc ??
+      engine?.publisher?.pc ??
+      engine?.pcManager?.subscriber?.pc;
+
+    if (!pc) return null;
+
+    const stats = await pc.getStats();
+    let selectedPair: any = null;
+    const candidates = new Map<string, any>();
+
+    stats.forEach((report: any) => {
+      if (report.type === "local-candidate" || report.type === "remote-candidate") {
+        candidates.set(report.id, report);
+      }
+      if (report.type === "candidate-pair" && (report.nominated || report.state === "succeeded")) {
+        if (!selectedPair || report.nominated) selectedPair = report;
+      }
+    });
+
+    if (!selectedPair) return null;
+
+    const local = candidates.get(selectedPair.localCandidateId);
+    const remote = candidates.get(selectedPair.remoteCandidateId);
+
+    const protocol = (local?.protocol || "unknown").toLowerCase();
+    const isRelay = local?.candidateType === "relay";
+
+    let transport: ConnectionStats["transport"] = "unknown";
+    if (isRelay && protocol === "udp") transport = "turn-udp";
+    else if (isRelay && protocol === "tcp") transport = "turn-tcp";
+    else if (isRelay) transport = "turn-tcp";
+    else if (protocol === "udp") transport = "udp";
+    else if (protocol === "tcp") transport = "tcp";
+
+    return {
+      transport,
+      localAddress: local ? `${local.address}:${local.port}` : "",
+      remoteAddress: remote ? `${remote.address}:${remote.port}` : "",
+      rtt: selectedPair.currentRoundTripTime ? Math.round(selectedPair.currentRoundTripTime * 1000) : 0,
+    };
+  } catch {
+    return null;
+  }
+}

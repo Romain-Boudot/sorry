@@ -169,13 +169,13 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .audio-btn.active {
-  background: var(--danger);
-  color: #fff;
+  background: rgba(208, 80, 80, 0.15);
+  color: var(--danger);
 }
 
 .audio-btn.active:hover {
-  background: var(--danger);
-  opacity: 0.9;
+  background: rgba(208, 80, 80, 0.25);
+  color: var(--danger);
   box-shadow: none;
 }
 
@@ -191,8 +191,23 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   color: var(--text-muted);
   cursor: pointer;
   border: none;
+  border-left: 1px solid transparent;
   border-radius: 0 8px 8px 0;
   transition: background 0.1s, color 0.1s;
+}
+
+.audio-btn-group:hover .audio-dropdown-btn {
+  border-left-color: var(--border);
+}
+
+.audio-btn-group:hover .audio-btn:not(:hover):not(.active),
+.audio-btn-group:hover .audio-dropdown-btn:not(:hover):not(.active) {
+  background: rgba(128, 128, 128, 0.06);
+}
+
+.audio-btn-group:hover .audio-btn.active:not(:hover),
+.audio-btn-group:hover .audio-dropdown-btn.active:not(:hover) {
+  background: rgba(208, 80, 80, 0.08);
 }
 
 .audio-dropdown-btn:hover {
@@ -202,13 +217,14 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .audio-dropdown-btn.active {
-  background: var(--danger);
-  color: rgba(255, 255, 255, 0.7);
+  background: rgba(208, 80, 80, 0.15);
+  color: var(--danger);
+  border-left-color: rgba(208, 80, 80, 0.3);
 }
 
 .audio-dropdown-btn.active:hover {
-  background: var(--danger);
-  color: #fff;
+  background: rgba(208, 80, 80, 0.25);
+  color: var(--danger);
   box-shadow: none;
 }
 </style>

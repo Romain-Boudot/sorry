@@ -90,6 +90,7 @@ const statusText = computed(() => {
     default: return "Vocal";
   }
 });
+
 </script>
 
 <style scoped>

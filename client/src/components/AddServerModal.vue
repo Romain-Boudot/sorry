@@ -92,7 +92,7 @@ const loading = ref(false);
 const error = ref("");
 
 // Step 1
-const url = ref("main.sorry.boudot.codes");
+const url = ref("");
 const serverName = ref("");
 
 // Step 2
