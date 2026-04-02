@@ -150,8 +150,8 @@ The `.env` file at the root is pre-configured for local development.
 ### Building the Docker image
 
 ```bash
-./scripts/build-image.sh sorry latest
-./scripts/build-image.sh sorry latest ghcr.io/youruser  # build + push
+./scripts/build-image.sh sorry
+./scripts/build-image.sh sorry ghcr.io/youruser # build + push
 ```
 
 ## Project Structure

@@ -3,15 +3,15 @@ set -e
 
 # Build container image for the current platform
 # Compatible with podman and docker
-# Usage: ./scripts/build-image.sh [name] [tag] [registry]
+# Usage: ./scripts/build-image.sh [name] [registry] [tag]
 # If tag is omitted, uses version from Cargo.toml
 
 IMAGE_NAME="${1:-sorry}"
-REGISTRY="${3:-}"
+REGISTRY="${2:-}"
 
 # Read version from Cargo.toml
 VERSION=$(grep '^version' crates/server/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-TAG="${2:-$VERSION}"
+TAG="${3:-$VERSION}"
 
 if [ -n "$REGISTRY" ]; then
   IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
@@ -48,5 +48,5 @@ if [ -n "$REGISTRY" ]; then
   $ENGINE push "$IMAGE_LATEST"
   echo "Pushed: $IMAGE + latest"
 else
-  echo "To push: $0 $IMAGE_NAME $TAG registry.example.com/user"
+  echo "To push: $0 $IMAGE_NAME registry.example.com"
 fi

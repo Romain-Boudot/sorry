@@ -15,6 +15,7 @@ RUN mkdir -p crates/server/src crates/shared/src \
 
 COPY crates/ crates/
 COPY migrations/ migrations/
+RUN touch crates/server/src/main.rs crates/shared/src/lib.rs
 RUN sqlite3 /tmp/build.db "" \
     && for f in migrations/*.sql; do sqlite3 /tmp/build.db < "$f"; done
 ENV DATABASE_URL=sqlite:///tmp/build.db

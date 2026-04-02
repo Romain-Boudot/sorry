@@ -55,6 +55,7 @@ async fn main() {
     let connect_options: SqliteConnectOptions = database_url
         .parse::<SqliteConnectOptions>()
         .expect("Invalid DATABASE_URL")
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .foreign_keys(true)
         .create_if_missing(true);
 
