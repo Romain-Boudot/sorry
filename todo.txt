@@ -15,7 +15,7 @@ Important
 - Recherche de messages
 - Notifications desktop — aucune notif push/desktop
 - Unread par channel — le badge unread est global par serveur, pas par channel
-- Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
+x Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
 
 Nice to have
 ------------
@@ -29,3 +29,13 @@ Nice to have
 Bugs
 ------------
 x ws event pour les display name
+
+Mise a jour / Deploy
+--------------------
+x PRAGMA foreign_keys = ON — jamais set, CASCADE inerte, donnees orphelines
+x install.sh ecrase .env si relance — detecter "deja installe"
+x ADMIN_PASSWORD reset a chaque restart si dans .env — utilise seulement a la creation
+x Health check Docker — /health existe, pas configure dans compose
+x Versioning images — toujours latest, pas de rollback possible
+x Endpoint GET /version — pour que le client sache quelle version tourne
+- Script update.sh — pull + up propre, separe de install.sh
