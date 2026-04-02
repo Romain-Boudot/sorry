@@ -126,37 +126,65 @@ S3_SECRET_KEY="$(gen_secret)"
 
 # Find the largest free UDP port range (between 49152-65535)
 find_largest_free_range() {
-  local used
+  local used_system="" used_containers=""
+
+  # System ports (listening + established)
   if command -v ss &>/dev/null; then
-    # Linux
-    used=$(ss -ulnH 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' | sort -nu)
+    used_system=$(ss -aunH 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$')
   elif command -v netstat &>/dev/null; then
-    # macOS / BSD
-    used=$(netstat -anp udp 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' | sort -nu)
-  else
-    used=""
+    used_system=$(netstat -an 2>/dev/null | grep udp | awk '{print $4}' | grep -oE '[0-9]+$')
   fi
 
-  local best_start=49152 best_size=0
-  local cursor=49152
+  # Avoid kernel ephemeral port range entirely
+  local eph_start=32768 eph_end=60999
+  if [ -f /proc/sys/net/ipv4/ip_local_port_range ]; then
+    read -r eph_start eph_end < /proc/sys/net/ipv4/ip_local_port_range
+  fi
 
-  for port in $used; do
-    [ "$port" -lt "$cursor" ] && continue
-    [ "$port" -gt 65535 ] && break
-    local gap=$((port - cursor))
+  # Container-allocated ports (docker/podman)
+  if command -v "$ENGINE" &>/dev/null; then
+    used_containers=$($ENGINE ps --format '{{.Ports}}' 2>/dev/null | grep -oE '[0-9]+-[0-9]+' | while read -r range; do
+      start="${range%-*}"; end="${range#*-}"
+      seq "$start" "$end"
+    done)
+    used_containers="$used_containers
+$($ENGINE ps --format '{{.Ports}}' 2>/dev/null | grep -oE ':[0-9]+->|:[0-9]+/' | grep -oE '[0-9]+')"
+  fi
+
+  local used
+  used=$(printf '%s\n%s' "$used_system" "$used_containers" | grep -E '^[0-9]+$' | sort -nu)
+
+  # Search in two safe zones: before and after the ephemeral range
+  # Zone 1: 10000 - eph_start
+  # Zone 2: eph_end+1 - 65535
+  local best_start=10000 best_size=0
+
+  for zone_start in 10000 $((eph_end + 1)); do
+    if [ "$zone_start" -eq 10000 ]; then
+      zone_end=$((eph_start - 1))
+    else
+      zone_end=65535
+    fi
+    [ "$zone_start" -ge "$zone_end" ] && continue
+
+    local cursor=$zone_start
+    for port in $used; do
+      [ "$port" -lt "$cursor" ] && continue
+      [ "$port" -gt "$zone_end" ] && break
+      local gap=$((port - cursor))
+      if [ "$gap" -gt "$best_size" ]; then
+        best_start=$cursor
+        best_size=$gap
+      fi
+      cursor=$((port + 1))
+    done
+
+    local gap=$((zone_end + 1 - cursor))
     if [ "$gap" -gt "$best_size" ]; then
       best_start=$cursor
       best_size=$gap
     fi
-    cursor=$((port + 1))
   done
-
-  # Check gap after last used port
-  local gap=$((65536 - cursor))
-  if [ "$gap" -gt "$best_size" ]; then
-    best_start=$cursor
-    best_size=$gap
-  fi
 
   echo "$best_start $best_size"
 }
