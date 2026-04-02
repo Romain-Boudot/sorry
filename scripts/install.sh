@@ -21,6 +21,13 @@ warn()  { echo -e "${yellow}!${reset} $1"; }
 error() { echo -e "${red}✗${reset} $1"; exit 1; }
 ask()   { echo -en "${bold}$1${reset} "; }
 
+# ── Check dependencies ──
+MISSING=""
+for cmd in curl awk grep sort head base64 tr sed; do
+  command -v "$cmd" &>/dev/null || MISSING="$MISSING $cmd"
+done
+[ -n "$MISSING" ] && error "Commandes manquantes:$MISSING — installe-les avant de relancer"
+
 # ── Detect container engine ──
 ENGINE=""
 COMPOSE=""
@@ -117,6 +124,51 @@ LIVEKIT_API_SECRET="$(gen_secret)"
 S3_ACCESS_KEY="sorry_s3"
 S3_SECRET_KEY="$(gen_secret)"
 
+# Find the largest free UDP port range (between 49152-65535)
+find_largest_free_range() {
+  local used
+  if command -v ss &>/dev/null; then
+    # Linux
+    used=$(ss -ulnH 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' | sort -nu)
+  elif command -v netstat &>/dev/null; then
+    # macOS / BSD
+    used=$(netstat -anp udp 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' | sort -nu)
+  else
+    used=""
+  fi
+
+  local best_start=49152 best_size=0
+  local cursor=49152
+
+  for port in $used; do
+    [ "$port" -lt "$cursor" ] && continue
+    [ "$port" -gt 65535 ] && break
+    local gap=$((port - cursor))
+    if [ "$gap" -gt "$best_size" ]; then
+      best_start=$cursor
+      best_size=$gap
+    fi
+    cursor=$((port + 1))
+  done
+
+  # Check gap after last used port
+  local gap=$((65536 - cursor))
+  if [ "$gap" -gt "$best_size" ]; then
+    best_start=$cursor
+    best_size=$gap
+  fi
+
+  echo "$best_start $best_size"
+}
+
+read -r UDP_START UDP_SIZE <<< "$(find_largest_free_range)"
+# Cap at 10000 ports max (more than enough)
+[ "$UDP_SIZE" -gt 10000 ] && UDP_SIZE=10000
+UDP_END=$((UDP_START + UDP_SIZE - 1))
+UDP_VOICE=$((UDP_SIZE / 2))
+UDP_VIDEO=$((UDP_SIZE / 4))
+ok "Ports UDP: ${UDP_START}-${UDP_END} (${UDP_SIZE} ports, ~${UDP_VOICE} voix | ~${UDP_VIDEO} voix+video)"
+
 # Derive LiveKit URL
 if [ "$USE_HTTPS" = true ]; then
   LIVEKIT_URL="wss://${HOST}/livekit"
@@ -131,7 +183,7 @@ read -r CUSTOM_DIR < /dev/tty
 INSTALL_DIR="${CUSTOM_DIR:-$INSTALL_DIR}"
 
 info "Installation dans $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/minio" "$INSTALL_DIR/caddy"
 cd "$INSTALL_DIR"
 
 # .env
@@ -181,7 +233,7 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
     volumes:
-      - sorry-data:/app/data
+      - ./data:/app/data
     depends_on:
       - minio
 
@@ -193,7 +245,7 @@ services:
       - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
       - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
     volumes:
-      - minio-data:/data
+      - ./minio:/data
 
   livekit:
     image: livekit/livekit-server:latest
@@ -201,7 +253,7 @@ services:
     command: --config /etc/livekit.yaml
     ports:
       - "7881:7881"
-      - "50000-60000:50000-60000/udp"
+      - "UDPRANGE"
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
 
@@ -216,14 +268,7 @@ services:
       - PORT=${PORT:-80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy-data:/data
-      - caddy-config:/config
-
-volumes:
-  sorry-data:
-  minio-data:
-  caddy-data:
-  caddy-config:
+      - ./caddy:/data
 COMPOSE
 
 # Caddyfile
@@ -244,12 +289,23 @@ cat > livekit.yaml <<'LK'
 port: 7880
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 60000
+  port_range_start: UDPSTART
+  port_range_end: UDPEND
   use_external_ip: true
 keys:
   ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
 LK
+
+# Inject dynamic port range (sed -i works differently on macOS vs Linux)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' "s|UDPRANGE|${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp|g" docker-compose.yml
+  sed -i '' "s|UDPSTART|${UDP_START}|g" livekit.yaml
+  sed -i '' "s|UDPEND|${UDP_END}|g" livekit.yaml
+else
+  sed -i "s|UDPRANGE|${UDP_START}-${UDP_END}:${UDP_START}-${UDP_END}/udp|g" docker-compose.yml
+  sed -i "s|UDPSTART|${UDP_START}|g" livekit.yaml
+  sed -i "s|UDPEND|${UDP_END}|g" livekit.yaml
+fi
 
 # ── Start ──
 echo ""
@@ -267,6 +323,7 @@ fi
 echo ""
 echo -e "  ${bold}Admin${reset}      $ADMIN_USERNAME"
 echo -e "  ${bold}Password${reset}   $ADMIN_PASSWORD"
+echo -e "  ${bold}UDP${reset}        ${UDP_START}-${UDP_END} (~${UDP_VOICE} voix | ~${UDP_VIDEO} voix+video)"
 echo ""
 echo -e "  ${dim}Config:  $INSTALL_DIR/.env${reset}"
 echo -e "  ${dim}Logs:    cd $INSTALL_DIR && $COMPOSE logs -f${reset}"
