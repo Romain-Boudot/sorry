@@ -53,8 +53,38 @@ fi
 [ -z "$COMPOSE" ] && error "Ni docker ni podman trouve"
 ok "Engine: $COMPOSE"
 
+# Check for wget or curl
+HTTP_GET=""
+if command -v wget &>/dev/null; then
+  HTTP_GET="wget"
+elif command -v curl &>/dev/null; then
+  HTTP_GET="curl"
+else
+  warn "Ni wget ni curl installe — impossible de verifier la version"
+fi
+
+fetch_url() {
+  if [ "$HTTP_GET" = "wget" ]; then
+    wget -q -O- --timeout=5 "$1" 2>/dev/null
+  elif [ "$HTTP_GET" = "curl" ]; then
+    curl -sf --max-time 5 "$1" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+check_url() {
+  if [ "$HTTP_GET" = "wget" ]; then
+    wget -q --spider --timeout=5 "$1" 2>/dev/null
+  elif [ "$HTTP_GET" = "curl" ]; then
+    curl -sf --max-time 5 -o /dev/null "$1" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
 # Get current version
-CURRENT=$($COMPOSE exec -T sorry wget -q -O- http://localhost:3000/version 2>/dev/null || echo "inconnu")
+CURRENT=$(fetch_url http://localhost:3000/version || echo "inconnu")
 info "Version actuelle: $CURRENT"
 
 # Pull
@@ -69,8 +99,8 @@ $COMPOSE up -d
 # Wait for health check
 info "Verification..."
 for i in $(seq 1 15); do
-  if $COMPOSE exec -T sorry wget -q --spider http://localhost:3000/health 2>/dev/null; then
-    NEW=$($COMPOSE exec -T sorry wget -q -O- http://localhost:3000/version 2>/dev/null || echo "inconnu")
+  if check_url http://localhost:3000/health; then
+    NEW=$(fetch_url http://localhost:3000/version || echo "inconnu")
     echo ""
     ok "Mis a jour ! $CURRENT -> $NEW"
     echo ""

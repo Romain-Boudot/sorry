@@ -57,7 +57,7 @@ echo ""
 ok "Engine: $ENGINE ($COMPOSE)"
 
 # ── Interactive setup ──
-gen_secret() { head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32; }
+gen_secret() { head -c 48 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32; }
 
 echo ""
 echo -e "${bold}Configuration${reset}"
@@ -95,7 +95,10 @@ if [ "$DEPLOY_MODE" = "2" ]; then
       USE_HTTPS=true
     fi
   else
-    HOST="${PUBLIC_IP:-0.0.0.0}"
+    if [ -z "$PUBLIC_IP" ]; then
+      error "Impossible de detecter l'IP publique. Relance avec un nom de domaine."
+    fi
+    HOST="$PUBLIC_IP"
     info "Les clients se connecteront via http://$HOST"
   fi
 fi
@@ -253,7 +256,8 @@ services:
       - PORT=\${PORT:-80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      - ./caddy:/data
+      - ./caddy/data:/data
+      - ./caddy/config:/config
 COMPOSE
 
 # Caddyfile
@@ -306,5 +310,5 @@ echo ""
 echo -e "  ${dim}Config:  $INSTALL_DIR/.env${reset}"
 echo -e "  ${dim}Logs:    cd $INSTALL_DIR && $COMPOSE logs -f${reset}"
 echo -e "  ${dim}Stop:    cd $INSTALL_DIR && $COMPOSE down${reset}"
-echo -e "  ${dim}Update:  cd $INSTALL_DIR && $COMPOSE pull && $COMPOSE up -d${reset}"
+echo -e "  ${dim}Update:  curl -fsSL https://raw.githubusercontent.com/Romain-Boudot/sorry/main/scripts/update.sh | bash${reset}"
 echo ""
