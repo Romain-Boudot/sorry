@@ -323,6 +323,41 @@ async fn handle_client_event(
                 });
             }
         }
+        ClientEvent::KickVoice { user_id: target_id } => {
+            let perms = crate::db::roles::get_user_permissions(&state.db, user_id).await?;
+            if !permissions::has(perms, permissions::MOVE_MEMBERS) {
+                return Ok(());
+            }
+
+            let mut kicked_channel = None;
+            {
+                let mut voice = state.voice_state.write().unwrap();
+                for (cid, users) in voice.iter_mut() {
+                    if users.remove(&target_id).is_some() {
+                        kicked_channel = Some(*cid);
+                        break;
+                    }
+                }
+            }
+            if let Some(cid) = kicked_channel {
+                let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+                    user_id: target_id,
+                    channel_id: cid,
+                });
+
+                // Remove from LiveKit room
+                let room = format!("voice-{}", cid);
+                let identity = format!("user-{}", target_id);
+                let lk_url = state.livekit_internal_url.clone();
+                let lk_key = state.livekit_api_key.clone();
+                let lk_secret = state.livekit_api_secret.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::livekit::remove_participant(&lk_url, &lk_key, &lk_secret, &room, &identity).await {
+                        tracing::error!("LiveKit kick failed: {}", e);
+                    }
+                });
+            }
+        }
     }
 
     Ok(())

@@ -162,6 +162,29 @@ async fn user_roles(
     Ok(Json(roles))
 }
 
+/// Check that actor outranks target user (for ban/kick)
+async fn require_user_outranks(
+    db: &sqlx::SqlitePool,
+    actor_id: i64,
+    target_id: i64,
+) -> Result<(), StatusCode> {
+    if actor_id == 1 { return Ok(()); }
+    if target_id == 1 { return Err(StatusCode::FORBIDDEN); }
+
+    let actor_roles = crate::db::roles::get_user_roles(db, actor_id)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let target_roles = crate::db::roles::get_user_roles(db, target_id)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let actor_pos = actor_roles.iter().map(|r| r.position).min().unwrap_or(i64::MAX);
+    let target_pos = target_roles.iter().map(|r| r.position).min().unwrap_or(i64::MAX);
+
+    if actor_pos >= target_pos {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
+
 /// POST /api/users/:id/ban — ban a user
 async fn ban_user(
     State(state): State<Arc<AppState>>,
@@ -183,6 +206,9 @@ async fn ban_user(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    // Cannot ban users with equal or higher rank
+    require_user_outranks(&state.db, auth.0, user_id).await?;
+
     crate::db::users::find_by_id(&state.db, user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -199,6 +225,26 @@ async fn ban_user(
     let _ = state.event_tx.send(shared::events::ServerEvent::UserOffline { user_id });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /api/users/banned — list banned users
+async fn list_banned(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<Vec<shared::models::BannedUser>>, StatusCode> {
+    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let banned = crate::db::users::list_banned(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(banned))
 }
 
 /// DELETE /api/users/:id/ban — unban a user
@@ -343,6 +389,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me).patch(update_me))
         .route("/me/avatar", post(upload_avatar).delete(delete_avatar))
         .route("/me/password", post(change_password))
+        .route("/banned", get(list_banned))
         .route("/:id/ban", post(ban_user).delete(unban_user))
         .route("/:id/roles", get(user_roles))
 }

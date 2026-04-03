@@ -65,7 +65,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Hash, Volume2, MicOff, Headphones, HeadphoneOff } from "lucide-vue-next";
+import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff } from "lucide-vue-next";
 import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import type { Channel, User, VoiceUserState } from "../api";
@@ -132,6 +132,18 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
       icon: vs.force_deafened ? Headphones : HeadphoneOff,
       action: () => {
         st.ws?.send(JSON.stringify({ type: "ForceDeafen", data: { user_id: uid, deafened: !vs.force_deafened } }));
+      },
+    });
+  }
+
+  const canMove = perms.has(st.permissions, perms.MOVE_MEMBERS);
+  if (canMove) {
+    items.push({
+      label: "Deconnecter",
+      icon: PhoneOff,
+      danger: true,
+      action: () => {
+        st.ws?.send(JSON.stringify({ type: "KickVoice", data: { user_id: uid } }));
       },
     });
   }

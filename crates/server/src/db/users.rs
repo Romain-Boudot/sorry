@@ -16,6 +16,18 @@ pub fn to_model(row: &UserRow) -> User {
         id: row.id.unwrap_or(0),
         display_name: row.display_name.clone(),
         avatar_url: row.avatar_url.clone(),
+        username: None,
+        created_at: None,
+    }
+}
+
+pub fn to_model_full(row: &UserRow, created_at: Option<String>) -> User {
+    User {
+        id: row.id.unwrap_or(0),
+        display_name: row.display_name.clone(),
+        avatar_url: row.avatar_url.clone(),
+        username: Some(row.username.clone()),
+        created_at,
     }
 }
 
@@ -31,8 +43,10 @@ pub async fn find_by_username(db: &SqlitePool, username: &str) -> sqlx::Result<O
 
 pub struct UserPublicRow {
     pub id: Option<i64>,
+    pub username: String,
     pub display_name: String,
     pub avatar_url: Option<String>,
+    pub created_at: Option<String>,
 }
 
 pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Option<UserRow>> {
@@ -48,7 +62,7 @@ pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Optio
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> {
     let row: Option<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, display_name, avatar_url as "avatar_url?" FROM users WHERE id = ?"#,
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?" FROM users WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -58,13 +72,15 @@ pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> 
         id: r.id.unwrap_or(0),
         display_name: r.display_name,
         avatar_url: r.avatar_url,
+        username: Some(r.username),
+        created_at: r.created_at,
     }))
 }
 
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
     let rows: Vec<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, display_name, avatar_url as "avatar_url?" FROM users"#
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?" FROM users WHERE banned_at IS NULL"#
     )
     .fetch_all(db)
     .await?;
@@ -75,6 +91,8 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
             id: r.id.unwrap_or(0),
             display_name: r.display_name.clone(),
             avatar_url: r.avatar_url.clone(),
+            username: Some(r.username.clone()),
+            created_at: r.created_at.clone(),
         })
         .collect())
 }
@@ -121,6 +139,34 @@ pub async fn update_username(db: &SqlitePool, id: i64, username: &str) -> sqlx::
     .execute(db)
     .await?;
     Ok(())
+}
+
+pub struct BannedRow {
+    pub id: Option<i64>,
+    pub username: String,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub banned_at: Option<i64>,
+}
+
+pub async fn list_banned(db: &SqlitePool) -> sqlx::Result<Vec<shared::models::BannedUser>> {
+    let rows: Vec<BannedRow> = sqlx::query_as!(
+        BannedRow,
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", banned_at FROM users WHERE banned_at IS NOT NULL ORDER BY banned_at DESC"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| shared::models::BannedUser {
+            id: r.id.unwrap_or(0),
+            display_name: r.display_name.clone(),
+            username: r.username.clone(),
+            avatar_url: r.avatar_url.clone(),
+            banned_at: r.banned_at.unwrap_or(0),
+        })
+        .collect())
 }
 
 /// Load all user IDs banned within the last `ttl_secs` seconds

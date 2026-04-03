@@ -657,8 +657,12 @@ function handleEvent(serverId: string, event: ServerEvent) {
       break;
     }
     case "UserRoleUpdate": {
-      const { user_id, role_ids } = event.data as { user_id: number; role_ids: number[] };
+      const { user_id, role_ids, permissions } = event.data as { user_id: number; role_ids: number[]; permissions: number };
       state.userRoles.set(user_id, role_ids);
+      // Update permissions in real-time if this is the current user
+      if (state.user && user_id === state.user.id) {
+        state.permissions = permissions;
+      }
       break;
     }
     case "UserUpdate": {

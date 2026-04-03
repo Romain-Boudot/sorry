@@ -42,20 +42,44 @@ async fn get_highest_position(
 
 /// Check that the acting user can manage a role at the given position.
 /// A user can only manage roles with a higher position number (= lower rank) than their own.
-/// Admins bypass this check.
+/// Only the owner (user ID 1) bypasses this check.
 async fn require_role_hierarchy(
     db: &sqlx::SqlitePool,
     user_id: i64,
     target_position: i64,
 ) -> Result<(), StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if permissions::has(perms, permissions::ADMINISTRATOR) {
+    // Owner bypasses all hierarchy checks
+    if user_id == 1 {
         return Ok(());
     }
     let user_position = get_highest_position(db, user_id).await?;
     if user_position >= target_position {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
+
+/// Check that the acting user outranks the target user.
+/// A user can only manage users whose highest role position is strictly higher (= lower rank).
+async fn require_user_hierarchy(
+    db: &sqlx::SqlitePool,
+    actor_id: i64,
+    target_user_id: i64,
+) -> Result<(), StatusCode> {
+    if actor_id == 1 {
+        return Ok(());
+    }
+    // Cannot modify own roles (except owner)
+    if actor_id == target_user_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    // Owner (user 1) can never be targeted
+    if target_user_id == 1 {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let actor_pos = get_highest_position(db, actor_id).await?;
+    let target_pos = get_highest_position(db, target_user_id).await?;
+    if actor_pos >= target_pos {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
@@ -90,7 +114,16 @@ async fn create_role(
 ) -> Result<Json<shared::models::Role>, StatusCode> {
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
 
-    let position = payload.position.unwrap_or(0);
+    // Auto-assign position: after all existing custom roles (ID > 2)
+    let all_roles = crate::db::roles::list_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let max_custom_pos = all_roles.iter()
+        .filter(|r| r.id > 2)
+        .map(|r| r.position)
+        .max()
+        .unwrap_or(-1);
+    let position = max_custom_pos + 1;
 
     let id = crate::db::roles::create(
         &state.db,
@@ -122,6 +155,11 @@ async fn update_role(
     Path(id): Path<i64>,
     Json(payload): Json<CreateRolePayload>,
 ) -> Result<StatusCode, StatusCode> {
+    // Owner role (id=1): completely immutable
+    if id == 1 {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
 
     let target = crate::db::roles::find_by_id(&state.db, id)
@@ -131,24 +169,25 @@ async fn update_role(
 
     require_role_hierarchy(&state.db, auth.0, target.position).await?;
 
-    // Admin role (id=1): allow name/color change but lock permissions
-    let final_permissions = if id == 1 { target.permissions } else { payload.permissions };
+    // Membre role (id=2): only permissions can change, name/color stay fixed
+    let final_name = if id == 2 { target.name.clone() } else { payload.name.clone() };
+    let final_color = if id == 2 { target.color.clone() } else { payload.color.clone() };
 
     crate::db::roles::update(
         &state.db,
         id,
-        &payload.name,
-        final_permissions,
-        payload.color.as_deref(),
+        &final_name,
+        payload.permissions,
+        final_color.as_deref(),
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let _ = state.event_tx.send(ServerEvent::RoleUpdate(shared::models::Role {
         id,
-        name: payload.name,
-        permissions: final_permissions,
-        color: payload.color,
+        name: final_name,
+        permissions: payload.permissions,
+        color: final_color,
         position: target.position,
     }));
 
@@ -196,7 +235,13 @@ async fn assign_role(
     Path(role_id): Path<i64>,
     Json(payload): Json<AssignRolePayload>,
 ) -> Result<StatusCode, StatusCode> {
+    // Owner (1) and Membre (2) are implicit — cannot be assigned
+    if role_id <= 2 {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
+    require_user_hierarchy(&state.db, auth.0, payload.user_id).await?;
 
     let target = crate::db::roles::find_by_id(&state.db, role_id)
         .await
@@ -212,9 +257,13 @@ async fn assign_role(
     let roles = crate::db::roles::get_user_roles(&state.db, payload.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_perms = crate::db::roles::get_user_permissions(&state.db, payload.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let _ = state.event_tx.send(ServerEvent::UserRoleUpdate {
         user_id: payload.user_id,
         role_ids: roles.iter().map(|r| r.id).collect(),
+        permissions: user_perms,
     });
 
     Ok(StatusCode::OK)
@@ -227,7 +276,13 @@ async fn remove_role(
     Path(role_id): Path<i64>,
     Json(payload): Json<AssignRolePayload>,
 ) -> Result<StatusCode, StatusCode> {
+    // Owner (1) and Membre (2) are implicit — cannot be removed
+    if role_id <= 2 {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
+    require_user_hierarchy(&state.db, auth.0, payload.user_id).await?;
 
     let target = crate::db::roles::find_by_id(&state.db, role_id)
         .await
@@ -243,9 +298,13 @@ async fn remove_role(
     let roles = crate::db::roles::get_user_roles(&state.db, payload.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_perms = crate::db::roles::get_user_permissions(&state.db, payload.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let _ = state.event_tx.send(ServerEvent::UserRoleUpdate {
         user_id: payload.user_id,
         role_ids: roles.iter().map(|r| r.id).collect(),
+        permissions: user_perms,
     });
 
     Ok(StatusCode::OK)
@@ -264,7 +323,10 @@ async fn reorder_roles(
 ) -> Result<StatusCode, StatusCode> {
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
 
-    crate::db::roles::reorder(&state.db, &payload.ids)
+    // Filter out Owner (1) and Membre (2) — their positions are fixed
+    let custom_ids: Vec<i64> = payload.ids.iter().filter(|&&id| id > 2).copied().collect();
+
+    crate::db::roles::reorder(&state.db, &custom_ids)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

@@ -225,6 +225,10 @@ export const api = {
     return request<void>(baseUrl, `/users/${userId}/ban`, token, { method: "DELETE" });
   },
 
+  listBanned(baseUrl: string, token: string) {
+    return request<BannedUser[]>(baseUrl, "/users/banned", token);
+  },
+
   listInvites(baseUrl: string, token: string) {
     return request<Invite[]>(baseUrl, "/invites", token);
   },
@@ -304,6 +308,16 @@ export interface User {
   id: number;
   display_name: string;
   avatar_url: string | null;
+  username?: string;
+  created_at?: string;
+}
+
+export interface BannedUser {
+  id: number;
+  display_name: string;
+  username: string;
+  avatar_url: string | null;
+  banned_at: number;
 }
 
 export interface ChannelGroup {

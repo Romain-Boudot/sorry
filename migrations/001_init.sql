@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS channel_permission_overwrites (
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 
 -- Rôles par défaut
-INSERT OR IGNORE INTO roles (id, name, permissions, color, position) VALUES (1, 'Admin', 1, '#e74c3c', 0);
-INSERT OR IGNORE INTO roles (id, name, permissions, color, position) VALUES (2, 'Membre', 9418432, NULL, 1);
+INSERT OR IGNORE INTO roles (id, name, permissions, color, position) VALUES (1, 'Admin', 1, NULL, 0);
+INSERT OR IGNORE INTO roles (id, name, permissions, color, position) VALUES (2, 'Membre', 9418368, NULL, 1);
 
 -- Channels par défaut
 INSERT OR IGNORE INTO channels (id, name, kind, position) VALUES (1, 'general', 'text', 0);

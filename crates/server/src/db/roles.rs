@@ -145,9 +145,11 @@ pub async fn get_user_roles(db: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<R
     Ok(rows.iter().map(to_model).collect())
 }
 
-/// Récupère les permissions combinées (OR) de tous les rôles d'un user
+/// Récupère les permissions combinées (OR) de tous les rôles d'un user.
+/// Le rôle Membre (ID=2) est implicite pour tous les users.
+/// Le rôle Owner (ID=1) est implicite pour user ID 1.
 pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
-    // SQLite n'a pas d'aggregate bitwise OR, on récupère tous les rôles et on OR en Rust
+    // Custom roles from user_roles table
     let rows = sqlx::query!(
         "SELECT r.permissions FROM roles r
          INNER JOIN user_roles ur ON ur.role_id = r.id
@@ -161,6 +163,19 @@ pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result
     for r in rows {
         perms |= r.permissions;
     }
+
+    // Implicit Membre role (ID=2) for everyone
+    if let Some(membre) = find_by_id(db, 2).await? {
+        perms |= membre.permissions;
+    }
+
+    // Implicit Owner role (ID=1) for user ID 1
+    if user_id == 1 {
+        if let Some(owner) = find_by_id(db, 1).await? {
+            perms |= owner.permissions;
+        }
+    }
+
     Ok(perms)
 }
 
@@ -225,11 +240,13 @@ pub async fn delete_channel_overwrite(
 }
 
 /// Récupère les channel overwrites pour les rôles d'un user
+/// Includes implicit Membre (ID=2) role for all users and Owner (ID=1) for user 1
 pub async fn get_channel_overwrites(
     db: &SqlitePool,
     user_id: i64,
     channel_id: i64,
 ) -> sqlx::Result<(i64, i64)> {
+    // Overwrites from explicit custom roles
     let rows = sqlx::query!(
         "SELECT cpo.allow, cpo.deny
          FROM channel_permission_overwrites cpo
@@ -247,5 +264,36 @@ pub async fn get_channel_overwrites(
         allow |= r.allow;
         deny |= r.deny;
     }
+
+    // Implicit Membre role (ID=2) overwrites for everyone
+    let membre_id: i64 = 2;
+    let membre_rows = sqlx::query!(
+        "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
+        membre_id,
+        channel_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(r) = membre_rows {
+        allow |= r.allow;
+        deny |= r.deny;
+    }
+
+    // Implicit Owner role (ID=1) overwrites for user 1
+    if user_id == 1 {
+        let owner_id: i64 = 1;
+        let owner_rows = sqlx::query!(
+            "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
+            owner_id,
+            channel_id
+        )
+        .fetch_optional(db)
+        .await?;
+        if let Some(r) = owner_rows {
+            allow |= r.allow;
+            deny |= r.deny;
+        }
+    }
+
     Ok((allow, deny))
 }

@@ -16,7 +16,7 @@ pub enum ServerEvent {
     RoleCreate(Role),
     RoleUpdate(Role),
     RoleDelete { id: i64 },
-    UserRoleUpdate { user_id: i64, role_ids: Vec<i64> },
+    UserRoleUpdate { user_id: i64, role_ids: Vec<i64>, permissions: i64 },
     UserUpdate(User),
     ServerUpdate { name: String, description: Option<String>, icon_url: Option<String> },
 }
@@ -33,4 +33,5 @@ pub enum ClientEvent {
     UpdateVoiceState { muted: bool, deafened: bool },
     ForceMute { user_id: i64, muted: bool },
     ForceDeafen { user_id: i64, deafened: bool },
+    KickVoice { user_id: i64 },
 }

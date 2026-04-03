@@ -195,7 +195,11 @@ onMounted(async () => {
   channelName.value = channel.value?.name ?? "";
 
   try {
-    roles.value = await api.listRoles(s.url, s.token);
+    const allRoles = await api.listRoles(s.url, s.token);
+    // Filter out Owner (ID=1), sort custom roles by position, Membre (ID=2) at the end
+    const custom = allRoles.filter(r => r.id > 2).sort((a, b) => a.position - b.position);
+    const membre = allRoles.find(r => r.id === 2);
+    roles.value = membre ? [...custom, { ...membre, name: "Permissions par defaut" }] : custom;
   } catch {}
 
   try {

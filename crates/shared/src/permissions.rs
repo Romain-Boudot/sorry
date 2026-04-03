@@ -32,20 +32,6 @@ pub const MOVE_MEMBERS: i64 = 1 << 22;
 pub const USE_VOICE_ACTIVITY: i64 = 1 << 23;
 pub const PRIORITY_SPEAKER: i64 = 1 << 24;
 
-/// Permissions par défaut pour un nouveau membre
-pub const DEFAULT_MEMBER: i64 = VIEW_CHANNELS
-    | SEND_MESSAGES
-    | READ_MESSAGE_HISTORY
-    | EMBED_LINKS
-    | ATTACH_FILES
-    | ADD_REACTIONS
-    | CONNECT
-    | SPEAK
-    | STREAM
-    | USE_VOICE_ACTIVITY
-    | CHANGE_NICKNAME
-    | CREATE_INVITE;
-
 /// Toutes les permissions (admin)
 pub const ALL: i64 = (1 << 25) - 1;
 

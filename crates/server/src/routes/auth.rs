@@ -66,8 +66,7 @@ async fn login(
                     .await
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            // Assign default "Membre" role (id=2)
-            let _ = crate::db::roles::assign_to_user(&state.db, id, 2).await;
+            // Owner (id=1) and Membre (id=2) roles are implicit — no assignment needed
 
             crate::db::users::UserRow {
                 id: Some(id),

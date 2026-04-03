@@ -13,6 +13,19 @@ pub struct User {
     pub id: i64,
     pub display_name: String,
     pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BannedUser {
+    pub id: i64,
+    pub display_name: String,
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub banned_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

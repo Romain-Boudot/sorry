@@ -25,6 +25,7 @@ Nice to have
 - Limite d'utilisateurs par channel voice
 - Audit log pour les actions admin
 - Statut utilisateur (away/busy/DND)
+- MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
 
 Bugs
 ------------

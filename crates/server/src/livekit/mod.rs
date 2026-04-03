@@ -125,6 +125,34 @@ pub async fn set_participant_muted(
     Ok(())
 }
 
+/// Kick a participant from a LiveKit room
+pub async fn remove_participant(
+    livekit_url: &str,
+    api_key: &str,
+    api_secret: &str,
+    room_name: &str,
+    identity: &str,
+) -> Result<(), String> {
+    if livekit_url.is_empty() { return Ok(()); }
+
+    let token = admin_token(api_key, api_secret).map_err(|e| e.to_string())?;
+    let client = reqwest::Client::new();
+    let base = livekit_url.trim_end_matches('/');
+
+    #[derive(Serialize)]
+    struct RemoveReq { room: String, identity: String }
+
+    client
+        .post(format!("{}/twirp/livekit.RoomService/RemoveParticipant", base))
+        .bearer_auth(&token)
+        .json(&RemoveReq { room: room_name.to_string(), identity: identity.to_string() })
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 pub fn generate_token(
     api_key: &str,
     api_secret: &str,
