@@ -1,6 +1,8 @@
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::RwLock;
+use std::time::Instant;
 use tokio::sync::broadcast;
 use shared::events::ServerEvent;
 use shared::models::VoiceUserState;
@@ -23,6 +25,7 @@ pub struct AppState {
     pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
     pub event_tx: broadcast::Sender<ServerEvent>,
     pub banned_users: RwLock<std::collections::HashSet<UserId>>,
+    pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
 }
 
 impl AppState {
@@ -55,6 +58,27 @@ impl AppState {
             voice_state: RwLock::new(HashMap::new()),
             event_tx,
             banned_users: RwLock::new(banned_users),
+            login_attempts: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Check if an IP is rate-limited (max 5 attempts per 60 seconds)
+    pub fn check_rate_limit(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60);
+        let max_attempts = 5;
+
+        let mut attempts = self.login_attempts.write().unwrap();
+        let entry = attempts.entry(ip).or_default();
+
+        // Remove attempts older than the window
+        entry.retain(|t| now.duration_since(*t) < window);
+
+        if entry.len() >= max_attempts {
+            return false; // rate limited
+        }
+
+        entry.push(now);
+        true
     }
 }

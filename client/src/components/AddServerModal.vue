@@ -65,15 +65,22 @@
           </div>
         </template>
 
-        <p class="toggle" @click="showNewAccount = !showNewAccount">
+        <template v-if="needsTotp">
+          <div class="field">
+            <label>Code TOTP</label>
+            <input v-model="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autofocus @keydown.enter="nextStep" />
+          </div>
+        </template>
+
+        <p v-if="!needsTotp" class="toggle" @click="showNewAccount = !showNewAccount">
           {{ showNewAccount ? "J'ai deja un compte" : "Premiere connexion ?" }}
         </p>
 
         <p class="error" v-if="error">{{ error }}</p>
 
         <div class="step-actions">
-          <button class="btn-back" @click="step = 1">Retour</button>
-          <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim()">
+          <button class="btn-back" @click="needsTotp ? (needsTotp = false) : (step = 1)">Retour</button>
+          <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim() || (needsTotp && totpCode.length < 6)">
             {{ loading ? "Connexion..." : showNewAccount ? "S'inscrire" : "Se connecter" }}
           </button>
         </div>
@@ -101,6 +108,8 @@ const password = ref("");
 const displayName = ref(localStorage.getItem("defaultDisplayName") || "");
 const inviteCode = ref("");
 const showNewAccount = ref(false);
+const needsTotp = ref(false);
+const totpCode = ref("");
 const serverIconUrl = ref<string | null>(null);
 const serverDescription = ref<string | null>(null);
 
@@ -166,15 +175,22 @@ async function nextStep() {
         password.value,
         showNewAccount.value ? inviteCode.value : undefined,
         showNewAccount.value && displayName.value.trim() ? displayName.value.trim() : undefined,
-        defaultAvatar
+        defaultAvatar,
+        needsTotp.value ? totpCode.value : undefined
       );
       close();
     }
   } catch (e: any) {
     if (step.value === 1) {
       error.value = "Impossible de joindre ce serveur";
+    } else if (e.message === "totp_required") {
+      needsTotp.value = true;
+      error.value = "";
     } else if (e.message === "401") {
-      error.value = "Mot de passe incorrect";
+      error.value = needsTotp.value ? "Code TOTP incorrect" : "Mot de passe incorrect";
+      totpCode.value = "";
+    } else if (e.message === "429") {
+      error.value = "Trop de tentatives, reessaie dans une minute";
     } else if (e.message === "403") {
       error.value = "Mot de passe serveur incorrect";
     } else {

@@ -13,23 +13,45 @@ Important
 - Mentions (@user) — pas de parsing ni notification
 - Reactions emoji — pas de reactions sur les messages
 - Recherche de messages
-- Notifications desktop — aucune notif push/desktop
 - Unread par channel — le badge unread est global par serveur, pas par channel
 x Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
+- Detection des urls et preview (OG tags)
+- Typing indicator — "X is typing..." via WebSocket
+- Message pinning — epingler des messages importants
 
 Nice to have
 ------------
-- Markdown/formatage dans les messages
+- Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
 - Screen sharing — LiveKit le supporte, pas cable
 - Move user entre channels voice (action admin)
 - Limite d'utilisateurs par channel voice
 - Audit log pour les actions admin
-- Statut utilisateur (away/busy/DND)
+- Statut utilisateur (away/busy/DND) (maybe ... pas sur)
 - MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
+- Notifications desktop — notif push/desktop
+- DMs / messages prives — communication directe entre users
+- Themes — dark/light ou custom CSS
+- Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
+- Webhooks — integrations (bots, CI notifications)
+- Export de donnees — backup des messages pour l'admin
 
 Bugs
 ------------
 x ws event pour les display name
+
+Awesome Features
+----------------
+- Stream depuis OBS
+- Threads — reponses groupees sous un message
+
+Done
+----
+x Drag & drop fichiers dans le chat
+x 2FA / TOTP — activer/desactiver par serveur, QR code, verification au login
+x Rate limiting — 5 tentatives/min par IP sur /auth/login
+x JWT TTL configurable — var d'env JWT_TTL_DAYS (defaut 5 jours)
+x Token refresh automatique — renouvellement transparent avant expiration
+x Separation onglets modal serveur — "Mon compte" vs "Serveur" dans la sidebar
 
 Mise a jour / Deploy
 --------------------
@@ -39,4 +61,4 @@ x ADMIN_PASSWORD reset a chaque restart si dans .env — utilise seulement a la 
 x Health check Docker — /health existe, pas configure dans compose
 x Versioning images — toujours latest, pas de rollback possible
 x Endpoint GET /version — pour que le client sache quelle version tourne
-- Script update.sh — pull + up propre, separe de install.sh
+x Script update.sh — pull + up propre, separe de install.sh

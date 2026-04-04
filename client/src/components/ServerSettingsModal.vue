@@ -2,8 +2,9 @@
   <div class="modal-overlay" @click.self="close">
     <div class="settings">
       <div class="settings-sidebar">
+        <div class="sidebar-section-label">Mon compte</div>
         <div
-          v-for="tab in visibleTabs"
+          v-for="tab in visibleUserTabs"
           :key="tab.id"
           class="settings-tab"
           :class="{ active: activeTab === tab.id }"
@@ -12,6 +13,21 @@
           <component :is="tab.icon" :size="16" />
           <span>{{ tab.label }}</span>
         </div>
+
+        <template v-if="visibleServerTabs.length">
+          <div class="sidebar-separator"></div>
+          <div class="sidebar-section-label">Serveur</div>
+          <div
+            v-for="tab in visibleServerTabs"
+            :key="tab.id"
+            class="settings-tab"
+            :class="{ active: activeTab === tab.id }"
+            @click="activeTab = tab.id"
+          >
+            <component :is="tab.icon" :size="16" />
+            <span>{{ tab.label }}</span>
+          </div>
+        </template>
       </div>
 
       <div class="settings-content">
@@ -505,6 +521,36 @@
             </div>
           </div>
         </div>
+
+        <!-- Securite -->
+        <div v-if="activeTab === 'security'" class="settings-body">
+          <div class="card">
+            <div class="card-title">Authentification a deux facteurs (TOTP)</div>
+            <p class="card-hint">Ajoute une couche de securite a ton compte sur ce serveur. Compatible Google Authenticator, Authy, etc.</p>
+
+            <template v-if="totpEnabled">
+              <p class="totp-status totp-enabled">TOTP actif</p>
+              <button class="btn-sm btn-danger-outline" @click="disableTotp">Desactiver le TOTP</button>
+            </template>
+
+            <template v-else-if="totpSetupData">
+              <p class="card-hint">Scanne ce QR code avec ton app d'authentification, puis entre le code a 6 chiffres pour confirmer.</p>
+              <div class="totp-qr">
+                <img :src="totpQrUrl" alt="QR Code TOTP" />
+              </div>
+              <p class="totp-secret">Cle manuelle : <code>{{ totpSetupData.secret }}</code></p>
+              <div class="input-row">
+                <input v-model="totpConfirmCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" @keydown.enter="confirmTotp" />
+                <button class="btn-sm" :disabled="totpConfirmCode.length < 6" @click="confirmTotp">Verifier</button>
+              </div>
+              <p class="totp-error" v-if="totpError">{{ totpError }}</p>
+            </template>
+
+            <template v-else>
+              <button class="btn-sm" @click="setupTotp">Activer le TOTP</button>
+            </template>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -512,7 +558,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check, Link2, Search, Calendar, Plus, ScrollText } from "lucide-vue-next";
+import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check, Link2, Search, Calendar, Plus, ScrollText, KeyRound } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import { store, activeState, activeServer, persistServers, resolveUser } from "../store";
 import { api, type Invite, type BannedUser } from "../api";
@@ -521,17 +567,28 @@ import * as perms from "../permissions";
 const state = computed(() => activeState());
 const activeTab = ref(store.serverSettingsTab || "profile");
 
-const allTabs = [
-  { id: "server", label: "Serveur", icon: Server, permission: perms.MANAGE_SERVER },
+const userTabs = [
   { id: "profile", label: "Profil", icon: UserRound, permission: 0 },
+  { id: "security", label: "Securite", icon: KeyRound, permission: 0 },
+];
+
+const serverTabs = [
+  { id: "server", label: "Serveur", icon: Server, permission: perms.MANAGE_SERVER },
   { id: "roles", label: "Roles", icon: ShieldCheck, permission: perms.MANAGE_ROLES },
   { id: "moderation", label: "Moderation", icon: Gavel, permission: perms.BAN_MEMBERS },
   { id: "invites", label: "Invitations", icon: TicketPlus, permission: perms.CREATE_INVITE },
 ];
 
-const visibleTabs = computed(() => {
+const allTabs = [...userTabs, ...serverTabs];
+
+const visibleUserTabs = computed(() => {
   const p = state.value?.permissions ?? 0;
-  return allTabs.filter((t) => t.permission === 0 || perms.has(p, t.permission));
+  return userTabs.filter((t) => t.permission === 0 || perms.has(p, t.permission));
+});
+
+const visibleServerTabs = computed(() => {
+  const p = state.value?.permissions ?? 0;
+  return serverTabs.filter((t) => t.permission === 0 || perms.has(p, t.permission));
 });
 
 const activeTabLabel = computed(() => allTabs.find((t) => t.id === activeTab.value)?.label ?? "");
@@ -756,6 +813,7 @@ onMounted(async () => {
     roles.value = await api.listRoles(s.url, s.token);
   } catch {}
   loadInvites();
+  loadTotpStatus();
 });
 
 async function createRole() {
@@ -1042,6 +1100,62 @@ function formatExpiry(ts: number): string {
   return `dans ${Math.ceil(diff / 86400)} j`;
 }
 
+// Security / TOTP
+const totpEnabled = ref(false);
+const totpSetupData = ref<{ secret: string; otpauth_url: string } | null>(null);
+const totpConfirmCode = ref("");
+const totpError = ref("");
+
+const totpQrUrl = computed(() => {
+  if (!totpSetupData.value) return "";
+  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(totpSetupData.value.otpauth_url)}`;
+});
+
+async function loadTotpStatus() {
+  const server = activeServer();
+  if (!server) return;
+  try {
+    const res = await api.totpStatus(server.url, server.token);
+    totpEnabled.value = res.enabled;
+  } catch {}
+}
+
+async function setupTotp() {
+  const server = activeServer();
+  if (!server) return;
+  totpError.value = "";
+  try {
+    const res = await api.totpSetup(server.url, server.token);
+    totpSetupData.value = res;
+  } catch {
+    totpError.value = "Erreur lors de la configuration TOTP";
+  }
+}
+
+async function confirmTotp() {
+  const server = activeServer();
+  if (!server) return;
+  totpError.value = "";
+  try {
+    await api.totpVerify(server.url, server.token, totpConfirmCode.value);
+    totpEnabled.value = true;
+    totpSetupData.value = null;
+    totpConfirmCode.value = "";
+  } catch {
+    totpError.value = "Code incorrect, reessaie";
+    totpConfirmCode.value = "";
+  }
+}
+
+async function disableTotp() {
+  const server = activeServer();
+  if (!server) return;
+  try {
+    await api.totpDisable(server.url, server.token);
+    totpEnabled.value = false;
+  } catch {}
+}
+
 function close() {
   store.showServerSettingsModal = false;
 }
@@ -1077,6 +1191,21 @@ function close() {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.sidebar-section-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  padding: 4px 10px 4px;
+}
+
+.sidebar-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 10px;
 }
 
 .settings-tab {
@@ -2348,5 +2477,49 @@ function close() {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.totp-status {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.totp-enabled {
+  color: var(--green);
+}
+
+.totp-qr {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+}
+
+.totp-qr img {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+
+.totp-secret {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.totp-secret code {
+  font-family: monospace;
+  color: var(--text-muted);
+  user-select: all;
+}
+
+.totp-error {
+  color: var(--danger);
+  font-size: 0.8125rem;
+  margin-top: 8px;
 }
 </style>

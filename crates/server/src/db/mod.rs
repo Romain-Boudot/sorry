@@ -5,4 +5,5 @@ pub mod invites;
 pub mod messages;
 pub mod roles;
 pub mod servers;
+pub mod totp;
 pub mod users;

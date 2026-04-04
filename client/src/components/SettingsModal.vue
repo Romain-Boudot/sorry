@@ -24,9 +24,11 @@
 
         <!-- Profil -->
         <div v-if="activeTab === 'profile'" class="settings-body">
+          <p class="settings-section-intro">Ces parametres sont stockes localement sur cet appareil. Quand tu rejoins un nouveau serveur, ton avatar et ton pseudo par defaut seront utilises automatiquement. Tu pourras les changer ensuite pour chaque serveur independamment.</p>
+
           <div class="settings-section">
             <label>Avatar par defaut</label>
-            <p class="settings-hint">Utilise comme avatar quand tu rejoins un nouveau serveur.</p>
+            <p class="settings-hint">Applique automatiquement quand tu rejoins un nouveau serveur.</p>
             <div class="avatar-setting">
               <div class="avatar-preview" @click="avatarInput?.click()">
                 <img v-if="defaultAvatarPreview" :src="defaultAvatarPreview" />
@@ -45,7 +47,7 @@
 
           <div class="settings-section">
             <label>Display name par defaut</label>
-            <p class="settings-hint">Utilise comme nom par defaut quand tu rejoins un nouveau serveur.</p>
+            <p class="settings-hint">Applique automatiquement quand tu rejoins un nouveau serveur. Pour changer ton pseudo sur un serveur existant, passe par les parametres du serveur.</p>
             <div class="settings-input-row">
               <input v-model="defaultDisplayName" type="text" placeholder="Mon pseudo" maxlength="32" />
               <button class="settings-save-btn" @click="saveDefaultName">Sauvegarder</button>
@@ -357,6 +359,16 @@ function close() {
 
 .settings-body {
   padding: 0 24px 24px;
+}
+
+.settings-section-intro {
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
 }
 
 .settings-section {

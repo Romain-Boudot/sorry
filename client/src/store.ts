@@ -72,6 +72,46 @@ function createServerState(): ServerState {
   };
 }
 
+const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function getTokenExp(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp ?? null;
+  } catch { return null; }
+}
+
+function scheduleTokenRefresh(serverId: string) {
+  // Clear any existing timer
+  const existing = refreshTimers.get(serverId);
+  if (existing) clearTimeout(existing);
+
+  const server = store.savedServers.find((s) => s.id === serverId);
+  if (!server) return;
+
+  const exp = getTokenExp(server.token);
+  if (!exp) return;
+
+  // Refresh when 80% of the TTL has elapsed (e.g. 4 days into a 5-day token)
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const remaining = exp - nowSecs;
+  const refreshIn = Math.max(remaining * 0.8, 60) * 1000; // at least 1 min
+
+  const timer = setTimeout(async () => {
+    try {
+      const res = await api.refreshToken(server.url, server.token);
+      server.token = res.token;
+      persistServers();
+      // Schedule next refresh
+      scheduleTokenRefresh(serverId);
+    } catch {
+      // Token expired or server unreachable — user will need to re-login
+    }
+  }, refreshIn);
+
+  refreshTimers.set(serverId, timer);
+}
+
 function loadSavedServers(): SavedServer[] {
   try {
     return JSON.parse(localStorage.getItem("servers") || "[]");
@@ -181,7 +221,8 @@ export async function addServer(
   password: string,
   inviteCode?: string,
   displayName?: string,
-  defaultAvatar?: File
+  defaultAvatar?: File,
+  totpCode?: string
 ) {
   const baseUrl = await resolveBaseUrl(url);
 
@@ -194,7 +235,15 @@ export async function addServer(
     return;
   }
 
-  const res = await api.login(baseUrl, username, password, inviteCode);
+  const res = await api.login(baseUrl, username, password, inviteCode, totpCode);
+
+  if (res.totp_required) {
+    throw new Error("totp_required");
+  }
+
+  if (!res.token || !res.user) {
+    throw new Error("401");
+  }
 
   if (displayName) {
     await api.updateDisplayName(baseUrl, res.token, displayName);
@@ -265,6 +314,7 @@ export async function connectToServer(serverId: string) {
     state.connected = true;
     state.onlineUsers = new Set(me.online_users);
     state.onlineUsers.add(me.user.id);
+    scheduleTokenRefresh(serverId);
 
     for (const u of me.users) {
       state.users.set(u.id, u);

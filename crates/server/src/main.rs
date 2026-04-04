@@ -73,7 +73,10 @@ async fn main() {
     // ── Admin account bootstrap ──
     ensure_admin(&db).await;
 
-    let jwt_ttl_secs: i64 = 30 * 24 * 3600; // 30 days — same as auth.rs
+    let jwt_ttl_secs: i64 = std::env::var("JWT_TTL_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(5) * 24 * 3600;
 
     // Load recently banned users into memory
     let banned_ids = db::users::load_recent_bans(&db, jwt_ttl_secs)

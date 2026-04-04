@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS user_totp (
+    user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    secret    TEXT    NOT NULL,
+    verified  INTEGER NOT NULL DEFAULT 0
+);

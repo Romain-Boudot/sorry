@@ -15,12 +15,12 @@ pub struct Claims {
     pub exp: usize,
 }
 
-pub fn create_token(user_id: i64, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn create_token(user_id: i64, secret: &str, ttl_secs: i64) -> Result<String, jsonwebtoken::errors::Error> {
     let exp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as usize
-        + 30 * 24 * 3600; // 30 jours
+        + ttl_secs as usize;
 
     let claims = Claims { sub: user_id, exp };
     encode(

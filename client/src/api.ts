@@ -69,11 +69,40 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status}`);
   },
 
-  async login(baseUrl: string, username: string, password: string, inviteCode?: string) {
+  async login(baseUrl: string, username: string, password: string, inviteCode?: string, totpCode?: string) {
     const hashed = await hashPassword(password);
-    return request<{ token: string; user: User }>(baseUrl, "/auth/login", undefined, {
+    return request<{ token?: string; user?: User; totp_required?: boolean }>(baseUrl, "/auth/login", undefined, {
       method: "POST",
-      body: JSON.stringify({ username, password: hashed, invite_code: inviteCode }),
+      body: JSON.stringify({ username, password: hashed, invite_code: inviteCode, totp_code: totpCode }),
+    });
+  },
+
+  totpSetup(baseUrl: string, token: string) {
+    return request<{ secret: string; otpauth_url: string }>(baseUrl, "/auth/totp/setup", token, {
+      method: "POST",
+    });
+  },
+
+  totpVerify(baseUrl: string, token: string, code: string) {
+    return request<void>(baseUrl, "/auth/totp/verify", token, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  totpDisable(baseUrl: string, token: string) {
+    return request<void>(baseUrl, "/auth/totp/disable", token, {
+      method: "POST",
+    });
+  },
+
+  totpStatus(baseUrl: string, token: string) {
+    return request<{ enabled: boolean }>(baseUrl, "/auth/totp/status", token);
+  },
+
+  refreshToken(baseUrl: string, token: string) {
+    return request<{ token: string }>(baseUrl, "/auth/refresh", token, {
+      method: "POST",
     });
   },
 
