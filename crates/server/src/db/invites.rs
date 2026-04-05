@@ -9,6 +9,8 @@ pub struct Invite {
     pub uses: i64,
     pub expires_at: Option<i64>,
     pub created_at: i64,
+    pub role_id: Option<i64>,
+    pub guest: bool,
 }
 
 pub async fn create(
@@ -17,13 +19,18 @@ pub async fn create(
     created_by: i64,
     max_uses: Option<i64>,
     expires_at: Option<i64>,
+    role_id: Option<i64>,
+    guest: bool,
 ) -> sqlx::Result<Invite> {
+    let guest_int = guest as i32;
     sqlx::query!(
-        "INSERT INTO invites (code, created_by, max_uses, expires_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO invites (code, created_by, max_uses, expires_at, role_id, guest) VALUES (?, ?, ?, ?, ?, ?)",
         code,
         created_by,
         max_uses,
-        expires_at
+        expires_at,
+        role_id,
+        guest_int
     )
     .execute(db)
     .await?;
@@ -33,7 +40,7 @@ pub async fn create(
 
 pub async fn find_by_code(db: &SqlitePool, code: &str) -> sqlx::Result<Option<Invite>> {
     let row = sqlx::query!(
-        r#"SELECT code, created_by, max_uses, uses, expires_at, created_at FROM invites WHERE code = ?"#,
+        r#"SELECT code, created_by, max_uses, uses, expires_at, created_at, role_id, guest FROM invites WHERE code = ?"#,
         code
     )
     .fetch_optional(db)
@@ -45,12 +52,14 @@ pub async fn find_by_code(db: &SqlitePool, code: &str) -> sqlx::Result<Option<In
         uses: r.uses,
         expires_at: r.expires_at,
         created_at: r.created_at,
+        role_id: r.role_id,
+        guest: r.guest != 0,
     }))
 }
 
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<Invite>> {
     let rows = sqlx::query!(
-        r#"SELECT code, created_by, max_uses, uses, expires_at, created_at FROM invites ORDER BY created_at DESC"#
+        r#"SELECT code, created_by, max_uses, uses, expires_at, created_at, role_id, guest FROM invites ORDER BY created_at DESC"#
     )
     .fetch_all(db)
     .await?;
@@ -61,11 +70,13 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<Invite>> {
         uses: r.uses,
         expires_at: r.expires_at,
         created_at: r.created_at,
+        role_id: r.role_id,
+        guest: r.guest != 0,
     }).collect())
 }
 
-/// Validate and consume an invite. Returns error if invalid/expired/used up.
-pub async fn use_invite(db: &SqlitePool, code: &str) -> Result<(), String> {
+/// Validate and consume an invite. Returns the invite if valid.
+pub async fn use_invite(db: &SqlitePool, code: &str) -> Result<Invite, String> {
     let invite = find_by_code(db, code)
         .await
         .map_err(|e| format!("DB error: {e}"))?
@@ -92,7 +103,7 @@ pub async fn use_invite(db: &SqlitePool, code: &str) -> Result<(), String> {
         .await
         .map_err(|e| format!("DB error: {e}"))?;
 
-    Ok(())
+    Ok(invite)
 }
 
 pub async fn delete(db: &SqlitePool, code: &str) -> sqlx::Result<()> {

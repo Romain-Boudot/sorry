@@ -6,6 +6,7 @@ mod auth;
 mod channels;
 mod invites;
 mod livekit;
+mod notifications;
 pub mod og;
 mod roles;
 pub mod servers;
@@ -21,5 +22,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .nest("/livekit", livekit::router())
         .nest("/server", servers::router())
         .nest("/invites", invites::router())
+        .nest("/notifications", notifications::router())
         .route("/og", axum::routing::post(og::fetch_og))
 }

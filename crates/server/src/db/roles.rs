@@ -146,7 +146,7 @@ pub async fn get_user_roles(db: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<R
 }
 
 /// Récupère les permissions combinées (OR) de tous les rôles d'un user.
-/// Le rôle Membre (ID=2) est implicite pour tous les users.
+/// Le rôle everyone (ID=2) est implicite pour tous les users non-guest.
 /// Le rôle Owner (ID=1) est implicite pour user ID 1.
 pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
     // Custom roles from user_roles table
@@ -164,9 +164,12 @@ pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result
         perms |= r.permissions;
     }
 
-    // Implicit Membre role (ID=2) for everyone
-    if let Some(membre) = find_by_id(db, 2).await? {
-        perms |= membre.permissions;
+    // Implicit everyone role (ID=2) — skip for guest users
+    let is_guest = crate::db::users::is_guest(db, user_id).await?;
+    if !is_guest {
+        if let Some(everyone) = find_by_id(db, 2).await? {
+            perms |= everyone.permissions;
+        }
     }
 
     // Implicit Owner role (ID=1) for user ID 1
@@ -265,18 +268,21 @@ pub async fn get_channel_overwrites(
         deny |= r.deny;
     }
 
-    // Implicit Membre role (ID=2) overwrites for everyone
-    let membre_id: i64 = 2;
-    let membre_rows = sqlx::query!(
-        "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
-        membre_id,
-        channel_id
-    )
-    .fetch_optional(db)
-    .await?;
-    if let Some(r) = membre_rows {
-        allow |= r.allow;
-        deny |= r.deny;
+    // Implicit everyone role (ID=2) overwrites — skip for guest users
+    let is_guest = crate::db::users::is_guest(db, user_id).await?;
+    if !is_guest {
+        let everyone_id: i64 = 2;
+        let everyone_rows = sqlx::query!(
+            "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
+            everyone_id,
+            channel_id
+        )
+        .fetch_optional(db)
+        .await?;
+        if let Some(r) = everyone_rows {
+            allow |= r.allow;
+            deny |= r.deny;
+        }
     }
 
     // Implicit Owner role (ID=1) overwrites for user 1

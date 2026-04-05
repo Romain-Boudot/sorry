@@ -58,6 +58,7 @@
               </div>
               <div class="message-header">
                 <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
+                <span v-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
                 <span class="message-time">{{ formatTime(msg.created_at) }}</span>
               </div>
               <template v-if="editingMessageId === msg.id">
@@ -160,6 +161,20 @@
         </button>
       </div>
       <div class="chat-input-wrapper">
+        <!-- Mention autocomplete -->
+        <div v-if="mentionSuggestions.length" class="mention-popup">
+          <div
+            v-for="(item, i) in mentionSuggestions"
+            :key="item.key"
+            class="mention-popup-item"
+            :class="{ active: i === mentionIndex }"
+            @mousedown.prevent="insertMention(item)"
+          >
+            <span v-if="item.type === 'role'" class="mention-role-dot" :style="item.color ? `background:${item.color}` : ''"></span>
+            <span>{{ item.label }}</span>
+            <span class="mention-type-tag">{{ item.type === 'role' ? 'role' : 'user' }}</span>
+          </div>
+        </div>
         <input type="file" ref="fileInput" multiple hidden @change="onFileSelect" />
         <button class="chat-attach" @click="fileInput?.click()" title="Joindre un fichier">
           <Paperclip :size="18" />
@@ -168,7 +183,7 @@
           ref="mainInput"
           v-model="input"
           @keydown="onMainKeydown"
-          @input="autoResize"
+          @input="onInputChange"
           @paste="onPaste"
           :placeholder="`Envoyer un message dans #${activeChannel?.name ?? '...'}`"
           rows="1"
@@ -212,7 +227,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
 import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download, Loader2, Reply } from "lucide-vue-next";
-import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
+import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
 import * as perms from "../permissions";
 import { api, type Message, type Attachment, type User } from "../api";
 import { renderMarkdown, extractUrls } from "../markdown";
@@ -252,6 +267,82 @@ const state = computed(() => activeState());
 const activeChannel = computed(() =>
   state.value?.channels.find((c) => c.id === state.value?.activeChannelId)
 );
+
+// ── Mention autocomplete ──
+interface MentionItem {
+  key: string;
+  type: "user" | "role";
+  id: number;
+  label: string;
+  color?: string | null;
+}
+
+const mentionQuery = ref("");
+const mentionStart = ref(-1);
+const mentionIndex = ref(0);
+
+const mentionSuggestions = computed((): MentionItem[] => {
+  if (mentionStart.value < 0) return [];
+  const q = mentionQuery.value.toLowerCase();
+  const st = state.value;
+  if (!st) return [];
+  const items: MentionItem[] = [];
+  // Users
+  for (const [id, user] of st.users) {
+    if (user.display_name.toLowerCase().includes(q)) {
+      items.push({ key: `u-${id}`, type: "user", id, label: user.display_name });
+    }
+  }
+  // Roles (hide Admin role id=1, it's a hidden owner role)
+  for (const role of st.roles) {
+    if (role.id === 1) continue;
+    if (role.name.toLowerCase().includes(q)) {
+      items.push({ key: `r-${role.id}`, type: "role", id: role.id, label: role.name, color: role.color });
+    }
+  }
+  return items.slice(0, 10);
+});
+
+function updateMentionState() {
+  const el = mainInput.value;
+  if (!el) { mentionStart.value = -1; return; }
+  const pos = el.selectionStart ?? 0;
+  const text = input.value.slice(0, pos);
+  const atIdx = text.lastIndexOf("@");
+  if (atIdx < 0 || (atIdx > 0 && text[atIdx - 1] !== " " && text[atIdx - 1] !== "\n")) {
+    mentionStart.value = -1;
+    return;
+  }
+  const query = text.slice(atIdx + 1);
+  if (query.includes(" ") && query.length > 20) {
+    mentionStart.value = -1;
+    return;
+  }
+  mentionStart.value = atIdx;
+  mentionQuery.value = query;
+  mentionIndex.value = 0;
+}
+
+function insertMention(item: MentionItem) {
+  const el = mainInput.value;
+  if (!el || mentionStart.value < 0) return;
+  const pos = el.selectionStart ?? 0;
+  const before = input.value.slice(0, mentionStart.value);
+  const after = input.value.slice(pos);
+  const mentionTag = item.type === "role" ? `<@&${item.id}>` : `<@${item.id}>`;
+  input.value = before + mentionTag + " " + after;
+  mentionStart.value = -1;
+  nextTick(() => {
+    const newPos = before.length + mentionTag.length + 1;
+    el.setSelectionRange(newPos, newPos);
+    el.focus();
+  });
+}
+
+function onInputChange(e: Event) {
+  autoResize(e);
+  updateMentionState();
+}
 
 const messages = computed(() =>
   state.value?.messages.get(state.value?.activeChannelId ?? 0) ?? []
@@ -499,6 +590,30 @@ function attachmentUrl(att: Attachment): string {
 }
 
 function onMainKeydown(e: KeyboardEvent) {
+  // Mention autocomplete navigation
+  if (mentionSuggestions.value.length > 0) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value + 1) % mentionSuggestions.value.length;
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value - 1 + mentionSuggestions.value.length) % mentionSuggestions.value.length;
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      insertMention(mentionSuggestions.value[mentionIndex.value]);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      mentionStart.value = -1;
+      return;
+    }
+  }
+
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     handleSend();
@@ -962,6 +1077,7 @@ function formatTimeShort(ts: string): string {
 }
 
 .chat-input-wrapper {
+  position: relative;
   display: flex;
   align-items: flex-end;
   /* Match the user card height: --bar-height is set on .user-row (child),
@@ -1457,5 +1573,59 @@ function formatTimeShort(ts: string): string {
   background: var(--accent);
   background: rgba(88, 101, 242, 0.1);
   transition: background 0.3s;
+}
+
+/* ── Mention autocomplete popup ── */
+.mention-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 6px;
+  margin-bottom: 4px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.mention-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.mention-popup-item:hover,
+.mention-popup-item.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.mention-role-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.mention-type-tag {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.mention-popup-item:hover .mention-type-tag,
+.mention-popup-item.active .mention-type-tag {
+  color: rgba(255, 255, 255, 0.6);
 }
 </style>

@@ -24,7 +24,7 @@ pub fn to_model(row: &ChannelRow) -> Channel {
 
 pub async fn create(db: &SqlitePool, name: &str, kind: &str, group_id: Option<i64>) -> sqlx::Result<i64> {
     let row = sqlx::query!(
-        "INSERT INTO channels (name, kind, group_id) VALUES (?, ?, ?) RETURNING id",
+        "INSERT INTO channels (name, kind, group_id, position) VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels)) RETURNING id",
         name,
         kind,
         group_id

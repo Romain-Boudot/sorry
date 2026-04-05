@@ -49,7 +49,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { Settings } from "lucide-vue-next";
-import { store, connectAll, activeState, isActiveChannelVoice } from "./store";
+import { store, connectAll, activeState, isActiveChannelVoice, resolveUserColor } from "./store";
+import { setMentionResolver } from "./markdown";
 import TopBar from "./components/TopBar.vue";
 import ServerList from "./components/ServerList.vue";
 import Sidebar from "./components/Sidebar.vue";
@@ -92,6 +93,22 @@ function parseDeepLink(url: string) {
     handleInviteParams(params);
   } catch {}
 }
+
+// Set up mention resolver for markdown rendering
+setMentionResolver((kind, id) => {
+  const s = activeState();
+  if (!s) return null;
+  if (kind === "user") {
+    const user = s.users.get(id);
+    if (!user) return null;
+    return { name: user.display_name, color: resolveUserColor(id) };
+  }
+  // role (hide Admin role id=1)
+  if (id === 1) return null;
+  const role = s.roles.find((r) => r.id === id);
+  if (!role) return null;
+  return { name: role.name, color: role.color };
+});
 
 onMounted(async () => {
   // Parse invite from hash: #invite=CODE&server=URL

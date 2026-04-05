@@ -10,7 +10,7 @@
       </div>
 
       <div class="user-card-body">
-        <div class="user-card-name">{{ user.display_name }}</div>
+        <div class="user-card-name">{{ user.display_name }} <span v-if="user.guest" class="guest-tag">Guest</span></div>
         <div class="user-card-status" :class="{ online: isOnline }">
           <Circle :size="8" fill="currentColor" />
           {{ isOnline ? 'En ligne' : 'Hors ligne' }}
@@ -82,11 +82,11 @@ const showRoleDropdown = ref(false);
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
+const visibleRoles = computed(() => (state.value?.roles ?? []).filter(r => ![1, 2].includes(r.id)))
 
 const userRoles = computed(() => {
   const roleIds = state.value?.userRoles.get(props.user.id) ?? [];
-  const allRoles = state.value?.roles ?? [];
-  return allRoles.filter((r) => roleIds.includes(r.id)).sort((a, b) => a.position - b.position);
+  return visibleRoles.value.filter((r) => roleIds.includes(r.id)).sort((a, b) => a.position - b.position);
 });
 
 const isOnline = computed(() =>
@@ -98,7 +98,7 @@ const canManageRoles = computed(() =>
 );
 
 const availableRoles = computed(() =>
-  (state.value?.roles ?? []).filter(
+  visibleRoles.value.filter(
     (r) => !userRoles.value.some((ur) => ur.id === r.id)
   )
 );

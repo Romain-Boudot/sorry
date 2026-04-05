@@ -3,6 +3,7 @@ pub mod channel_groups;
 pub mod channels;
 pub mod invites;
 pub mod messages;
+pub mod notification_prefs;
 pub mod roles;
 pub mod servers;
 pub mod totp;

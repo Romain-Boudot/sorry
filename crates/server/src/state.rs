@@ -27,6 +27,7 @@ pub struct AppState {
     pub banned_users: RwLock<std::collections::HashSet<UserId>>,
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
     pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
+    pub invite_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
 }
 
 impl AppState {
@@ -61,6 +62,7 @@ impl AppState {
             banned_users: RwLock::new(banned_users),
             login_attempts: RwLock::new(HashMap::new()),
             og_cache: RwLock::new(HashMap::new()),
+            invite_attempts: RwLock::new(HashMap::new()),
         }
     }
 
@@ -78,6 +80,25 @@ impl AppState {
 
         if entry.len() >= max_attempts {
             return false; // rate limited
+        }
+
+        entry.push(now);
+        true
+    }
+
+    /// Check if an IP is rate-limited for invite operations (max 10 attempts per 60 seconds)
+    pub fn check_invite_rate_limit(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60);
+        let max_attempts = 10;
+
+        let mut attempts = self.invite_attempts.write().unwrap();
+        let entry = attempts.entry(ip).or_default();
+
+        entry.retain(|t| now.duration_since(*t) < window);
+
+        if entry.len() >= max_attempts {
+            return false;
         }
 
         entry.push(now);

@@ -66,3 +66,29 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 ::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
 ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #111214; }
+
+/* Guest tag */
+.guest-tag {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-faint);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+/* Mention spans in messages */
+.mention {
+  background: rgba(212, 145, 74, 0.15);
+  color: var(--accent);
+  padding: 0 3px;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mention:hover {
+  background: rgba(212, 145, 74, 0.3);
+}

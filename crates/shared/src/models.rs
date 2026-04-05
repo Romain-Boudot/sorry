@@ -17,6 +17,8 @@ pub struct User {
     pub username: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
+    #[serde(default)]
+    pub guest: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +70,19 @@ pub struct ReplyPreview {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Mention {
+    pub kind: MentionKind,
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MentionKind {
+    User,
+    Role,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: i64,
     pub channel_id: i64,
@@ -78,6 +93,8 @@ pub struct Message {
     pub attachments: Vec<Attachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<ReplyPreview>,
+    #[serde(default)]
+    pub mentions: Vec<Mention>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

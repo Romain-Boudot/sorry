@@ -36,7 +36,7 @@ The script will:
                     LiveKit :50000-60000/udp  (media RTP)
 ```
 
-4 containers: **Sorry** (app), **Caddy** (reverse proxy), **LiveKit** (voice), **MinIO** (file storage).
+3 containers: **Sorry** (app), **Caddy** (reverse proxy), **LiveKit** (voice). Files are stored locally on disk.
 
 ### Deploy modes
 
@@ -71,7 +71,7 @@ Configuration is in `~/sorry/.env`.
 - **WebSocket** for real-time events (messages, presence, voice state, role changes)
 - **SQLite** via `sqlx` with compile-time checked queries
 - **JWT** authentication with `argon2` password hashing
-- **S3/MinIO** for file storage (uploads, avatars, server icons)
+- **Local filesystem** for file storage (uploads, avatars, server icons)
 - **LiveKit** integration for voice (token generation, server-side force mute)
 
 ### Frontend — Vue 3 + TypeScript
@@ -129,12 +129,12 @@ Configuration is in `~/sorry/.env`.
 
 - [Rust](https://rustup.rs/) (stable)
 - [Bun](https://bun.sh/)
-- [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) (for LiveKit + MinIO)
+- [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) (for LiveKit)
 
 ### Setup
 
 ```bash
-# Start LiveKit + MinIO
+# Start LiveKit
 docker compose -f docker-compose.dev.yml up -d
 
 # Install dependencies and setup database
@@ -190,10 +190,7 @@ sorry/
 | `LIVEKIT_INTERNAL_URL` | No | `http://livekit:7880` | LiveKit URL for server-side API calls |
 | `LIVEKIT_API_KEY` | No | — | LiveKit API key |
 | `LIVEKIT_API_SECRET` | No | — | LiveKit API secret |
-| `S3_ENDPOINT` | No | `http://localhost:9000` | S3/MinIO endpoint |
-| `S3_BUCKET` | No | `uploads` | S3 bucket name |
-| `S3_ACCESS_KEY` | No | `minioadmin` | S3 access key |
-| `S3_SECRET_KEY` | No | `minioadmin` | S3 secret key |
+| `UPLOAD_DIR` | No | `./data/uploads` | Local directory for file storage |
 | `MAX_FILE_SIZE_MB` | No | `25` | Max upload file size in MB |
 
 ## Tech Stack
@@ -203,7 +200,7 @@ sorry/
 - **TypeScript**
 - **SQLite**
 - **LiveKit** for voice
-- **MinIO** for file storage
+- **Local filesystem** for file storage
 - **Caddy** for reverse proxy + auto TLS
 - **Tauri v2** for desktop builds
 

@@ -39,51 +39,110 @@
             <p v-if="serverDescription" class="server-header-desc">{{ serverDescription }}</p>
           </div>
         </div>
-        <p class="step-desc">Ton identifiant est prive et sert uniquement a te connecter. Les autres verront ton display name.</p>
 
-        <div class="field-group">
-          <div class="field">
-            <label>Identifiant</label>
-            <input v-model="username" type="text" placeholder="ton_id" required autofocus />
-          </div>
-          <div class="field">
-            <label>Mot de passe</label>
-            <input v-model="password" type="password" placeholder="********" required @keydown.enter="!showNewAccount && nextStep()" />
-          </div>
-        </div>
+        <!-- Guest invite detected → display name only -->
+        <template v-if="guestMode">
+          <p class="step-desc">Cette invitation ne necessite pas de compte. Choisis juste un pseudo pour rejoindre.</p>
 
-        <template v-if="showNewAccount">
-          <div class="field-group">
+          <div class="field">
+            <label>Pseudo</label>
+            <input v-model="displayName" type="text" placeholder="Ton pseudo" required autofocus @keydown.enter="nextStep" />
+          </div>
+
+          <p class="error" v-if="error">{{ error }}</p>
+
+          <div class="step-actions">
+            <button class="btn-back" @click="guestMode = false; showNewAccount = false; inviteCode = ''">Retour</button>
+            <button @click="nextStep" :disabled="loading || !displayName.trim()">
+              {{ loading ? "Connexion..." : "Rejoindre" }}
+            </button>
+          </div>
+        </template>
+
+        <!-- New account (non-guest invite) -->
+        <template v-else-if="showNewAccount">
+          <template v-if="!inviteChecked">
+            <p class="step-desc">Entre ton code d'invitation pour rejoindre le serveur.</p>
+
+            <div class="field">
+              <label>Code d'invitation</label>
+              <input v-model="inviteCode" type="text" placeholder="Demande a l'admin" required autofocus @keydown.enter="checkInviteCode" />
+            </div>
+
+            <p class="toggle" @click="showNewAccount = false">J'ai deja un compte</p>
+            <p class="error" v-if="error">{{ error }}</p>
+
+            <div class="step-actions">
+              <button class="btn-back" @click="step = 1">Retour</button>
+              <button @click="checkInviteCode" :disabled="loading || !inviteCode.trim()">
+                {{ loading ? "Verification..." : "Suivant" }}
+              </button>
+            </div>
+          </template>
+
+          <template v-else>
+            <p class="step-desc">Ton identifiant est prive et sert uniquement a te connecter. Les autres verront ton display name.</p>
+
+            <div class="field-group">
+              <div class="field">
+                <label>Identifiant</label>
+                <input v-model="username" type="text" placeholder="ton_id" required autofocus />
+              </div>
+              <div class="field">
+                <label>Mot de passe</label>
+                <input v-model="password" type="password" placeholder="********" required @keydown.enter="nextStep" />
+              </div>
+            </div>
+
             <div class="field">
               <label>Display name</label>
               <input v-model="displayName" type="text" placeholder="Ton nom visible" />
             </div>
+
+            <p class="error" v-if="error">{{ error }}</p>
+
+            <div class="step-actions">
+              <button class="btn-back" @click="inviteChecked = false">Retour</button>
+              <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim()">
+                {{ loading ? "Inscription..." : "S'inscrire" }}
+              </button>
+            </div>
+          </template>
+        </template>
+
+        <!-- Login (existing account) -->
+        <template v-else>
+          <p class="step-desc">Connecte-toi avec ton identifiant et mot de passe.</p>
+
+          <div class="field-group">
             <div class="field">
-              <label>Code d'invitation</label>
-              <input v-model="inviteCode" type="text" placeholder="Demande a l'admin" @keydown.enter="nextStep" />
+              <label>Identifiant</label>
+              <input v-model="username" type="text" placeholder="ton_id" required autofocus />
+            </div>
+            <div class="field">
+              <label>Mot de passe</label>
+              <input v-model="password" type="password" placeholder="********" required @keydown.enter="nextStep" />
             </div>
           </div>
-        </template>
 
-        <template v-if="needsTotp">
-          <div class="field">
-            <label>Code TOTP</label>
-            <input v-model="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autofocus @keydown.enter="nextStep" />
+          <template v-if="needsTotp">
+            <div class="field">
+              <label>Code TOTP</label>
+              <input v-model="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autofocus @keydown.enter="nextStep" />
+            </div>
+          </template>
+
+          <p v-if="!needsTotp" class="toggle" @click="showNewAccount = true">Premiere connexion ?</p>
+
+          <p class="error" v-if="error">{{ error }}</p>
+
+          <div class="step-actions">
+            <button class="btn-back" @click="needsTotp ? (needsTotp = false) : (step = 1)">Retour</button>
+            <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim() || (needsTotp && totpCode.length < 6)">
+              {{ loading ? "Connexion..." : "Se connecter" }}
+            </button>
           </div>
         </template>
-
-        <p v-if="!needsTotp" class="toggle" @click="showNewAccount = !showNewAccount">
-          {{ showNewAccount ? "J'ai deja un compte" : "Premiere connexion ?" }}
-        </p>
-
-        <p class="error" v-if="error">{{ error }}</p>
-
-        <div class="step-actions">
-          <button class="btn-back" @click="needsTotp ? (needsTotp = false) : (step = 1)">Retour</button>
-          <button @click="nextStep" :disabled="loading || !username.trim() || !password.trim() || (needsTotp && totpCode.length < 6)">
-            {{ loading ? "Connexion..." : showNewAccount ? "S'inscrire" : "Se connecter" }}
-          </button>
-        </div>
       </template>
     </div>
   </div>
@@ -91,7 +150,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { store, addServer } from "../store";
+import { store, addServer, addServerGuest } from "../store";
 import { api, resolveBaseUrl } from "../api";
 
 const step = ref(1);
@@ -108,6 +167,8 @@ const password = ref("");
 const displayName = ref(localStorage.getItem("defaultDisplayName") || "");
 const inviteCode = ref("");
 const showNewAccount = ref(false);
+const guestMode = ref(false);
+const inviteChecked = ref(false);
 const needsTotp = ref(false);
 const totpCode = ref("");
 const serverIconUrl = ref<string | null>(null);
@@ -122,7 +183,7 @@ onMounted(async () => {
     const prefillUrl = store.prefillServerUrl;
     store.prefillServerUrl = "";
     store.prefillInviteCode = "";
-    // Auto-resolve and skip to step 2
+    // Auto-resolve and skip to step 2, then auto-check invite
     loading.value = true;
     try {
       const resolved = await resolveBaseUrl(prefillUrl);
@@ -132,6 +193,8 @@ onMounted(async () => {
       serverIconUrl.value = info.icon_url ? `${resolved}${info.icon_url}` : null;
       serverDescription.value = info.description ?? null;
       step.value = 2;
+      // Auto-check the invite
+      await checkInviteCode();
     } catch {
       error.value = "Impossible de joindre ce serveur";
     } finally {
@@ -139,6 +202,31 @@ onMounted(async () => {
     }
   }
 });
+
+async function checkInviteCode() {
+  error.value = "";
+  loading.value = true;
+  try {
+    const result = await api.checkInvite(url.value, inviteCode.value);
+    if (result.guest) {
+      guestMode.value = true;
+    } else {
+      inviteChecked.value = true;
+    }
+  } catch (e: any) {
+    if (e.message === "404") {
+      error.value = "Code d'invitation invalide";
+    } else if (e.message === "410") {
+      error.value = "Cette invitation a expire ou atteint sa limite";
+    } else if (e.message === "429") {
+      error.value = "Trop de tentatives, reessaie dans une minute";
+    } else {
+      error.value = "Impossible de verifier l'invitation";
+    }
+  } finally {
+    loading.value = false;
+  }
+}
 
 async function nextStep() {
   error.value = "";
@@ -153,6 +241,14 @@ async function nextStep() {
       serverIconUrl.value = info.icon_url ? `${url.value}${info.icon_url}` : null;
       serverDescription.value = info.description ?? null;
       step.value = 2;
+    } else if (step.value === 2 && guestMode.value) {
+      await addServerGuest(
+        serverName.value,
+        url.value,
+        inviteCode.value,
+        displayName.value.trim(),
+      );
+      close();
     } else if (step.value === 2) {
       // Reconstruct default avatar file from localStorage if available
       let defaultAvatar: File | undefined;

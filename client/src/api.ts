@@ -100,6 +100,17 @@ export const api = {
     return request<{ enabled: boolean }>(baseUrl, "/auth/totp/status", token);
   },
 
+  checkInvite(baseUrl: string, code: string) {
+    return request<{ valid: boolean; guest: boolean }>(baseUrl, `/invites/check/${code}`);
+  },
+
+  quickLogin(baseUrl: string, inviteCode: string, displayName: string) {
+    return request<{ token?: string; user?: User }>(baseUrl, "/auth/quick", undefined, {
+      method: "POST",
+      body: JSON.stringify({ invite_code: inviteCode, display_name: displayName }),
+    });
+  },
+
   refreshToken(baseUrl: string, token: string) {
     return request<{ token: string }>(baseUrl, "/auth/refresh", token, {
       method: "POST",
@@ -270,7 +281,7 @@ export const api = {
     return request<Invite[]>(baseUrl, "/invites", token);
   },
 
-  createInvite(baseUrl: string, token: string, data: { max_uses?: number | null; expires_at?: number | null }) {
+  createInvite(baseUrl: string, token: string, data: { max_uses?: number | null; expires_at?: number | null; role_id?: number | null; guest?: boolean }) {
     return request<Invite>(baseUrl, "/invites", token, {
       method: "POST",
       body: JSON.stringify(data),
@@ -325,6 +336,24 @@ export const api = {
     });
   },
 
+  getNotificationPrefs(baseUrl: string, token: string) {
+    return request<NotificationPref[]>(baseUrl, "/notifications/preferences", token);
+  },
+
+  setNotificationPref(baseUrl: string, token: string, data: { scope: string; target_id: number; level: string; mute_until?: string | null }) {
+    return request<void>(baseUrl, "/notifications/preferences", token, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteNotificationPref(baseUrl: string, token: string, scope: string, targetId: number) {
+    return request<void>(baseUrl, "/notifications/preferences", token, {
+      method: "DELETE",
+      body: JSON.stringify({ scope, target_id: targetId }),
+    });
+  },
+
   assignRole(baseUrl: string, token: string, roleId: number, userId: number) {
     return request<void>(baseUrl, `/roles/${roleId}/assign`, token, {
       method: "POST",
@@ -347,6 +376,7 @@ export interface User {
   avatar_url: string | null;
   username?: string;
   created_at?: string;
+  guest?: boolean;
 }
 
 export interface BannedUser {
@@ -393,6 +423,11 @@ export interface ReplyPreview {
   content: string;
 }
 
+export interface Mention {
+  kind: "user" | "role";
+  id: number;
+}
+
 export interface Message {
   id: number;
   channel_id: number;
@@ -401,6 +436,14 @@ export interface Message {
   created_at: string;
   attachments: Attachment[];
   reply_to?: ReplyPreview;
+  mentions: Mention[];
+}
+
+export interface NotificationPref {
+  scope: "channel" | "server";
+  target_id: number;
+  level: "all" | "mentions" | "nothing";
+  mute_until: string | null;
 }
 
 export interface VoiceUserState {
@@ -417,6 +460,8 @@ export interface Invite {
   uses: number;
   expires_at: number | null;
   created_at: number;
+  role_id: number | null;
+  guest: boolean;
 }
 
 export interface ChannelOverwrite {

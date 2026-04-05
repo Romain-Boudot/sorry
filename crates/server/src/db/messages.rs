@@ -11,6 +11,7 @@ pub struct MessageRow {
 }
 
 pub fn to_model(row: &MessageRow) -> Message {
+    let mentions = shared::mentions::parse(&row.content);
     Message {
         id: row.id.unwrap_or(0),
         channel_id: row.channel_id,
@@ -19,6 +20,7 @@ pub fn to_model(row: &MessageRow) -> Message {
         created_at: row.created_at.clone(),
         attachments: vec![],
         reply_to: None,
+        mentions,
     }
 }
 

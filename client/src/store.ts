@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, resolveBaseUrl, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState } from "./api";
+import { api, resolveBaseUrl, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState, type NotificationPref } from "./api";
 import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened } from "./voice";
 
 export interface SavedServer {
@@ -30,6 +30,10 @@ export interface ServerState {
   roles: Role[];
   userRoles: Map<number, number[]>;
   maxFileSize: number;
+  // Notifications
+  notificationPrefs: NotificationPref[];
+  channelUnread: Map<number, number>;
+  channelMentions: Map<number, number>;
   // Vocal
   voiceChannelId: number | null;
   voiceConnectingChannelId: number | null;
@@ -58,6 +62,9 @@ function createServerState(): ServerState {
     voiceState: new Map(),
     ws: null,
     unreadCount: 0,
+    notificationPrefs: [],
+    channelUnread: new Map(),
+    channelMentions: new Map(),
     voiceChannelId: null,
     voiceConnectingChannelId: null,
     permissions: 0,
@@ -180,6 +187,13 @@ export function resolveUserColor(userId: number): string | null {
   return userRoles[0]?.color ?? null;
 }
 
+/// Est-ce qu'un user est un guest ?
+export function isGuest(userId: number): boolean {
+  const state = activeState();
+  if (!state) return false;
+  return state.users.get(userId)?.guest === true;
+}
+
 /// Est-ce qu'un user (par son id) est en train de parler ?
 export function isUserSpeaking(userId: number): boolean {
   const state = activeState();
@@ -270,6 +284,36 @@ export async function addServer(
   store.activeServerId = server.id;
 }
 
+/// Connexion rapide (guest) — invite code + display name only
+export async function addServerGuest(
+  name: string,
+  url: string,
+  inviteCode: string,
+  displayName: string,
+) {
+  const baseUrl = await resolveBaseUrl(url);
+
+  const res = await api.quickLogin(baseUrl, inviteCode, displayName);
+
+  if (!res.token || !res.user) {
+    throw new Error("403");
+  }
+
+  const server: SavedServer = {
+    id: crypto.randomUUID(),
+    name,
+    url: baseUrl,
+    username: `guest-${res.user.id}`,
+    token: res.token,
+  };
+
+  store.savedServers.push(server);
+  persistServers();
+
+  await connectToServer(server.id);
+  store.activeServerId = server.id;
+}
+
 /// Connecter à un serveur (sans déconnecter les autres)
 export async function connectToServer(serverId: string) {
   const server = store.savedServers.find((s) => s.id === serverId);
@@ -341,6 +385,16 @@ export async function connectToServer(serverId: string) {
       state.messages.set(firstText.id, msgs.reverse());
     }
 
+    // Load notification preferences
+    try {
+      state.notificationPrefs = await api.getNotificationPrefs(server.url, server.token);
+    } catch {}
+
+    // Request browser notification permission
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     state.ws = connectWS(server.url, server.token, (event) =>
       handleEvent(serverId, event)
     );
@@ -368,6 +422,11 @@ export function switchToServer(serverId: string) {
   if (state?.connected) {
     store.activeServerId = serverId;
     state.unreadCount = 0;
+    // Clear unread/mentions for the currently viewed channel
+    if (state.activeChannelId) {
+      state.channelUnread.delete(state.activeChannelId);
+      state.channelMentions.delete(state.activeChannelId);
+    }
   } else {
     connectToServer(serverId);
   }
@@ -379,6 +438,9 @@ export async function selectChannel(channelId: number) {
   if (!server || !state) return;
 
   state.activeChannelId = channelId;
+  // Clear unread/mentions for this channel
+  state.channelUnread.delete(channelId);
+  state.channelMentions.delete(channelId);
   if (!state.messages.has(channelId)) {
     const msgs = await api.listMessages(server.url, server.token, channelId);
     state.messages.set(channelId, msgs.reverse());
@@ -563,6 +625,48 @@ export function forceDeafen(userId: number, deafened: boolean) {
   }));
 }
 
+/// Set notification preference for a channel or server
+export async function setNotificationPref(
+  scope: "channel" | "server",
+  targetId: number,
+  level: "all" | "mentions" | "nothing",
+  muteUntil?: string | null,
+) {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return;
+
+  await api.setNotificationPref(server.url, server.token, {
+    scope,
+    target_id: targetId,
+    level,
+    mute_until: muteUntil ?? null,
+  });
+
+  // Update local state
+  const existing = state.notificationPrefs.findIndex(
+    (p) => p.scope === scope && p.target_id === targetId
+  );
+  const pref = { scope, target_id: targetId, level, mute_until: muteUntil ?? null };
+  if (existing >= 0) {
+    state.notificationPrefs[existing] = pref;
+  } else {
+    state.notificationPrefs.push(pref);
+  }
+}
+
+/// Remove notification preference (reset to default)
+export async function removeNotificationPref(scope: "channel" | "server", targetId: number) {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return;
+
+  await api.deleteNotificationPref(server.url, server.token, scope, targetId);
+  state.notificationPrefs = state.notificationPrefs.filter(
+    (p) => !(p.scope === scope && p.target_id === targetId)
+  );
+}
+
 /// Déconnecter d'un serveur (mute — plus de WS, plus de notifs)
 export function muteServer(serverId: string) {
   const state = store.serverStates.get(serverId);
@@ -602,6 +706,85 @@ export function removeServer(serverId: string) {
   }
 }
 
+// ── Notification helpers ──
+
+let notifAudio: HTMLAudioElement | null = null;
+function getNotifAudio(): HTMLAudioElement {
+  if (!notifAudio) {
+    notifAudio = new Audio("/notif.wav");
+    notifAudio.volume = 0.5;
+  }
+  return notifAudio;
+}
+
+function getEffectiveNotifLevel(state: ServerState, channelId: number): "all" | "mentions" | "nothing" {
+  const now = new Date().toISOString();
+  // Channel-level pref takes priority
+  const channelPref = state.notificationPrefs.find(
+    (p) => p.scope === "channel" && p.target_id === channelId
+  );
+  if (channelPref) {
+    if (channelPref.mute_until && channelPref.mute_until < now) {
+      // Mute expired — treat as default (fall through to server)
+    } else {
+      return channelPref.level as "all" | "mentions" | "nothing";
+    }
+  }
+  // Server-level pref
+  const serverPref = state.notificationPrefs.find(
+    (p) => p.scope === "server" && p.target_id === 0
+  );
+  if (serverPref) {
+    if (serverPref.mute_until && serverPref.mute_until < now) {
+      return "all"; // expired
+    }
+    return serverPref.level as "all" | "mentions" | "nothing";
+  }
+  return "all";
+}
+
+function isMentioned(state: ServerState, msg: Message): boolean {
+  if (!state.user) return false;
+  // Direct user mention
+  if (msg.mentions?.some((m) => m.kind === "user" && m.id === state.user!.id)) return true;
+  // Role mention
+  const userRoleIds = state.userRoles.get(state.user.id) ?? [];
+  if (msg.mentions?.some((m) => m.kind === "role" && userRoleIds.includes(m.id))) return true;
+  return false;
+}
+
+function fireNotification(state: ServerState, serverId: string, msg: Message) {
+  if (msg.author_id === state.user?.id) return;
+
+  const level = getEffectiveNotifLevel(state, msg.channel_id);
+  const mentioned = isMentioned(state, msg);
+
+  if (level === "nothing") return;
+  if (level === "mentions" && !mentioned) return;
+
+  // Track mention count
+  if (mentioned) {
+    state.channelMentions.set(msg.channel_id, (state.channelMentions.get(msg.channel_id) ?? 0) + 1);
+  }
+
+  // Don't fire sound/browser notif if user is viewing this exact channel
+  const isViewing = store.activeServerId === serverId && state.activeChannelId === msg.channel_id && document.hasFocus();
+  if (isViewing) return;
+
+  // Play sound
+  try { getNotifAudio().play(); } catch {}
+
+  // Browser notification
+  if (Notification.permission === "granted") {
+    const server = store.savedServers.find((s) => s.id === serverId);
+    const authorName = state.users.get(msg.author_id)?.display_name ?? "Someone";
+    const channelName = state.channels.find((c) => c.id === msg.channel_id)?.name ?? "channel";
+    const title = mentioned ? `${authorName} vous a mentionné` : `${authorName} dans #${channelName}`;
+    const body = msg.content.length > 100 ? msg.content.slice(0, 100) + "..." : msg.content;
+    new Notification(title, { body, tag: `sorry-${serverId}-${msg.id}`, icon: server?.iconUrl ? `${server.url}${server.iconUrl}` : undefined });
+  }
+}
+
 function handleEvent(serverId: string, event: ServerEvent) {
   const state = store.serverStates.get(serverId);
   if (!state) return;
@@ -615,9 +798,16 @@ function handleEvent(serverId: string, event: ServerEvent) {
       } else {
         state.messages.set(msg.channel_id, [msg]);
       }
+      // Per-channel unread tracking
+      const isViewingChannel = store.activeServerId === serverId && state.activeChannelId === msg.channel_id;
+      if (!isViewingChannel && msg.author_id !== state.user?.id) {
+        state.channelUnread.set(msg.channel_id, (state.channelUnread.get(msg.channel_id) ?? 0) + 1);
+      }
       if (store.activeServerId !== serverId) {
         state.unreadCount++;
       }
+      // Fire notification (sound + browser)
+      fireNotification(state, serverId, msg);
       break;
     }
     case "MessageDelete": {

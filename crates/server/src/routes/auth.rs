@@ -81,9 +81,14 @@ async fn login(
             }
 
             // Validate and consume invite
-            crate::db::invites::use_invite(&state.db, invite_code)
+            let invite = crate::db::invites::use_invite(&state.db, invite_code)
                 .await
                 .map_err(|_| StatusCode::FORBIDDEN)?;
+
+            // Guest invites cannot be used for normal registration
+            if invite.guest {
+                return Err(StatusCode::FORBIDDEN);
+            }
 
             let salt = SaltString::generate(&mut OsRng);
             let hash = Argon2::default()
@@ -96,6 +101,11 @@ async fn login(
                     .await
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+            // Assign role from invite if present
+            if let Some(role_id) = invite.role_id {
+                let _ = crate::db::roles::assign_to_user(&state.db, id, role_id).await;
+            }
+
             crate::db::users::UserRow {
                 id: Some(id),
                 username: payload.username.clone(),
@@ -103,6 +113,7 @@ async fn login(
                 password_hash: hash,
                 avatar_url: None,
                 banned_at: None,
+                guest: 0,
             }
         }
     };
@@ -147,6 +158,63 @@ async fn login(
     Ok(Json(LoginResponse {
         token: Some(token),
         user: Some(crate::db::users::to_model(&user_row)),
+        totp_required: false,
+    }))
+}
+
+// ── Quick (guest) login ──
+
+#[derive(Deserialize)]
+pub struct QuickLoginPayload {
+    invite_code: String,
+    display_name: String,
+}
+
+async fn quick_login(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<QuickLoginPayload>,
+) -> Result<Json<LoginResponse>, StatusCode> {
+    let client_ip = extract_client_ip(&headers);
+    if !state.check_rate_limit(client_ip) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    let display_name = payload.display_name.trim();
+    if display_name.is_empty() || display_name.len() > 32 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Validate and consume invite — must be a guest invite
+    let invite = crate::db::invites::use_invite(&state.db, &payload.invite_code)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    if !invite.guest {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Create guest user
+    let user_id = crate::db::users::create_guest(&state.db, display_name)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Assign the role from the invite
+    if let Some(role_id) = invite.role_id {
+        let _ = crate::db::roles::assign_to_user(&state.db, user_id, role_id).await;
+    }
+
+    let token = crate::auth::create_token(user_id, &state.jwt_secret, state.jwt_ttl_secs)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let user = crate::db::users::find_by_id(&state.db, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(LoginResponse {
+        token: Some(token),
+        user: Some(user),
         totp_required: false,
     }))
 }
@@ -279,6 +347,7 @@ fn make_totp(secret_b32: &str, account: &str) -> Result<TOTP, totp_rs::TotpUrlEr
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/login", post(login))
+        .route("/quick", post(quick_login))
         .route("/refresh", post(refresh))
         .route("/totp/setup", post(totp_setup))
         .route("/totp/verify", post(totp_verify))

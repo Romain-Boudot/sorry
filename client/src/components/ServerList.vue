@@ -22,11 +22,14 @@
           muted: getState(server.id)?.muted,
         }"
       ></span>
-      <span class="unread-badge" v-if="getUnread(server.id) > 0">
-        {{ getUnread(server.id) }}
-      </span>
+      <span class="unread-badge mention" v-if="getMentions(server.id) > 0"></span>
+      <span class="unread-badge" v-else-if="getUnread(server.id) > 0"></span>
       <span class="voice-indicator" v-if="getState(server.id)?.voiceChannelId">
         <Phone :size="8" fill="currentColor" />
+      </span>
+      <span class="notif-muted-indicator" v-if="getNotifLevel(server.id) !== 'all'" :title="getNotifLevel(server.id) === 'nothing' ? 'Notifications desactivees' : 'Mentions uniquement'">
+        <BellOff v-if="getNotifLevel(server.id) === 'nothing'" :size="10" />
+        <BellMinus v-else :size="10" />
       </span>
     </div>
 
@@ -52,8 +55,8 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight, Phone } from "lucide-vue-next";
-import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers } from "../store";
+import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight, Phone, Bell, BellMinus, BellOff } from "lucide-vue-next";
+import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers, setNotificationPref, removeNotificationPref, activeState } from "../store";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -66,6 +69,87 @@ function getUnread(serverId: string): number {
   return getState(serverId)?.unreadCount ?? 0;
 }
 
+function getNotifLevel(serverId: string): string {
+  const st = getState(serverId);
+  if (!st) return "all";
+  const now = new Date().toISOString();
+  const pref = st.notificationPrefs.find((p) => p.scope === "server" && p.target_id === 0);
+  if (pref && (!pref.mute_until || pref.mute_until >= now)) return pref.level;
+  return "all";
+}
+
+function getMentions(serverId: string): number {
+  const st = getState(serverId);
+  if (!st) return 0;
+  let total = 0;
+  for (const count of st.channelMentions.values()) total += count;
+  return total;
+}
+
+function getMuteUntil(duration: string): string | null {
+  if (duration === "forever") return null;
+  const hours: Record<string, number> = { "1h": 1, "5h": 5, "12h": 12, "1d": 24, "7d": 168 };
+  const h = hours[duration] ?? 1;
+  return new Date(Date.now() + h * 3600_000).toISOString();
+}
+
+const muteDurations = [
+  { label: "1 heure", value: "1h" },
+  { label: "5 heures", value: "5h" },
+  { label: "12 heures", value: "12h" },
+  { label: "1 jour", value: "1d" },
+  { label: "7 jours", value: "7d" },
+  { label: "Jusqu'a modification", value: "forever" },
+];
+
+function buildServerNotifItems(event: MouseEvent, serverId: string): MenuItem[] {
+  const prevActive = store.activeServerId;
+  const st = getState(serverId);
+  if (!st) return [];
+  const currentPref = st.notificationPrefs.find((p) => p.scope === "server" && p.target_id === 0);
+  const currentLevel = currentPref?.level ?? "all";
+
+  const items: MenuItem[] = [];
+
+  if (currentLevel !== "all") {
+    items.push({
+      label: "Reactiver les notifications",
+      icon: Bell,
+      action: () => { store.activeServerId = serverId; removeNotificationPref("server", 0); store.activeServerId = prevActive; },
+    });
+  }
+
+  if (currentLevel !== "mentions") {
+    items.push({
+      label: "Mentions uniquement",
+      icon: BellMinus,
+      keepOpen: true,
+      action: () => {
+        menu.value = { x: event.clientX, y: event.clientY, items: muteDurations.map((d) => ({
+          label: d.label,
+          action: () => { store.activeServerId = serverId; setNotificationPref("server", 0, "mentions", getMuteUntil(d.value)); store.activeServerId = prevActive; },
+        })) };
+      },
+    });
+  }
+
+  if (currentLevel !== "nothing") {
+    items.push({
+      label: "Aucune notification",
+      icon: BellOff,
+      keepOpen: true,
+      action: () => {
+        menu.value = { x: event.clientX, y: event.clientY, items: muteDurations.map((d) => ({
+          label: d.label,
+          action: () => { store.activeServerId = serverId; setNotificationPref("server", 0, "nothing", getMuteUntil(d.value)); store.activeServerId = prevActive; },
+        })) };
+      },
+    });
+  }
+
+  return items;
+}
+
 function openMenu(event: MouseEvent, serverId: string) {
   const state = getState(serverId);
   const server = store.savedServers.find((s) => s.id === serverId);
@@ -75,6 +159,11 @@ function openMenu(event: MouseEvent, serverId: string) {
     items.push({ label: "Reconnecter", icon: Plug, action: () => unmuteServer(serverId) });
   } else if (state?.connected) {
     items.push({ label: "Se deconnecter", icon: Unplug, action: () => muteServer(serverId) });
+  }
+
+  // Notification settings
+  if (state?.connected) {
+    items.push(...buildServerNotifItems(event, serverId));
   }
 
   const auto = server?.autoConnect !== false;
@@ -200,20 +289,17 @@ function openMenu(event: MouseEvent, serverId: string) {
 
 .unread-badge {
   position: absolute;
-  bottom: -2px;
-  right: -2px;
+  bottom: -1px;
+  right: -1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--header-primary);
+  border: 2px solid var(--bg-secondary);
+}
+
+.unread-badge.mention {
   background: var(--danger);
-  color: #fff;
-  font-size: 0.625rem;
-  font-weight: 700;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border: 3px solid var(--bg-secondary);
 }
 
 .voice-indicator {
@@ -225,6 +311,21 @@ function openMenu(event: MouseEvent, serverId: string) {
   border-radius: 50%;
   background: var(--green);
   color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-secondary);
+}
+
+.notif-muted-indicator {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-faint);
   display: flex;
   align-items: center;
   justify-content: center;

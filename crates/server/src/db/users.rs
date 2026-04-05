@@ -9,6 +9,7 @@ pub struct UserRow {
     pub password_hash: String,
     pub avatar_url: Option<String>,
     pub banned_at: Option<i64>,
+    pub guest: i64,
 }
 
 pub fn to_model(row: &UserRow) -> User {
@@ -18,6 +19,7 @@ pub fn to_model(row: &UserRow) -> User {
         avatar_url: row.avatar_url.clone(),
         username: None,
         created_at: None,
+        guest: row.guest != 0,
     }
 }
 
@@ -28,13 +30,14 @@ pub fn to_model_full(row: &UserRow, created_at: Option<String>) -> User {
         avatar_url: row.avatar_url.clone(),
         username: Some(row.username.clone()),
         created_at,
+        guest: row.guest != 0,
     }
 }
 
 pub async fn find_by_username(db: &SqlitePool, username: &str) -> sqlx::Result<Option<UserRow>> {
     sqlx::query_as!(
         UserRow,
-        r#"SELECT id, username, display_name, password_hash, avatar_url as "avatar_url?", banned_at FROM users WHERE username = ?"#,
+        r#"SELECT id, username, display_name, password_hash, avatar_url as "avatar_url?", banned_at, guest FROM users WHERE username = ?"#,
         username
     )
     .fetch_optional(db)
@@ -47,12 +50,13 @@ pub struct UserPublicRow {
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub created_at: Option<String>,
+    pub guest: i64,
 }
 
 pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Option<UserRow>> {
     sqlx::query_as!(
         UserRow,
-        r#"SELECT id, username, display_name, password_hash, avatar_url as "avatar_url?", banned_at FROM users WHERE id = ?"#,
+        r#"SELECT id, username, display_name, password_hash, avatar_url as "avatar_url?", banned_at, guest FROM users WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -62,7 +66,7 @@ pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Optio
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> {
     let row: Option<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?" FROM users WHERE id = ?"#,
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest FROM users WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -74,13 +78,14 @@ pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> 
         avatar_url: r.avatar_url,
         username: Some(r.username),
         created_at: r.created_at,
+        guest: r.guest != 0,
     }))
 }
 
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
     let rows: Vec<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?" FROM users WHERE banned_at IS NULL"#
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest FROM users WHERE banned_at IS NULL"#
     )
     .fetch_all(db)
     .await?;
@@ -93,6 +98,7 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
             avatar_url: r.avatar_url.clone(),
             username: Some(r.username.clone()),
             created_at: r.created_at.clone(),
+            guest: r.guest != 0,
         })
         .collect())
 }
@@ -224,4 +230,30 @@ pub async fn create(
     .await?;
 
     Ok(row.id)
+}
+
+pub async fn create_guest(
+    db: &SqlitePool,
+    display_name: &str,
+) -> sqlx::Result<i64> {
+    // Generate a unique internal username for the guest
+    let username = format!("guest-{}", uuid::Uuid::new_v4());
+    let password_hash = "!guest-no-login";
+    let row = sqlx::query!(
+        "INSERT INTO users (username, display_name, password_hash, guest) VALUES (?, ?, ?, 1) RETURNING id",
+        username,
+        display_name,
+        password_hash
+    )
+    .fetch_one(db)
+    .await?;
+
+    Ok(row.id)
+}
+
+pub async fn is_guest(db: &SqlitePool, id: i64) -> sqlx::Result<bool> {
+    let row = sqlx::query!("SELECT guest FROM users WHERE id = ?", id)
+        .fetch_optional(db)
+        .await?;
+    Ok(row.map(|r| r.guest != 0).unwrap_or(false))
 }

@@ -14,6 +14,7 @@
         <span v-else>{{ resolveUser(uid)[0]?.toUpperCase() }}</span>
       </div>
       <span :style="resolveUserColor(uid) ? `color:${resolveUserColor(uid)}` : ''">{{ resolveUser(uid) }}</span>
+      <span v-if="isGuest(uid)" class="guest-tag">Guest</span>
     </div>
 
     <div class="user-list-header offline-header">
@@ -30,6 +31,7 @@
         <span v-else>{{ user.display_name[0]?.toUpperCase() }}</span>
       </div>
       <span :style="resolveUserColor(user.id) ? `color:${resolveUserColor(user.id)}` : ''">{{ user.display_name }}</span>
+      <span v-if="user.guest" class="guest-tag">Guest</span>
     </div>
 
     <UserCard
@@ -45,7 +47,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 // no icons needed
-import { activeState, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
+import { activeState, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
 import type { User } from "../api";
 import UserCard from "./UserCard.vue";
 
@@ -58,7 +60,7 @@ const onlineList = computed(() =>
 const offlineList = computed(() => {
   if (!state.value) return [];
   const online = state.value.onlineUsers;
-  return [...state.value.users.values()].filter((u) => !online.has(u.id));
+  return [...state.value.users.values()].filter((u) => !online.has(u.id) && !u.guest);
 });
 
 const cardUser = ref<User | null>(null);

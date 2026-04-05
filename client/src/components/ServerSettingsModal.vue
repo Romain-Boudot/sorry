@@ -479,11 +479,48 @@
                 <label>Expiration (heures)</label>
                 <input v-model.number="newInviteExpireHours" type="number" min="1" placeholder="Jamais" />
               </div>
-              <button class="btn-sm invite-create-btn" @click="createInvite">
+              <button class="btn-sm invite-create-btn" @click="createInvite" :disabled="!canCreateInvite">
                 <TicketPlus :size="14" />
                 Creer
               </button>
             </div>
+            <div class="invite-options-row">
+              <div class="invite-field invite-role-field" ref="roleDropdownRef">
+                <label>Role attribue</label>
+                <div class="role-select-trigger" @click="roleDropdownOpen = !roleDropdownOpen">
+                  <template v-if="selectedRole">
+                    <Circle :size="8" fill="currentColor" :style="{ color: selectedRole.color || 'var(--text-muted)' }" />
+                    <span>{{ selectedRole.name }}</span>
+                  </template>
+                  <span v-else class="role-select-placeholder">Aucun</span>
+                  <ChevronDown :size="14" class="role-select-arrow" :class="{ flipped: roleDropdownOpen }" />
+                </div>
+                <div v-if="roleDropdownOpen" class="role-select-menu">
+                  <div class="role-select-item" :class="{ active: !newInviteRoleId }" @click="newInviteRoleId = null; roleDropdownOpen = false">
+                    <span class="role-select-placeholder">Aucun</span>
+                  </div>
+                  <div
+                    v-for="role in assignableRoles"
+                    :key="role.id"
+                    class="role-select-item"
+                    :class="{ active: newInviteRoleId === role.id }"
+                    @click="newInviteRoleId = role.id; roleDropdownOpen = false"
+                  >
+                    <Circle :size="8" fill="currentColor" :style="{ color: role.color || 'var(--text-muted)' }" />
+                    <span>{{ role.name }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="invite-field invite-toggle-field">
+                <label>Guest</label>
+                <div class="invite-toggle-wrapper">
+                  <button class="invite-toggle" :class="{ active: newInviteGuest }" @click="toggleGuest">
+                    <span class="invite-toggle-knob" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p v-if="newInviteGuest" class="card-hint" style="margin-top: 4px;">Les guests se connectent sans creer de compte (juste un pseudo). Ils n'ont pas les permissions de base (everyone), uniquement celles du role attribue. Un role est obligatoire.</p>
           </div>
 
           <div class="card" v-if="invites.length">
@@ -503,9 +540,11 @@
                     </button>
                   </div>
                   <span class="invite-meta">
+                    <span v-if="inv.guest" class="guest-tag">Guest</span>
                     par {{ resolveUser(inv.created_by) }}
                     · {{ inv.uses }}{{ inv.max_uses ? `/${inv.max_uses}` : '' }} utilisations
                     <template v-if="inv.expires_at"> · {{ formatExpiry(inv.expires_at) }}</template>
+                    <template v-if="inv.role_id"> · role: {{ getRoleName(inv.role_id) }}</template>
                   </span>
                 </div>
                 <button class="invite-revoke" @click="revokeInvite(inv.code)" title="Revoquer">
@@ -557,8 +596,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check, Link2, Search, Calendar, Plus, ScrollText, KeyRound } from "lucide-vue-next";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { X, Trash2, ShieldCheck, Ban, UserRound, Gavel, Lock, GripVertical, Camera, Server, TicketPlus, Copy, Check, Link2, Search, Calendar, Plus, ScrollText, KeyRound, Circle, ChevronDown } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import { store, activeState, activeServer, persistServers, resolveUser } from "../store";
 import { api, type Invite, type BannedUser } from "../api";
@@ -601,6 +640,7 @@ const iconInput = ref<HTMLInputElement>();
 const savingServer = ref(false);
 
 onMounted(async () => {
+  document.addEventListener("click", onRoleClickOutside);
   const s = activeServer();
   if (!s) return;
   try {
@@ -609,6 +649,10 @@ onMounted(async () => {
     serverDescription.value = info.description || "";
     serverIconUrl.value = info.icon_url ? `${s.url}${info.icon_url}` : null;
   } catch {}
+});
+
+onUnmounted(() => {
+  document.removeEventListener("click", onRoleClickOutside);
 });
 
 async function saveServerInfo() {
@@ -1042,6 +1086,51 @@ async function unbanUser(userId: number) {
 const invites = ref<Invite[]>([]);
 const newInviteMaxUses = ref<number | null>(null);
 const newInviteExpireHours = ref<number | null>(null);
+const newInviteGuest = ref(false);
+const newInviteRoleId = ref<number | null>(null);
+
+const assignableRoles = computed(() => {
+  const st = activeState();
+  if (!st) return [];
+  const isAdmin = perms.has(st.permissions, perms.ADMINISTRATOR);
+  if (isAdmin) return st.roles.filter((r) => r.id > 2);
+  // Non-admin: only roles ranked below their highest role
+  const userRoleIds = st.userRoles.get(st.user?.id ?? 0) ?? [];
+  const userHighest = st.roles
+    .filter((r) => userRoleIds.includes(r.id))
+    .reduce((min, r) => Math.min(min, r.position), Infinity);
+  return st.roles.filter((r) => r.id > 2 && r.position > userHighest);
+});
+
+const selectedRole = computed(() =>
+  newInviteRoleId.value ? assignableRoles.value.find((r) => r.id === newInviteRoleId.value) ?? null : null
+);
+
+const roleDropdownOpen = ref(false);
+const roleDropdownRef = ref<HTMLElement>();
+
+function onRoleClickOutside(e: MouseEvent) {
+  if (roleDropdownRef.value && !roleDropdownRef.value.contains(e.target as Node)) {
+    roleDropdownOpen.value = false;
+  }
+}
+
+function toggleGuest() {
+  newInviteGuest.value = !newInviteGuest.value;
+  if (newInviteGuest.value && !newInviteRoleId.value && assignableRoles.value.length) {
+    newInviteRoleId.value = assignableRoles.value[0].id;
+  }
+}
+
+const canCreateInvite = computed(() => {
+  if (newInviteGuest.value && !newInviteRoleId.value) return false;
+  return true;
+});
+
+function getRoleName(roleId: number): string {
+  const role = activeState()?.roles.find((r) => r.id === roleId);
+  return role?.name ?? `#${roleId}`;
+}
 
 async function loadInvites() {
   const s = activeServer();
@@ -1060,10 +1149,14 @@ async function createInvite() {
   const inv = await api.createInvite(s.url, s.token, {
     max_uses: newInviteMaxUses.value || null,
     expires_at: expiresAt,
+    role_id: newInviteGuest.value ? newInviteRoleId.value : null,
+    guest: newInviteGuest.value,
   });
   invites.value.unshift(inv);
   newInviteMaxUses.value = null;
   newInviteExpireHours.value = null;
+  newInviteGuest.value = false;
+  newInviteRoleId.value = null;
 }
 
 const copiedCode = ref("");
@@ -1489,6 +1582,7 @@ function close() {
   display: flex;
   align-items: flex-end;
   gap: 10px;
+  margin-bottom: 8px;
 }
 
 .invite-field {
@@ -1521,6 +1615,129 @@ function close() {
 .invite-field input::placeholder { color: var(--text-faint); }
 .invite-field input::-webkit-inner-spin-button,
 .invite-field input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+.invite-options-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.invite-role-field {
+  position: relative;
+  flex: 1;
+}
+
+.role-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.role-select-trigger:hover {
+  background: var(--bg-modifier-hover);
+}
+
+.role-select-placeholder {
+  color: var(--text-faint);
+}
+
+.role-select-arrow {
+  margin-left: auto;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.role-select-arrow.flipped {
+  transform: rotate(180deg);
+}
+
+.role-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.role-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.08s, color 0.08s;
+}
+
+.role-select-item:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+}
+
+.role-select-item.active {
+  color: var(--header-primary);
+  background: var(--bg-modifier-active);
+}
+
+.invite-toggle-field {
+  flex: 0 0 auto;
+}
+
+.invite-toggle-wrapper {
+  height: 34px;
+  display: flex;
+  align-items: center;
+}
+
+.invite-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-modifier-hover);
+  border: none;
+  padding: 2px;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.invite-toggle:hover { box-shadow: none; }
+
+.invite-toggle.active {
+  background: var(--accent);
+}
+
+.invite-toggle-knob {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.invite-toggle.active .invite-toggle-knob {
+  transform: translateX(16px);
+  background: #fff;
+}
 
 .invite-create-btn {
   display: flex;

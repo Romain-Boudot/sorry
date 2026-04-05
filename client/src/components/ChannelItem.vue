@@ -3,14 +3,18 @@
     <div
       v-if="channel.kind === 'text'"
       class="channel-item"
-      :class="{ active: channel.id === state?.activeChannelId }"
+      :class="{ active: channel.id === state?.activeChannelId, 'is-muted': muteLevel !== 'all' }"
       :data-channel-id="channel.id"
       @click="selectChannel(channel.id)"
       @contextmenu.prevent.stop="emit('contextmenu', $event)"
     >
       <Hash class="channel-icon" :size="20" />
-      <span class="channel-name">{{ channel.name }}</span>
+      <span class="channel-name" :class="{ muted: muteLevel !== 'all' }">{{ channel.name }}</span>
+      <span v-if="mentionCount > 0" class="mention-dot"></span>
+      <span v-else-if="unreadCount > 0" class="unread-dot"></span>
       <span class="channel-actions"><slot name="actions" /></span>
+      <BellOff v-if="muteLevel === 'nothing'" class="mute-icon" :size="14" />
+      <BellMinus v-else-if="muteLevel === 'mentions'" class="mute-icon" :size="14" />
     </div>
     <div
       v-else
@@ -65,7 +69,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff } from "lucide-vue-next";
+import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, BellMinus } from "lucide-vue-next";
 import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import type { Channel, User, VoiceUserState } from "../api";
@@ -77,6 +81,20 @@ const emit = defineEmits<{ contextmenu: [e: MouseEvent] }>();
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
+
+const unreadCount = computed(() => state.value?.channelUnread.get(props.channel.id) ?? 0);
+const mentionCount = computed(() => state.value?.channelMentions.get(props.channel.id) ?? 0);
+
+const muteLevel = computed(() => {
+  const st = state.value;
+  if (!st) return "all";
+  const now = new Date().toISOString();
+  const pref = st.notificationPrefs.find(
+    (p) => p.scope === "channel" && p.target_id === props.channel.id
+  );
+  if (pref && (!pref.mute_until || pref.mute_until >= now)) return pref.level;
+  return "all";
+});
 
 const voiceUsers = computed((): [number, VoiceUserState][] => {
   const map = state.value?.voiceState.get(props.channel.id);
@@ -274,5 +292,37 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 
 .voice-status-icon.forced {
   color: var(--danger);
+}
+
+.channel-name.muted {
+  color: var(--text-faint);
+}
+
+.channel-item.is-muted .channel-icon {
+  color: var(--text-faint) !important;
+}
+
+.mute-icon {
+  width: 24px;
+  height: 24px;
+  padding: 5px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--header-primary);
+  flex-shrink: 0;
+}
+
+.mention-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
 }
 </style>

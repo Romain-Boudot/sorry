@@ -86,22 +86,33 @@
       @close="ctxMenu = null"
     />
 
+    <ModalSmall v-if="confirmDeleteChannel" title="Supprimer le channel" @close="confirmDeleteChannel = null">
+      <p class="confirm-text">Es-tu sur de vouloir supprimer <strong>#{{ confirmDeleteChannel.name }}</strong> ? Cette action est irreversible.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" @click="confirmDeleteChannel = null">Annuler</button>
+        <button class="btn-danger" @click="doDeleteChannel">Supprimer</button>
+      </div>
+    </ModalSmall>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Plus, Settings, Hash, Volume2, FolderPlus, Pencil, Trash2 } from "lucide-vue-next";
+import { ChevronDown, ChevronRight, Plus, Settings, Hash, Volume2, FolderPlus, Pencil, Trash2, BellOff, Bell, BellMinus } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import {
   store,
   activeState,
   activeServer,
+  setNotificationPref,
+  removeNotificationPref,
 } from "../store";
 import { api } from "../api";
 import * as perms from "../permissions";
 import ChannelItem from "./ChannelItem.vue";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
+import ModalSmall from "./ModalSmall.vue";
 import type { Channel, ChannelGroup } from "../api";
 
 const state = computed(() => activeState());
@@ -223,6 +234,19 @@ async function onGroupEnd() {
   await api.reorderGroups(s.url, s.token, localGroups.value.map((g) => g.id));
 }
 
+// ── Delete confirmation ──
+const confirmDeleteChannel = ref<Channel | null>(null);
+
+async function doDeleteChannel() {
+  const s = activeServer();
+  const st = activeState();
+  const ch = confirmDeleteChannel.value;
+  if (!s || !st || !ch) return;
+  await api.deleteChannel(s.url, s.token, ch.id);
+  st.channels = st.channels.filter((c) => c.id !== ch.id);
+  confirmDeleteChannel.value = null;
+}
+
 // ── Context menu ──
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
@@ -253,25 +277,85 @@ function onGroupContextMenu(group: ChannelGroup, e: MouseEvent) {
   ctxMenu.value = { x: e.clientX, y: e.clientY, items };
 }
 
-function onChannelContextMenu(channel: Channel, e: MouseEvent) {
-  if (!canManage.value) return;
+function getMuteUntil(duration: string): string | null {
+  if (duration === "forever") return null;
+  const hours: Record<string, number> = { "1h": 1, "5h": 5, "12h": 12, "1d": 24, "7d": 168 };
+  const h = hours[duration] ?? 1;
+  return new Date(Date.now() + h * 3600_000).toISOString();
+}
 
-  const s = activeServer();
+const muteDurations = [
+  { label: "1 heure", value: "1h" },
+  { label: "5 heures", value: "5h" },
+  { label: "12 heures", value: "12h" },
+  { label: "1 jour", value: "1d" },
+  { label: "7 jours", value: "7d" },
+  { label: "Jusqu'a modification", value: "forever" },
+];
+
+function buildDurationItems(scope: "channel" | "server", targetId: number, level: "mentions" | "nothing"): MenuItem[] {
+  return muteDurations.map((d) => ({
+    label: d.label,
+    action: () => setNotificationPref(scope, targetId, level, getMuteUntil(d.value)),
+  }));
+}
+
+function buildMuteItems(scope: "channel" | "server", targetId: number, x: number, y: number): MenuItem[] {
   const st = activeState();
+  if (!st) return [];
+  const currentPref = st.notificationPrefs.find(
+    (p) => p.scope === scope && p.target_id === targetId
+  );
+  const currentLevel = currentPref?.level ?? "all";
 
-  const items: MenuItem[] = [
-    { label: "Modifier le channel", icon: Pencil, action: () => openChannelSettings(channel.id) },
-    {
+  const items: MenuItem[] = [];
+
+  if (currentLevel !== "all") {
+    items.push({
+      label: "Reactiver les notifications",
+      icon: Bell,
+      action: () => removeNotificationPref(scope, targetId),
+    });
+  }
+
+  if (currentLevel !== "mentions") {
+    items.push({
+      label: "Mentions uniquement",
+      icon: BellMinus,
+      keepOpen: true,
+      action: () => {
+        ctxMenu.value = { x, y, items: buildDurationItems(scope, targetId, "mentions") };
+      },
+    });
+  }
+
+  if (currentLevel !== "nothing") {
+    items.push({
+      label: "Aucune notification",
+      icon: BellOff,
+      keepOpen: true,
+      action: () => {
+        ctxMenu.value = { x, y, items: buildDurationItems(scope, targetId, "nothing") };
+      },
+    });
+  }
+
+  return items;
+}
+
+function onChannelContextMenu(channel: Channel, e: MouseEvent) {
+  const items: MenuItem[] = buildMuteItems("channel", channel.id, e.clientX, e.clientY);
+
+  // Admin-only items
+  if (canManage.value) {
+    items.push({ label: "Modifier le channel", icon: Pencil, action: () => openChannelSettings(channel.id) });
+    items.push({
       label: "Supprimer le channel",
       icon: Trash2,
       danger: true,
-      action: async () => {
-        if (!s || !st) return;
-        await api.deleteChannel(s.url, s.token, channel.id);
-        st.channels = st.channels.filter((c) => c.id !== channel.id);
-      },
-    },
-  ];
+      action: () => { confirmDeleteChannel.value = channel; },
+    });
+  }
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items };
 }
