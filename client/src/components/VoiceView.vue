@@ -1,6 +1,23 @@
 <template>
-  <div class="voice-view">
-    <div class="voice-view-status" :class="state?.voiceStatus">
+  <div class="voice-view" :class="{ 'has-video': videoTracks.length > 0 }">
+    <!-- Video streams -->
+    <div v-if="videoTracks.length" class="voice-video-area">
+      <div
+        v-for="vt in videoTracks"
+        :key="vt.identity + '-' + vt.source"
+        class="voice-video-tile"
+        :class="{ spotlight: videoTracks.length === 1 }"
+        :data-track-key="vt.identity + '-' + vt.source"
+      >
+        <video autoplay playsinline muted />
+        <div class="voice-video-label">
+          <span>{{ vt.name }}</span>
+          <span class="voice-video-source">{{ vt.source === 'screen_share' ? 'Ecran' : 'Camera' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="!videoTracks.length" class="voice-view-status" :class="state?.voiceStatus">
       <Loader v-if="state?.voiceStatus === 'connecting'" :size="20" class="spin" />
       <Phone v-else-if="state?.voiceStatus === 'connected'" :size="20" />
       <AlertCircle v-else-if="state?.voiceStatus === 'error'" :size="20" />
@@ -59,14 +76,92 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
 import { Phone, Volume2, Loader, AlertCircle, MicOff, HeadphoneOff } from "lucide-vue-next";
+import { Track } from "livekit-client";
 import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen } from "../store";
+import { getCurrentRoom } from "../voice";
 import * as perms from "../permissions";
 import type { VoiceUserState } from "../api";
 
 const state = computed(() => activeState());
 const channelId = computed(() => state.value?.activeChannelId);
+
+// ── Video tracks ──
+interface VideoTrackInfo {
+  identity: string;
+  name: string;
+  source: "camera" | "screen_share";
+  track: any; // Track from livekit-client
+}
+
+const videoTracks = computed((): VideoTrackInfo[] => {
+  // Read videoTrackVersion to trigger reactivity
+  const _version = state.value?.videoTrackVersion;
+  const room = getCurrentRoom();
+  if (!room) return [];
+
+  const tracks: VideoTrackInfo[] = [];
+
+  // Local participant tracks
+  const local = room.localParticipant;
+  for (const pub of local.videoTrackPublications.values()) {
+    if (pub.track && !pub.isMuted) {
+      tracks.push({
+        identity: local.identity,
+        name: local.name || local.identity,
+        source: pub.source === Track.Source.ScreenShare ? "screen_share" : "camera",
+        track: pub.track,
+      });
+    }
+  }
+
+  // Remote participant tracks
+  for (const participant of room.remoteParticipants.values()) {
+    for (const pub of participant.videoTrackPublications.values()) {
+      if (pub.track && pub.isSubscribed && !pub.isMuted) {
+        tracks.push({
+          identity: participant.identity,
+          name: participant.name || participant.identity,
+          source: pub.source === Track.Source.ScreenShare ? "screen_share" : "camera",
+          track: pub.track,
+        });
+      }
+    }
+  }
+
+  return tracks;
+});
+
+const prevTrackKeys = new Set<string>();
+
+watch(videoTracks, (tracks) => {
+  const currentKeys = new Set(tracks.map((vt) => vt.identity + "-" + vt.source));
+
+  // Detach removed tracks
+  for (const key of prevTrackKeys) {
+    if (!currentKeys.has(key)) {
+      const tile = document.querySelector(`[data-track-key="${key}"]`);
+      const video = tile?.querySelector("video");
+      if (video) video.srcObject = null;
+    }
+  }
+
+  prevTrackKeys.clear();
+  for (const key of currentKeys) prevTrackKeys.add(key);
+
+  nextTick(() => {
+    for (const vt of tracks) {
+      const key = vt.identity + "-" + vt.source;
+      const tile = document.querySelector(`[data-track-key="${key}"]`);
+      if (!tile) continue;
+      const video = tile.querySelector("video");
+      if (!video) continue;
+      vt.track.detach().forEach((el: HTMLElement) => { if (el !== video) el.remove(); });
+      vt.track.attach(video);
+    }
+  });
+}, { immediate: true });
 
 const participants = computed((): [number, VoiceUserState][] => {
   if (!state.value?.activeChannelId) return [];
@@ -103,6 +198,71 @@ const statusText = computed(() => {
   background: var(--bg-primary);
   gap: 24px;
   padding: 40px;
+  overflow: hidden;
+}
+
+.voice-view.has-video {
+  justify-content: flex-start;
+  padding: 16px;
+  gap: 16px;
+}
+
+/* ── Video area ── */
+.voice-video-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.voice-video-tile {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  flex: 1 1 300px;
+  max-width: 100%;
+  min-height: 200px;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-video-tile.spotlight {
+  flex: 1 1 100%;
+}
+
+.voice-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 12px;
+}
+
+.voice-video-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.voice-video-source {
+  font-weight: 400;
+  opacity: 0.7;
 }
 
 .voice-view-status {

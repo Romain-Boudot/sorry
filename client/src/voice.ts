@@ -14,6 +14,7 @@ export interface VoiceCallbacks {
   onParticipantJoined: (identity: string, name: string) => void;
   onParticipantLeft: (identity: string) => void;
   onActiveSpeakersChanged: (identities: string[]) => void;
+  onTrackChanged?: () => void;
   onError: (error: string) => void;
 }
 
@@ -67,6 +68,9 @@ export async function joinVoice(
         const el = track.attach();
         document.body.appendChild(el);
       }
+      if (track.kind === Track.Kind.Video) {
+        callbacks.onTrackChanged?.();
+      }
     }
   );
 
@@ -74,8 +78,19 @@ export async function joinVoice(
     RoomEvent.TrackUnsubscribed,
     (track, _publication, _participant) => {
       track.detach().forEach((el) => el.remove());
+      if (track.kind === Track.Kind.Video) {
+        callbacks.onTrackChanged?.();
+      }
     }
   );
+
+  // Notify on local track publish/unpublish (screen share, camera)
+  room.on(RoomEvent.LocalTrackPublished, () => {
+    callbacks.onTrackChanged?.();
+  });
+  room.on(RoomEvent.LocalTrackUnpublished, () => {
+    callbacks.onTrackChanged?.();
+  });
 
   try {
     await room.connect(url, token);
@@ -142,6 +157,61 @@ export function setDeafened(deafened: boolean) {
       }
     });
   });
+}
+
+// ── Screen share ──
+
+export async function startScreenShare(): Promise<boolean> {
+  if (!currentRoom) return false;
+  try {
+    await currentRoom.localParticipant.setScreenShareEnabled(true, {
+      resolution: { width: 1920, height: 1080, frameRate: 30 },
+      contentHint: "detail",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function stopScreenShare(): Promise<void> {
+  if (!currentRoom) return;
+  await currentRoom.localParticipant.setScreenShareEnabled(false);
+}
+
+export function isScreenSharing(): boolean {
+  if (!currentRoom) return false;
+  return currentRoom.localParticipant.isScreenShareEnabled;
+}
+
+// ── Webcam ──
+
+export async function setCameraEnabled(enabled: boolean): Promise<boolean> {
+  if (!currentRoom) return false;
+  try {
+    await currentRoom.localParticipant.setCameraEnabled(enabled);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isCameraEnabled(): boolean {
+  if (!currentRoom) return false;
+  return currentRoom.localParticipant.isCameraEnabled;
+}
+
+export async function getVideoDevices(): Promise<MediaDeviceInfo[]> {
+  try {
+    return await Room.getLocalDevices("videoinput");
+  } catch {
+    return [];
+  }
+}
+
+export async function switchCamera(deviceId: string) {
+  if (!currentRoom) return;
+  await currentRoom.switchActiveDevice("videoinput", deviceId);
 }
 
 export function isConnected(): boolean {

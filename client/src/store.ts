@@ -1,6 +1,6 @@
 import { reactive } from "vue";
 import { api, resolveBaseUrl, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState, type NotificationPref } from "./api";
-import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened } from "./voice";
+import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened, startScreenShare as voiceStartScreenShare, stopScreenShare as voiceStopScreenShare, setCameraEnabled as voiceSetCamera } from "./voice";
 
 export interface SavedServer {
   id: string;
@@ -42,6 +42,9 @@ export interface ServerState {
   isMuted: boolean;
   isDeafened: boolean;
   wasMutedBeforeDeafen: boolean;
+  isScreenSharing: boolean;
+  isCameraOn: boolean;
+  videoTrackVersion: number; // incremented on track changes to trigger reactivity
 }
 
 function defaultVoiceUserState(): VoiceUserState {
@@ -76,6 +79,9 @@ function createServerState(): ServerState {
     isMuted: false,
     isDeafened: false,
     wasMutedBeforeDeafen: false,
+    isScreenSharing: false,
+    isCameraOn: false,
+    videoTrackVersion: 0,
   };
 }
 
@@ -533,6 +539,9 @@ export async function joinVoiceChannel(channelId: number) {
       onActiveSpeakersChanged: (identities) => {
         state.speakingUsers = new Set(identities);
       },
+      onTrackChanged: () => {
+        state.videoTrackVersion++;
+      },
       onError: (err) => {
         state.voiceStatus = "error";
         console.error("Voice error:", err);
@@ -553,6 +562,8 @@ export async function leaveVoiceChannel() {
   state.voiceChannelId = null;
   state.voiceConnectingChannelId = null;
   state.voiceStatus = "idle";
+  state.isScreenSharing = false;
+  state.isCameraOn = false;
   // Keep mute/deaf state — user may want to rejoin muted
 
   if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -603,6 +614,30 @@ export function toggleDeafen() {
     }
   }
   sendVoiceStateUpdate(state);
+}
+
+/// Toggle screen share
+export async function toggleScreenShare() {
+  const state = activeState();
+  if (!state?.voiceChannelId) return;
+  if (state.isScreenSharing) {
+    await voiceStopScreenShare();
+    state.isScreenSharing = false;
+  } else {
+    const ok = await voiceStartScreenShare();
+    state.isScreenSharing = ok;
+  }
+  state.videoTrackVersion++;
+}
+
+/// Toggle webcam
+export async function toggleCamera() {
+  const state = activeState();
+  if (!state?.voiceChannelId) return;
+  const next = !state.isCameraOn;
+  const ok = await voiceSetCamera(next);
+  if (ok) state.isCameraOn = next;
+  state.videoTrackVersion++;
 }
 
 /// Force mute un autre user (nécessite MUTE_MEMBERS)

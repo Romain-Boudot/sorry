@@ -57,12 +57,17 @@ async fn get_token(
     let room_name = format!("voice-{}", payload.channel_id);
     let identity = format!("user-{}", auth.0);
 
+    let can_speak = permissions::has(perms, permissions::SPEAK);
+    let can_stream = permissions::has(perms, permissions::STREAM);
+
     let token = crate::livekit::generate_token(
         &state.livekit_api_key,
         &state.livekit_api_secret,
         &room_name,
         &identity,
         &user.display_name,
+        can_speak,
+        can_stream,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

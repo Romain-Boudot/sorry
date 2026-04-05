@@ -81,7 +81,6 @@ import { getAudioDevices, switchMicrophone, switchSpeaker } from "../voice";
 const state = computed(() => activeState());
 const isMuted = computed(() => state.value?.isMuted ?? false);
 const isDeafened = computed(() => state.value?.isDeafened ?? false);
-
 const dropdown = ref<"mic" | "speaker" | null>(null);
 const dropdownPos = ref({ x: 0, y: 0 });
 const micDevices = ref<MediaDeviceInfo[]>([]);
@@ -95,12 +94,10 @@ async function toggleDropdown(type: "mic" | "speaker") {
     return;
   }
 
-  // Refresh device list
   const { inputs, outputs } = await getAudioDevices();
   micDevices.value = inputs;
   speakerDevices.value = outputs;
 
-  // Position dropdown above the button
   const el = document.querySelector(`.audio-btn-group:nth-child(${type === "mic" ? 1 : 2})`) as HTMLElement;
   if (el) {
     const rect = el.getBoundingClientRect();

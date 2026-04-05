@@ -12,6 +12,8 @@ struct VideoGrant {
     can_subscribe: bool,
     #[serde(rename = "canPublishData")]
     can_publish_data: bool,
+    #[serde(rename = "canPublishSources", skip_serializing_if = "Option::is_none")]
+    can_publish_sources: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -159,24 +161,40 @@ pub fn generate_token(
     room_name: &str,
     identity: &str,
     display_name: &str,
+    can_speak: bool,
+    can_stream: bool,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as usize;
 
+    // Build allowed publish sources based on permissions
+    let mut sources = Vec::new();
+    if can_speak {
+        sources.push("MICROPHONE".to_string());
+    }
+    if can_stream {
+        sources.push("CAMERA".to_string());
+        sources.push("SCREEN_SHARE".to_string());
+        sources.push("SCREEN_SHARE_AUDIO".to_string());
+    }
+
+    let can_publish = !sources.is_empty();
+
     let claims = LiveKitClaims {
         iss: api_key.to_string(),
         sub: identity.to_string(),
         name: display_name.to_string(),
-        exp: now + 6 * 3600, // 6 heures
+        exp: now + 6 * 3600,
         nbf: 0,
         video: VideoGrant {
             room: room_name.to_string(),
             room_join: true,
-            can_publish: true,
+            can_publish,
             can_subscribe: true,
             can_publish_data: true,
+            can_publish_sources: Some(sources),
         },
     };
 

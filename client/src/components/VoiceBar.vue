@@ -1,43 +1,76 @@
 <template>
   <div class="voice-bar" v-if="voiceEntry">
-    <div class="voice-bar-info">
-      <div class="voice-bar-status" :class="voiceEntry.state.voiceStatus">
-        <Loader2 v-if="voiceEntry.state.voiceStatus === 'connecting'" :size="14" class="spin" />
-        <AlertCircle v-else-if="voiceEntry.state.voiceStatus === 'error'" :size="14" />
-        <Phone v-else :size="14" />
-        <span>{{ statusLabel }}</span>
-      </div>
-      <div class="voice-bar-server">{{ voiceEntry.server.name }} - {{ channelName }}</div>
-    </div>
-    <div class="voice-bar-actions">
-      <div ref="connRef" class="conn-wrapper" @mouseenter="openTooltip" @mouseleave="showTooltip = false">
-        <div class="conn-indicator" :class="connClass">
-          <Loader2 v-if="!connStats" :size="14" class="spin" />
-          <RadioTower v-else :size="14" />
+    <div class="voice-bar-main">
+      <div class="voice-bar-info">
+        <div class="voice-bar-status" :class="voiceEntry.state.voiceStatus">
+          <Loader2 v-if="voiceEntry.state.voiceStatus === 'connecting'" :size="14" class="spin" />
+          <AlertCircle v-else-if="voiceEntry.state.voiceStatus === 'error'" :size="14" />
+          <Phone v-else :size="14" />
+          <span>{{ statusLabel }}</span>
         </div>
+        <div class="voice-bar-server">{{ voiceEntry.server.name }} - {{ channelName }}</div>
       </div>
-      <Teleport to="body">
-        <Transition name="tooltip">
-          <div v-if="showTooltip" class="conn-tooltip" :style="tooltipStyle">
-            <template v-if="connStats">
-              <div class="tooltip-row tooltip-transport">
-                <span class="tooltip-dot" :class="connClass"></span>
-                <span>{{ transportLabel }}</span>
-                <span v-if="connStats.rtt" class="tooltip-rtt">{{ connStats.rtt }}ms</span>
-              </div>
-            </template>
-            <template v-else>
-              <div class="tooltip-row tooltip-pending">Analyse de la connexion...</div>
-            </template>
+      <div class="voice-bar-actions">
+        <div ref="connRef" class="conn-wrapper" @mouseenter="openTooltip" @mouseleave="showTooltip = false">
+          <div class="conn-indicator" :class="connClass">
+            <Loader2 v-if="!connStats" :size="14" class="spin" />
+            <RadioTower v-else :size="14" />
           </div>
-        </Transition>
-      </Teleport>
+        </div>
+        <Teleport to="body">
+          <Transition name="tooltip">
+            <div v-if="showTooltip" class="conn-tooltip" :style="tooltipStyle">
+              <template v-if="connStats">
+                <div class="tooltip-row tooltip-transport">
+                  <span class="tooltip-dot" :class="connClass"></span>
+                  <span>{{ transportLabel }}</span>
+                  <span v-if="connStats.rtt" class="tooltip-rtt">{{ connStats.rtt }}ms</span>
+                </div>
+              </template>
+              <template v-else>
+                <div class="tooltip-row tooltip-pending">Analyse de la connexion...</div>
+              </template>
+            </div>
+          </Transition>
+        </Teleport>
+        <button
+          class="voice-bar-btn danger"
+          @click="leaveVoiceChannel()"
+          title="Deconnecter"
+        >
+          <PhoneOff :size="16" />
+        </button>
+      </div>
+    </div>
+    <div v-if="canStream && voiceEntry.state.voiceStatus === 'connected'" class="voice-bar-share">
       <button
-        class="voice-bar-btn danger"
-        @click="leaveVoiceChannel()"
-        title="Deconnecter"
+        class="share-btn"
+        :class="{ active: isCameraOn }"
+        @click="onToggleCamera"
+        title="Webcam"
       >
-        <PhoneOff :size="16" />
+        <Loader2 v-if="cameraLoading" :size="15" class="spin" />
+        <Video v-else-if="isCameraOn" :size="15" />
+        <VideoOff v-else :size="15" />
+        <span>Webcam</span>
+      </button>
+      <button
+        class="share-btn"
+        :class="{ active: isScreenSharing }"
+        @click="onScreenShareClick"
+        title="Ecran"
+      >
+        <MonitorOff v-if="isScreenSharing" :size="15" />
+        <Monitor v-else :size="15" />
+        <span>Ecran</span>
+      </button>
+      <button
+        class="share-btn disabled"
+        disabled
+        title="Bientot"
+      >
+        <Radio :size="15" />
+        <span>OBS</span>
       </button>
     </div>
   </div>
@@ -45,9 +78,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
-import { Phone, PhoneOff, Loader2, AlertCircle, RadioTower } from "lucide-vue-next";
-import { store, leaveVoiceChannel } from "../store";
+import { Phone, PhoneOff, Loader2, AlertCircle, RadioTower, Monitor, MonitorOff, Video, VideoOff, Radio } from "lucide-vue-next";
+import { store, leaveVoiceChannel, toggleScreenShare, toggleCamera } from "../store";
 import { getConnectionStats, type ConnectionStats } from "../voice";
+import * as perms from "../permissions";
 
 const showTooltip = ref(false);
 const connRef = ref<HTMLElement | null>(null);
@@ -65,6 +99,27 @@ function openTooltip() {
     };
   }
   showTooltip.value = true;
+}
+
+const isScreenSharing = computed(() => voiceEntry.value?.state.isScreenSharing ?? false);
+const isCameraOn = computed(() => voiceEntry.value?.state.isCameraOn ?? false);
+
+const cameraLoading = ref(false);
+
+async function onToggleCamera() {
+  cameraLoading.value = true;
+  await toggleCamera();
+  cameraLoading.value = false;
+}
+
+const canStream = computed(() => {
+  const st = voiceEntry.value?.state;
+  if (!st) return false;
+  return perms.has(st.permissions, perms.STREAM);
+});
+
+function onScreenShareClick() {
+  toggleScreenShare();
 }
 
 const voiceEntry = computed(() => {
@@ -129,11 +184,58 @@ const transportLabel = computed(() => {
 
 <style scoped>
 .voice-bar {
+  border-bottom: 1px solid var(--border);
+}
+
+.voice-bar-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+}
+
+.voice-bar-share {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+.share-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.share-btn:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+}
+
+.share-btn.active {
+  background: rgba(59, 165, 93, 0.15);
+  color: var(--green);
+}
+
+.share-btn.active:hover {
+  background: rgba(59, 165, 93, 0.25);
+  box-shadow: none;
+}
+
+.share-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .voice-bar-info {
