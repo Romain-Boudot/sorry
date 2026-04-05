@@ -9,7 +9,7 @@ x Icone/description du serveur — rien cote serveur info
 
 Important
 ---------
-- Reponses/quotes — pas de reply a un message
+x Reponses/quotes — pas de reply a un message
 - Mentions (@user) — pas de parsing ni notification
 - Reactions emoji — pas de reactions sur les messages
 - Recherche de messages

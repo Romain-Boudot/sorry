@@ -71,7 +71,8 @@
                 ></textarea>
                 <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
               </template>
-              <div v-else-if="msg.content" class="message-content">{{ msg.content }}</div>
+              <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
+              <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <div v-if="msg.attachments?.length" class="message-attachments">
                 <template v-for="att in msg.attachments" :key="att.id">
                   <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
@@ -112,7 +113,8 @@
                 ></textarea>
                 <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
               </template>
-              <div v-else-if="msg.content" class="message-content">{{ msg.content }}</div>
+              <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
+              <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <div v-if="msg.attachments?.length" class="message-attachments">
                 <template v-for="att in msg.attachments" :key="att.id">
                   <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
@@ -213,6 +215,8 @@ import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, D
 import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import { api, type Message, type Attachment, type User } from "../api";
+import { renderMarkdown, extractUrls } from "../markdown";
+import LinkPreview from "./LinkPreview.vue";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 
@@ -844,7 +848,113 @@ function formatTimeShort(ts: string): string {
   line-height: 1.375rem;
   word-break: break-word;
   font-size: 0.9375rem;
-  white-space: pre-wrap;
+}
+
+.message-content :deep(p) {
+  margin: 0;
+}
+
+.message-content :deep(p + p) {
+  margin-top: 4px;
+}
+
+.message-content :deep(a) {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.message-content :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.message-content :deep(strong) {
+  font-weight: 700;
+  color: var(--header-primary);
+}
+
+.message-content :deep(em) {
+  font-style: italic;
+}
+
+.message-content :deep(del) {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.message-content :deep(code) {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: monospace;
+}
+
+.message-content :deep(pre) {
+  background: var(--bg-tertiary);
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 4px 0;
+}
+
+.message-content :deep(pre code) {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+}
+
+.message-content :deep(h3),
+.message-content :deep(h4),
+.message-content :deep(h5),
+.message-content :deep(h6) {
+  font-weight: 700;
+  color: var(--header-primary);
+  margin: 8px 0 4px;
+}
+
+.message-content :deep(h3) { font-size: 1.1em; }
+.message-content :deep(h4) { font-size: 1em; }
+
+.message-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.message-content :deep(table) {
+  border-collapse: collapse;
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+  margin: 4px 0;
+  font-size: 0.875em;
+}
+
+.message-content :deep(th),
+.message-content :deep(td) {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+.message-content :deep(th) {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.message-content :deep(blockquote) {
+  border-left: 3px solid var(--accent);
+  margin: 4px 0;
+  padding: 2px 12px;
+  color: var(--text-muted);
+}
+
+.message-content :deep(ul),
+.message-content :deep(ol) {
+  margin: 4px 0;
+  padding-left: 24px;
 }
 
 .chat-input {

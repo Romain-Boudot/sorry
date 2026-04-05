@@ -26,6 +26,7 @@ pub struct AppState {
     pub event_tx: broadcast::Sender<ServerEvent>,
     pub banned_users: RwLock<std::collections::HashSet<UserId>>,
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
+    pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
 }
 
 impl AppState {
@@ -59,6 +60,7 @@ impl AppState {
             event_tx,
             banned_users: RwLock::new(banned_users),
             login_attempts: RwLock::new(HashMap::new()),
+            og_cache: RwLock::new(HashMap::new()),
         }
     }
 

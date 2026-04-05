@@ -106,6 +106,13 @@ export const api = {
     });
   },
 
+  fetchOg(baseUrl: string, token: string, url: string) {
+    return request<{ title?: string; description?: string; image?: string; site_name?: string; url: string }>(baseUrl, "/og", token, {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+  },
+
   me(baseUrl: string, token: string) {
     return request<MeResponse>(baseUrl, "/users/me", token);
   },
