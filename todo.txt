@@ -10,18 +10,18 @@ x Icone/description du serveur — rien cote serveur info
 Important
 ---------
 x Reponses/quotes — pas de reply a un message
-- Mentions (@user) — pas de parsing ni notification
+x Mentions (@user) — pas de parsing ni notification
 - Reactions emoji — pas de reactions sur les messages
 - Recherche de messages
-- Unread par channel — le badge unread est global par serveur, pas par channel
+x Unread par channel — le badge unread est global par serveur, pas par channel
 x Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
-- Detection des urls et preview (OG tags)
+x Detection des urls et preview (OG tags)
 - Typing indicator — "X is typing..." via WebSocket
 - Message pinning — epingler des messages importants
 
 Nice to have
 ------------
-- Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
+x Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
 - Screen sharing — LiveKit le supporte, pas cable
 - Move user entre channels voice (action admin)
 - Limite d'utilisateurs par channel voice
@@ -31,9 +31,11 @@ Nice to have
 - Notifications desktop — notif push/desktop
 - DMs / messages prives — communication directe entre users
 - Themes — dark/light ou custom CSS
-- Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
+x Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
 - Webhooks — integrations (bots, CI notifications)
 - Export de donnees — backup des messages pour l'admin
+- pouvoir supprimé un guest user et donc tout ses messages aussi
+- suppression automatique des guest users tout les X (parametrable)
 
 Bugs
 ------------
