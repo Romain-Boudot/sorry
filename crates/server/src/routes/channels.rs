@@ -68,6 +68,7 @@ pub struct ListMessagesQuery {
 #[derive(Deserialize)]
 pub struct SendMessagePayload {
     content: String,
+    reply_to_id: Option<i64>,
 }
 
 /// GET /api/channels
@@ -272,7 +273,7 @@ async fn send_message_json(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let message = crate::db::messages::create(&state.db, channel_id, auth.0, &payload.content)
+    let message = crate::db::messages::create(&state.db, channel_id, auth.0, &payload.content, payload.reply_to_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -296,6 +297,7 @@ async fn send_message_upload(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let mut content = String::new();
+    let mut reply_to_id: Option<i64> = None;
     // (sanitized_filename, content_type, data, ext)
     let mut files: Vec<(String, String, Vec<u8>, String)> = Vec::new();
 
@@ -303,6 +305,9 @@ async fn send_message_upload(
         let name = field.name().unwrap_or("").to_string();
         if name == "content" {
             content = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+        } else if name == "reply_to_id" {
+            let val = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            reply_to_id = val.parse().ok();
         } else if name == "file" {
             if files.len() >= MAX_FILES_PER_MESSAGE {
                 return Err(StatusCode::BAD_REQUEST);
@@ -334,7 +339,7 @@ async fn send_message_upload(
     }
 
     // Create message in DB first (need the ID for S3 keys)
-    let mut message = crate::db::messages::create(&state.db, channel_id, auth.0, &content)
+    let mut message = crate::db::messages::create(&state.db, channel_id, auth.0, &content, reply_to_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

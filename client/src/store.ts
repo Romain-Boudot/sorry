@@ -385,7 +385,7 @@ export async function selectChannel(channelId: number) {
   }
 }
 
-export async function sendMessage(content: string, files?: File[]) {
+export async function sendMessage(content: string, files?: File[], replyToId?: number) {
   const server = activeServer();
   const state = activeState();
   if (!server || !state?.activeChannelId) return;
@@ -393,13 +393,13 @@ export async function sendMessage(content: string, files?: File[]) {
 
   if (files && files.length > 0) {
     // Use REST upload endpoint for messages with files
-    await api.sendMessageWithFiles(server.url, server.token, state.activeChannelId, content, files);
+    await api.sendMessageWithFiles(server.url, server.token, state.activeChannelId, content, files, replyToId);
     // The server broadcasts MessageCreate via WS, so it will appear automatically
   } else if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     state.ws.send(
       JSON.stringify({
         type: "SendMessage",
-        data: { channel_id: state.activeChannelId, content },
+        data: { channel_id: state.activeChannelId, content, reply_to_id: replyToId ?? null },
       })
     );
   }

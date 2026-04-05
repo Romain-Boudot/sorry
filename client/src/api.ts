@@ -181,16 +181,17 @@ export const api = {
     return request<Message[]>(baseUrl, `/channels/${channelId}/messages?${params}`, token);
   },
 
-  sendMessage(baseUrl: string, token: string, channelId: number, content: string) {
+  sendMessage(baseUrl: string, token: string, channelId: number, content: string, replyToId?: number) {
     return request<Message>(baseUrl, `/channels/${channelId}/messages`, token, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, reply_to_id: replyToId }),
     });
   },
 
-  async sendMessageWithFiles(baseUrl: string, token: string, channelId: number, content: string, files: File[]) {
+  async sendMessageWithFiles(baseUrl: string, token: string, channelId: number, content: string, files: File[], replyToId?: number) {
     const formData = new FormData();
     formData.append("content", content);
+    if (replyToId) formData.append("reply_to_id", String(replyToId));
     for (const file of files) {
       formData.append("file", file);
     }
@@ -379,6 +380,12 @@ export interface Attachment {
   url: string;
 }
 
+export interface ReplyPreview {
+  id: number;
+  author_id: number;
+  content: string;
+}
+
 export interface Message {
   id: number;
   channel_id: number;
@@ -386,6 +393,7 @@ export interface Message {
   content: string;
   created_at: string;
   attachments: Attachment[];
+  reply_to?: ReplyPreview;
 }
 
 export interface VoiceUserState {

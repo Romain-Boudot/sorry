@@ -139,11 +139,11 @@ async fn handle_client_event(
     let event: ClientEvent = serde_json::from_str(text)?;
 
     match event {
-        ClientEvent::SendMessage { channel_id, content } => {
+        ClientEvent::SendMessage { channel_id, content, reply_to_id } => {
             if !check_channel_permission(state, user_id, channel_id, permissions::SEND_MESSAGES).await? {
                 return Ok(());
             }
-            let message = crate::db::messages::create(&state.db, channel_id, user_id, &content)
+            let message = crate::db::messages::create(&state.db, channel_id, user_id, &content, reply_to_id)
                 .await?;
             let _ = state.event_tx.send(ServerEvent::MessageCreate(message));
         }

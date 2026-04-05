@@ -61,6 +61,13 @@ pub struct Attachment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplyPreview {
+    pub id: i64,
+    pub author_id: i64,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: i64,
     pub channel_id: i64,
@@ -69,6 +76,8 @@ pub struct Message {
     pub created_at: String,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyPreview>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

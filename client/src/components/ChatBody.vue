@@ -25,24 +25,37 @@
         <div
           class="message"
           :class="{ grouped: isGrouped(i), editing: editingMessageId === msg.id }"
+          :data-msg-id="msg.id"
           @contextmenu.prevent="onMessageContextMenu(msg, $event)"
         >
           <!-- Hover actions -->
-          <div v-if="canActOnMessage(msg) && editingMessageId !== msg.id" class="message-actions">
+          <div v-if="editingMessageId !== msg.id" class="message-actions">
+            <button class="msg-action-btn" title="Repondre" @click="startReply(msg)">
+              <Reply :size="14" />
+            </button>
             <button v-if="isOwnMessage(msg)" class="msg-action-btn" title="Modifier" @click="startEdit(msg)">
               <Pencil :size="14" />
             </button>
-            <button class="msg-action-btn danger" title="Supprimer" @click="handleDelete(msg, $event)">
+            <button v-if="canActOnMessage(msg)" class="msg-action-btn danger" title="Supprimer" @click="handleDelete(msg, $event)">
               <Trash2 :size="14" />
             </button>
           </div>
 
           <template v-if="!isGrouped(i)">
-            <div class="message-avatar" @click="openCard(msg.author_id, $event)">
+            <div class="message-avatar" :class="{ 'has-reply': msg.reply_to }" @click="openCard(msg.author_id, $event)">
               <img v-if="resolveAvatarUrl(msg.author_id)" :src="resolveAvatarUrl(msg.author_id)!" />
               <span v-else>{{ resolveUser(msg.author_id)[0]?.toUpperCase() }}</span>
             </div>
             <div class="message-body">
+              <div v-if="msg.reply_to" class="reply-preview" @click="scrollToMessage(msg.reply_to.id)">
+                <div class="reply-spine"></div>
+                <div class="reply-mini-avatar">
+                  <img v-if="resolveAvatarUrl(msg.reply_to.author_id)" :src="resolveAvatarUrl(msg.reply_to.author_id)!" />
+                  <span v-else>{{ resolveUser(msg.reply_to.author_id)[0]?.toUpperCase() }}</span>
+                </div>
+                <span class="reply-author" :style="resolveUserColor(msg.reply_to.author_id) ? `color:${resolveUserColor(msg.reply_to.author_id)}` : ''">{{ resolveUser(msg.reply_to.author_id) }}</span>
+                <span class="reply-content">{{ msg.reply_to.content }}</span>
+              </div>
               <div class="message-header">
                 <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
                 <span class="message-time">{{ formatTime(msg.created_at) }}</span>
@@ -79,6 +92,15 @@
               <span class="message-time-hover">{{ formatTimeShort(msg.created_at) }}</span>
             </div>
             <div class="message-body">
+              <div v-if="msg.reply_to" class="reply-preview" @click="scrollToMessage(msg.reply_to.id)">
+                <div class="reply-spine"></div>
+                <div class="reply-mini-avatar">
+                  <img v-if="resolveAvatarUrl(msg.reply_to.author_id)" :src="resolveAvatarUrl(msg.reply_to.author_id)!" />
+                  <span v-else>{{ resolveUser(msg.reply_to.author_id)[0]?.toUpperCase() }}</span>
+                </div>
+                <span class="reply-author" :style="resolveUserColor(msg.reply_to.author_id) ? `color:${resolveUserColor(msg.reply_to.author_id)}` : ''">{{ resolveUser(msg.reply_to.author_id) }}</span>
+                <span class="reply-content">{{ msg.reply_to.content }}</span>
+              </div>
               <template v-if="editingMessageId === msg.id">
                 <textarea
                   class="message-edit-input"
@@ -124,6 +146,16 @@
             <X :size="14" />
           </button>
         </div>
+      </div>
+      <div v-if="replyingTo" class="reply-bar">
+        <Reply :size="14" class="reply-bar-icon" />
+        <span class="reply-bar-text">
+          Reponse a <strong>{{ resolveUser(replyingTo.author_id) }}</strong>
+          <span class="reply-bar-content">{{ replyingTo.content.slice(0, 80) }}{{ replyingTo.content.length > 80 ? '...' : '' }}</span>
+        </span>
+        <button class="reply-bar-close" @click="replyingTo = null">
+          <X :size="14" />
+        </button>
       </div>
       <div class="chat-input-wrapper">
         <input type="file" ref="fileInput" multiple hidden @change="onFileSelect" />
@@ -177,7 +209,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
-import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download, Loader2 } from "lucide-vue-next";
+import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download, Loader2, Reply } from "lucide-vue-next";
 import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import { api, type Message, type Attachment, type User } from "../api";
@@ -200,6 +232,7 @@ const mainInput = ref<HTMLTextAreaElement>();
 const fileInput = ref<HTMLInputElement>();
 const editingMessageId = ref<number | null>(null);
 const editContent = ref("");
+const replyingTo = ref<Message | null>(null);
 const pendingFiles = ref<File[]>([]);
 const dragging = ref(false);
 const objectUrls = ref<Map<File, string>>(new Map());
@@ -292,9 +325,11 @@ function onMessagesScroll() {
 }
 
 // Group messages from the same author within 5 minutes
+// A reply always breaks grouping (like Discord)
 function isGrouped(index: number): boolean {
   if (index === 0) return false;
   const msg = messages.value[index];
+  if (msg.reply_to) return false;
   const prev = messages.value[index - 1];
   if (msg.author_id !== prev.author_id) return false;
   const diff = new Date(msg.created_at + "Z").getTime() - new Date(prev.created_at + "Z").getTime();
@@ -415,8 +450,9 @@ function handleSend() {
   const content = trimMessage(input.value);
   const files = pendingFiles.value.length > 0 ? [...pendingFiles.value] : undefined;
   if (!content && !files) return;
-  sendMessage(content || "", files);
+  sendMessage(content || "", files, replyingTo.value?.id);
   input.value = "";
+  replyingTo.value = null;
   // Clear pending files
   for (const [, url] of objectUrls.value) URL.revokeObjectURL(url);
   objectUrls.value.clear();
@@ -426,6 +462,20 @@ function handleSend() {
       mainInput.value.style.height = "auto";
     }
   });
+}
+
+function startReply(msg: Message) {
+  replyingTo.value = msg;
+  nextTick(() => mainInput.value?.focus());
+}
+
+function scrollToMessage(messageId: number) {
+  const el = messagesContainer.value?.querySelector(`[data-msg-id="${messageId}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("message-highlight");
+    setTimeout(() => el.classList.remove("message-highlight"), 2000);
+  }
 }
 
 function isImage(att: Attachment): boolean {
@@ -544,28 +594,32 @@ function confirmDelete() {
 }
 
 function onMessageContextMenu(msg: Message, e: MouseEvent) {
-  if (!canActOnMessage(msg)) return;
-
   const items: MenuItem[] = [];
+
+  items.push({ label: "Repondre", icon: Reply, action: () => startReply(msg) });
 
   if (isOwnMessage(msg)) {
     items.push({ label: "Modifier", icon: Pencil, action: () => startEdit(msg) });
   }
 
-  items.push({
-    label: "Supprimer",
-    icon: Trash2,
-    danger: true,
-    action: () => {
-      if (e.shiftKey) {
-        deleteMessage(msg.id);
-      } else {
-        confirmDeleteId.value = msg.id;
-      }
-    },
-  });
+  if (canActOnMessage(msg)) {
+    items.push({
+      label: "Supprimer",
+      icon: Trash2,
+      danger: true,
+      action: () => {
+        if (e.shiftKey) {
+          deleteMessage(msg.id);
+        } else {
+          confirmDeleteId.value = msg.id;
+        }
+      },
+    });
+  }
 
-  ctxMenu.value = { x: e.clientX, y: e.clientY, items };
+  if (items.length) {
+    ctxMenu.value = { x: e.clientX, y: e.clientY, items };
+  }
 }
 
 function formatDate(ts: string): string {
@@ -726,6 +780,10 @@ function formatTimeShort(ts: string): string {
   margin-top: 2px;
   overflow: hidden;
   cursor: pointer;
+}
+
+.message-avatar.has-reply {
+  margin-top: 26px;
 }
 
 .message-avatar img {
@@ -1157,5 +1215,137 @@ function formatTimeShort(ts: string): string {
 .chat-attach:hover {
   color: var(--text-normal);
   box-shadow: none;
+}
+
+/* ── Reply preview in message ── */
+.reply-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  cursor: pointer;
+  position: relative;
+  padding-left: 0;
+  min-height: 20px;
+}
+
+.reply-preview:hover .reply-content {
+  color: var(--text-normal);
+}
+
+.reply-spine {
+  position: absolute;
+  left: -37px;
+  top: 43%;
+  width: 33px;
+  height: calc(57% + 3px);
+  border-left: 2px solid var(--text-faint);
+  border-top: 2px solid var(--text-faint);
+  border-top-left-radius: 8px;
+}
+
+.reply-mini-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.reply-mini-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reply-author {
+  font-weight: 600;
+  color: var(--header-primary);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.reply-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.1s;
+}
+
+/* ── Reply bar above input ── */
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px 8px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.reply-bar + .chat-input-wrapper {
+  border-radius: 0 0 8px 8px;
+}
+
+.reply-bar-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.reply-bar-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-bar-text strong {
+  color: var(--header-primary);
+}
+
+.reply-bar-content {
+  margin-left: 6px;
+  color: var(--text-faint);
+}
+
+.reply-bar-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.reply-bar-close:hover {
+  color: var(--text-normal);
+  background: var(--bg-modifier-hover);
+  box-shadow: none;
+}
+
+/* ── Message highlight on scroll ── */
+.message-highlight {
+  background: var(--accent);
+  background: rgba(88, 101, 242, 0.1);
+  transition: background 0.3s;
 }
 </style>

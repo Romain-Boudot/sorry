@@ -25,7 +25,7 @@ pub enum ServerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientEvent {
-    SendMessage { channel_id: i64, content: String },
+    SendMessage { channel_id: i64, content: String, reply_to_id: Option<i64> },
     EditMessage { message_id: i64, content: String },
     DeleteMessage { message_id: i64 },
     JoinVoice { channel_id: i64 },
