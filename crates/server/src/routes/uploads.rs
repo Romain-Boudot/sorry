@@ -1,10 +1,11 @@
 use axum::{
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::header,
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
 
+use crate::error::AppError;
 use crate::state::AppState;
 
 /// GET /uploads/:msg_id/:filename
@@ -12,10 +13,9 @@ use crate::state::AppState;
 pub async fn serve_upload(
     State(state): State<Arc<AppState>>,
     Path((msg_id, filename)): Path<(String, String)>,
-) -> Result<Response, StatusCode> {
-    // Sanitize: reject path traversal
+) -> Result<Response, AppError> {
     if msg_id.contains("..") || filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Invalid path".into()));
     }
 
     let key = format!("{}/{}", msg_id, filename);
@@ -24,7 +24,7 @@ pub async fn serve_upload(
         .await
         .map_err(|e| {
             tracing::error!("Failed to download '{}': {}", key, e);
-            StatusCode::NOT_FOUND
+            AppError::NotFound
         })?;
 
     // Infer content type from extension

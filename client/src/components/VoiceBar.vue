@@ -313,7 +313,7 @@ const transportLabel = computed(() => {
 }
 
 .voice-bar-btn.danger:hover {
-  background: rgba(208, 80, 80, 0.15);
+  background: var(--danger-bg-hover);
   color: var(--danger);
   box-shadow: none;
 }

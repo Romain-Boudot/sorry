@@ -77,9 +77,9 @@ function close() {
 
 .context-menu-item:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .context-menu-item.danger { color: var(--danger); }
-.context-menu-item.danger:hover { background: var(--danger); color: #fff; }
+.context-menu-item.danger:hover { background: var(--danger); color: var(--text-bright); }
 </style>

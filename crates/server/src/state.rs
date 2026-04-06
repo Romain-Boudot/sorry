@@ -82,33 +82,17 @@ impl AppState {
         self.seq_counter.load(Ordering::SeqCst)
     }
 
-    /// Check if an IP is rate-limited (max 5 attempts per 60 seconds)
-    pub fn check_rate_limit(&self, ip: IpAddr) -> bool {
+    /// Generic rate limiter: returns `true` if the request is allowed, `false` if rate-limited.
+    fn rate_limit(
+        store: &RwLock<HashMap<IpAddr, Vec<Instant>>>,
+        ip: IpAddr,
+        max_attempts: usize,
+        window_secs: u64,
+    ) -> bool {
         let now = Instant::now();
-        let window = std::time::Duration::from_secs(60);
-        let max_attempts = 5;
+        let window = std::time::Duration::from_secs(window_secs);
 
-        let mut attempts = self.login_attempts.write().unwrap();
-        let entry = attempts.entry(ip).or_default();
-
-        // Remove attempts older than the window
-        entry.retain(|t| now.duration_since(*t) < window);
-
-        if entry.len() >= max_attempts {
-            return false; // rate limited
-        }
-
-        entry.push(now);
-        true
-    }
-
-    /// Check if an IP is rate-limited for invite operations (max 10 attempts per 60 seconds)
-    pub fn check_invite_rate_limit(&self, ip: IpAddr) -> bool {
-        let now = Instant::now();
-        let window = std::time::Duration::from_secs(60);
-        let max_attempts = 10;
-
-        let mut attempts = self.invite_attempts.write().unwrap();
+        let mut attempts = store.write().unwrap();
         let entry = attempts.entry(ip).or_default();
 
         entry.retain(|t| now.duration_since(*t) < window);
@@ -119,5 +103,15 @@ impl AppState {
 
         entry.push(now);
         true
+    }
+
+    /// Check if an IP is rate-limited for login (max 5 attempts per 60s)
+    pub fn check_rate_limit(&self, ip: IpAddr) -> bool {
+        Self::rate_limit(&self.login_attempts, ip, 5, 60)
+    }
+
+    /// Check if an IP is rate-limited for invite checks (max 10 attempts per 60s)
+    pub fn check_invite_rate_limit(&self, ip: IpAddr) -> bool {
+        Self::rate_limit(&self.invite_attempts, ip, 10, 60)
     }
 }

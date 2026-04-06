@@ -166,12 +166,12 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .audio-btn.active {
-  background: rgba(208, 80, 80, 0.15);
+  background: var(--danger-bg-hover);
   color: var(--danger);
 }
 
 .audio-btn.active:hover {
-  background: rgba(208, 80, 80, 0.25);
+  background: var(--danger-bg-active);
   color: var(--danger);
   box-shadow: none;
 }
@@ -214,13 +214,13 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .audio-dropdown-btn.active {
-  background: rgba(208, 80, 80, 0.15);
+  background: var(--danger-bg-hover);
   color: var(--danger);
-  border-left-color: rgba(208, 80, 80, 0.3);
+  border-left-color: var(--danger-bg-active);
 }
 
 .audio-dropdown-btn.active:hover {
-  background: rgba(208, 80, 80, 0.25);
+  background: var(--danger-bg-active);
   color: var(--danger);
   box-shadow: none;
 }

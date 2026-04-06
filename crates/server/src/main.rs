@@ -1,9 +1,12 @@
 mod auth;
 mod db;
+mod error;
 mod livekit;
+mod perms;
 mod routes;
 mod state;
 mod storage;
+mod upload;
 mod ws;
 
 use argon2::{
@@ -150,16 +153,16 @@ async fn ensure_admin(db: &sqlx::SqlitePool) {
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
     let admin_password_env = std::env::var("ADMIN_PASSWORD").ok().filter(|s| !s.is_empty());
 
-    let existing = db::users::find_by_id_internal(db, 1)
+    let existing = db::users::find_by_id_internal(db, shared::OWNER_USER_ID)
         .await
         .expect("Failed to check admin user");
 
     match existing {
         Some(_) => {
-            // Le compte id=1 existe — s'assurer que les rôles sont assignés
-            let _ = db::roles::assign_to_user(db, 1, 1).await;
-            let _ = db::roles::assign_to_user(db, 1, 2).await;
-            tracing::info!("Admin account (id=1) verified");
+            // Le compte owner existe — s'assurer que les rôles sont assignés
+            let _ = db::roles::assign_to_user(db, shared::OWNER_USER_ID, shared::OWNER_ROLE_ID).await;
+            let _ = db::roles::assign_to_user(db, shared::OWNER_USER_ID, shared::EVERYONE_ROLE_ID).await;
+            tracing::info!("Admin account (id={}) verified", shared::OWNER_USER_ID);
         }
         None => {
             // Le compte n'existe pas — le créer
@@ -180,8 +183,8 @@ async fn ensure_admin(db: &sqlx::SqlitePool) {
                 .await
                 .expect("Failed to create admin user");
 
-            let _ = db::roles::assign_to_user(db, id, 1).await;
-            let _ = db::roles::assign_to_user(db, id, 2).await;
+            let _ = db::roles::assign_to_user(db, id, shared::OWNER_ROLE_ID).await;
+            let _ = db::roles::assign_to_user(db, id, shared::EVERYONE_ROLE_ID).await;
 
             tracing::info!("════════════════════════════════════════════");
             tracing::info!("  Admin account created (id={})", id);

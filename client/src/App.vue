@@ -218,7 +218,7 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 0.8rem;
   flex-shrink: 0;
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .user-meta {

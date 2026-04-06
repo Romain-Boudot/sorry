@@ -7,21 +7,44 @@
 }
 
 :root {
+  /* ── Surfaces ── */
   --bg-primary: #343230;
   --bg-secondary: #2c2a27;
   --bg-tertiary: #21201d;
+  --bg-floating: #282622;
   --bg-modifier-hover: rgba(255, 220, 180, 0.06);
   --bg-modifier-active: rgba(255, 220, 180, 0.12);
+
+  /* ── Text ── */
   --text-normal: #ebe7e0;
   --text-muted: #b0a99f;
   --text-faint: #7d756c;
+  --text-bright: #fff;
   --header-primary: #f7f4ef;
+
+  /* ── Accent ── */
   --accent: #d4914a;
   --accent-hover: #b87c3a;
+
+  /* ── Status ── */
   --green: #5fad5f;
   --danger: #d05050;
-  --bg-floating: #282622;
+  --danger-bg: rgba(208, 80, 80, 0.1);
+  --danger-bg-hover: rgba(208, 80, 80, 0.15);
+  --danger-bg-active: rgba(208, 80, 80, 0.25);
+  --green-bg: rgba(95, 173, 95, 0.2);
+  --status-warning: #f0b232;
+  --status-info: #5865f2;
+  --status-orange: #e67e22;
+
+  /* ── Overlays ── */
+  --overlay: rgba(0, 0, 0, 0.7);
+  --overlay-light: rgba(0, 0, 0, 0.5);
+
+  /* ── Borders ── */
   --border: rgba(255, 220, 180, 0.08);
+
+  /* ── Layout ── */
   --bar-height: 48px;
 }
 

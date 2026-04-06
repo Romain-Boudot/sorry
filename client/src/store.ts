@@ -1,6 +1,20 @@
+/**
+ * Central reactive store — state, types, persistence, and thin re-exports.
+ *
+ * All business logic lives in composables/:
+ *   useConnection.ts  — connect/disconnect/mute/unmute servers
+ *   useMessaging.ts   — send/edit/delete messages
+ *   useVoice.ts       — voice channel operations
+ *   useNotifications.ts — notification prefs & sounds
+ *   useEvents.ts      — WS event dispatching
+ *
+ * Components that already import from "./store" keep working —
+ * the public API is re-exported here as thin wrappers.
+ */
 import { reactive } from "vue";
-import { api, resolveBaseUrl, createWsConnection, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type SequencedEvent, type Snapshot, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
-import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened, startScreenShare as voiceStartScreenShare, stopScreenShare as voiceStopScreenShare, setCameraEnabled as voiceSetCamera } from "./voice";
+import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
+
+// ── Types ──
 
 export interface SavedServer {
   id: string;
@@ -15,8 +29,8 @@ export interface SavedServer {
 
 export interface ServerState {
   connected: boolean;
-  muted: boolean; // déconnecté manuellement
-  wsState: WsConnectionState; // FSM connexion WS
+  muted: boolean;
+  wsState: WsConnectionState;
   user: User | null;
   users: Map<number, User>;
   groups: ChannelGroup[];
@@ -31,11 +45,9 @@ export interface ServerState {
   roles: Role[];
   userRoles: Map<number, number[]>;
   maxFileSize: number;
-  // Notifications
   notificationPrefs: NotificationPref[];
   channelUnread: Map<number, number>;
   channelMentions: Map<number, number>;
-  // Vocal
   voiceChannelId: number | null;
   voiceConnectingChannelId: number | null;
   speakingUsers: Set<string>;
@@ -45,14 +57,12 @@ export interface ServerState {
   wasMutedBeforeDeafen: boolean;
   isScreenSharing: boolean;
   isCameraOn: boolean;
-  videoTrackVersion: number; // incremented on track changes to trigger reactivity
+  videoTrackVersion: number;
 }
 
-function defaultVoiceUserState(): VoiceUserState {
-  return { muted: false, deafened: false, force_muted: false, force_deafened: false };
-}
+// ── Factory ──
 
-function createServerState(): ServerState {
+export function createServerState(): ServerState {
   return {
     connected: false,
     muted: false,
@@ -87,45 +97,7 @@ function createServerState(): ServerState {
   };
 }
 
-const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function getTokenExp(token: string): number | null {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.exp ?? null;
-  } catch { return null; }
-}
-
-function scheduleTokenRefresh(serverId: string) {
-  // Clear any existing timer
-  const existing = refreshTimers.get(serverId);
-  if (existing) clearTimeout(existing);
-
-  const server = store.savedServers.find((s) => s.id === serverId);
-  if (!server) return;
-
-  const exp = getTokenExp(server.token);
-  if (!exp) return;
-
-  // Refresh when 80% of the TTL has elapsed (e.g. 4 days into a 5-day token)
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const remaining = exp - nowSecs;
-  const refreshIn = Math.max(remaining * 0.8, 60) * 1000; // at least 1 min
-
-  const timer = setTimeout(async () => {
-    try {
-      const res = await api.refreshToken(server.url, server.token);
-      server.token = res.token;
-      persistServers();
-      // Schedule next refresh
-      scheduleTokenRefresh(serverId);
-    } catch {
-      // Token expired or server unreachable — user will need to re-login
-    }
-  }, refreshIn);
-
-  refreshTimers.set(serverId, timer);
-}
+// ── Persistence ──
 
 function loadSavedServers(): SavedServer[] {
   try {
@@ -138,6 +110,8 @@ function loadSavedServers(): SavedServer[] {
 export function persistServers() {
   localStorage.setItem("servers", JSON.stringify(store.savedServers));
 }
+
+// ── Reactive store ──
 
 export const store = reactive({
   savedServers: loadSavedServers(),
@@ -156,7 +130,8 @@ export const store = reactive({
   groupSettingsId: null as number | null,
 });
 
-/// State du serveur actif (pour les composants)
+// ── Getters ──
+
 export function activeState(): ServerState | undefined {
   if (!store.activeServerId) return undefined;
   return store.serverStates.get(store.activeServerId);
@@ -166,14 +141,12 @@ export function activeServer(): SavedServer | undefined {
   return store.savedServers.find((s) => s.id === store.activeServerId);
 }
 
-/// Résoudre un user id → display name (serveur actif)
 export function resolveUser(userId: number): string {
   const state = activeState();
   if (!state) return `User #${userId}`;
   return state.users.get(userId)?.display_name ?? `User #${userId}`;
 }
 
-/// Résoudre un user id → avatar URL complète (serveur actif)
 export function resolveAvatarUrl(userId: number): string | null {
   const state = activeState();
   const server = activeServer();
@@ -188,35 +161,30 @@ export function resolveUserColor(userId: number): string | null {
   if (!state) return null;
   const roleIds = state.userRoles.get(userId);
   if (!roleIds) return null;
-  // Find the highest role (lowest position) that has a color
   const userRoles = state.roles
     .filter((r) => roleIds.includes(r.id) && r.color)
     .sort((a, b) => a.position - b.position);
   return userRoles[0]?.color ?? null;
 }
 
-/// Est-ce qu'un user est un guest ?
 export function isGuest(userId: number): boolean {
   const state = activeState();
   if (!state) return false;
   return state.users.get(userId)?.guest === true;
 }
 
-/// Est-ce qu'un user (par son id) est en train de parler ?
 export function isUserSpeaking(userId: number): boolean {
   const state = activeState();
   if (!state) return false;
   return state.speakingUsers.has(`user-${userId}`);
 }
 
-/// Récupère le voice state d'un user dans un channel
 export function getUserVoiceState(channelId: number, userId: number): VoiceUserState | undefined {
   const state = activeState();
   if (!state) return undefined;
   return state.voiceState.get(channelId)?.get(userId);
 }
 
-/// Le channel actif est-il un channel vocal ?
 export function isActiveChannelVoice(): boolean {
   const state = activeState();
   if (!state?.activeChannelId) return false;
@@ -224,24 +192,15 @@ export function isActiveChannelVoice(): boolean {
   return ch?.kind === "voice";
 }
 
-/// Helper pour envoyer un message WS au serveur
-function wsSend(state: ServerState, msg: object) {
-  const ws = state.wsConnection?.ws;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
-}
+// ── Re-exports from composables (backwards-compatible public API) ──
 
-/// Envoyer l'état vocal self au serveur (seulement si en vocal)
-function sendVoiceStateUpdate(state: ServerState) {
-  if (!state.voiceChannelId) return;
-  wsSend(state, {
-    type: "UpdateVoiceState",
-    data: { muted: state.isMuted, deafened: state.isDeafened },
-  });
-}
+import { connectToServer, connectAll, muteServer, unmuteServer, removeServer } from "./composables/useConnection";
+import * as _messaging from "./composables/useMessaging";
+import * as _voice from "./composables/useVoice";
+import * as _notifs from "./composables/useNotifications";
 
-/// Ajouter un nouveau serveur et s'y connecter
+export { connectToServer, connectAll, muteServer, unmuteServer, removeServer };
+
 export async function addServer(
   name: string,
   url: string,
@@ -278,9 +237,7 @@ export async function addServer(
   }
 
   if (defaultAvatar) {
-    try {
-      await api.uploadAvatar(baseUrl, res.token, defaultAvatar);
-    } catch {}
+    try { await api.uploadAvatar(baseUrl, res.token, defaultAvatar); } catch {}
   }
 
   const server: SavedServer = {
@@ -298,7 +255,6 @@ export async function addServer(
   store.activeServerId = server.id;
 }
 
-/// Connexion rapide (guest) — invite code + display name only
 export async function addServerGuest(
   name: string,
   url: string,
@@ -328,170 +284,11 @@ export async function addServerGuest(
   store.activeServerId = server.id;
 }
 
-/// Applique un snapshot complet sur le state d'un serveur.
-/// Appelé à la connexion initiale ET à chaque reconnexion.
-/// IMPORTANT: lit le state depuis le store (proxy réactif Vue) pour que les mutations déclenchent des re-renders.
-function applySnapshot(serverId: string, snapshot: Snapshot) {
-  const state = store.serverStates.get(serverId);
-  if (!state) return;
-  const server = store.savedServers.find((s) => s.id === serverId);
-
-  state.user = snapshot.user;
-  state.permissions = snapshot.permissions;
-  state.groups = snapshot.groups;
-  state.channels = snapshot.channels;
-  state.connected = true;
-  state.onlineUsers = new Set(snapshot.online_users);
-  state.onlineUsers.add(snapshot.user.id);
-  state.roles = snapshot.roles;
-  state.maxFileSize = snapshot.max_file_size;
-
-  state.users.clear();
-  for (const u of snapshot.users) {
-    state.users.set(u.id, u);
-  }
-
-  state.userRoles.clear();
-  for (const [uid, rids] of Object.entries(snapshot.user_roles)) {
-    state.userRoles.set(Number(uid), rids as number[]);
-  }
-
-  state.voiceState.clear();
-  for (const [chId, usersObj] of Object.entries(snapshot.voice_state)) {
-    const map = new Map<number, VoiceUserState>();
-    for (const [uid, vs] of Object.entries(usersObj)) {
-      map.set(Number(uid), vs as VoiceUserState);
-    }
-    state.voiceState.set(Number(chId), map);
-  }
-
-  // Update saved server info
-  if (server) {
-    server.name = snapshot.server_name;
-    server.iconUrl = snapshot.server_icon_url ?? null;
-    server.description = snapshot.server_description ?? null;
-    persistServers();
-  }
-
-  // Recharger les notification prefs (pas incluses dans le snapshot)
-  if (server) {
-    api.getNotificationPrefs(server.url, server.token)
-      .then((prefs) => {
-        const s = store.serverStates.get(serverId);
-        if (s) s.notificationPrefs = prefs;
-      })
-      .catch(() => {});
-  }
-
-  // Sélectionner le premier channel text si aucun n'est sélectionné
-  if (!state.activeChannelId) {
-    const firstText = snapshot.channels.find((c) => c.kind === "text");
-    if (firstText) {
-      state.activeChannelId = firstText.id;
-      // Charger les messages du channel actif via le proxy réactif
-      if (server) {
-        api.listMessages(server.url, server.token, firstText.id)
-          .then((msgs) => {
-            // Re-accéder au state via le store (proxy) pour garantir la réactivité
-            const s = store.serverStates.get(serverId);
-            if (s) s.messages.set(firstText.id, msgs.reverse());
-          })
-          .catch(() => {});
-      }
-    }
-  }
-}
-
-/// Connecter à un serveur (sans déconnecter les autres)
-export async function connectToServer(serverId: string) {
-  const server = store.savedServers.find((s) => s.id === serverId);
-  if (!server) return;
-
-  const existing = store.serverStates.get(serverId);
-  if (existing?.connected) {
-    store.activeServerId = serverId;
-    return;
-  }
-
-  const state = createServerState();
-  store.serverStates.set(serverId, state);
-
-  try {
-    // Resolve protocol if needed (fixes saved http:// URLs when server uses https)
-    const resolvedUrl = await resolveBaseUrl(server.url);
-    if (resolvedUrl !== server.url) {
-      server.url = resolvedUrl;
-      persistServers();
-    }
-
-    scheduleTokenRefresh(serverId);
-
-    // Request browser notification permission
-    if (Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-
-    // Connexion WS — le serveur envoie un snapshot automatiquement
-    // On attend le premier snapshot avant de considérer la connexion prête
-    let firstSnapshotReceived = false;
-    let resolveReady!: () => void;
-    const ready = new Promise<void>((r) => { resolveReady = r; });
-
-    state.wsConnection = createWsConnection(server.url, () => server.token, {
-      onSnapshot: (snapshot) => {
-        applySnapshot(serverId, snapshot);
-        if (!firstSnapshotReceived) {
-          firstSnapshotReceived = true;
-          resolveReady();
-        }
-      },
-      onEvent: (event) => {
-        handleEvent(serverId, event);
-      },
-      onStateChange: (wsState) => {
-        state.wsState = wsState;
-        if (wsState === "connected") {
-          state.connected = true;
-        } else if (wsState === "disconnected") {
-          state.connected = false;
-        }
-        // Pendant "reconnecting", on garde connected=true
-        // pour ne pas perdre l'état UI
-      },
-    });
-
-    // Attendre le premier snapshot (avec timeout de 15s)
-    const timeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error("snapshot timeout")), 15000)
-    );
-    await Promise.race([ready, timeout]);
-
-    store.activeServerId = serverId;
-  } catch {
-    state.connected = false;
-    state.wsConnection?.destroy();
-    state.wsConnection = null;
-  }
-}
-
-/// Connecter à TOUS les serveurs non-mutés
-export async function connectAll() {
-  const promises = store.savedServers.map((server) => {
-    if (server.autoConnect === false) return Promise.resolve();
-    const state = store.serverStates.get(server.id);
-    if (state?.muted) return Promise.resolve();
-    return connectToServer(server.id).catch(() => {});
-  });
-  await Promise.all(promises);
-}
-
-/// Switch l'affichage vers un serveur (sans reconnecter)
 export function switchToServer(serverId: string) {
   const state = store.serverStates.get(serverId);
   if (state?.connected) {
     store.activeServerId = serverId;
     state.unreadCount = 0;
-    // Clear unread/mentions for the currently viewed channel
     if (state.activeChannelId) {
       state.channelUnread.delete(state.activeChannelId);
       state.channelMentions.delete(state.activeChannelId);
@@ -507,7 +304,6 @@ export async function selectChannel(channelId: number) {
   if (!server || !state) return;
 
   state.activeChannelId = channelId;
-  // Clear unread/mentions for this channel
   state.channelUnread.delete(channelId);
   state.channelMentions.delete(channelId);
   if (!state.messages.has(channelId)) {
@@ -516,208 +312,75 @@ export async function selectChannel(channelId: number) {
   }
 }
 
+// Thin wrappers that resolve activeState/activeServer automatically
 export async function sendMessage(content: string, files?: File[], replyToId?: number) {
   const server = activeServer();
   const state = activeState();
-  if (!server || !state?.activeChannelId) return;
-  if (!content.trim() && (!files || files.length === 0)) return;
-
-  if (files && files.length > 0) {
-    // Use REST upload endpoint for messages with files
-    await api.sendMessageWithFiles(server.url, server.token, state.activeChannelId, content, files, replyToId);
-    // The server broadcasts MessageCreate via WS, so it will appear automatically
-  } else {
-    wsSend(state, {
-      type: "SendMessage",
-      data: { channel_id: state.activeChannelId, content, reply_to_id: replyToId ?? null },
-    });
-  }
+  if (!server || !state) return;
+  await _messaging.sendMessage(server, state, content, files, replyToId);
 }
 
 export function editMessage(messageId: number, content: string) {
   const state = activeState();
   if (!state) return;
-  wsSend(state, {
-    type: "EditMessage",
-    data: { message_id: messageId, content },
-  });
+  _messaging.editMessage(state, messageId, content);
 }
 
 export function deleteMessage(messageId: number) {
   const state = activeState();
   if (!state) return;
-  // Optimistic delete
-  for (const [, msgs] of state.messages) {
-    const idx = msgs.findIndex((m) => m.id === messageId);
-    if (idx >= 0) { msgs.splice(idx, 1); break; }
-  }
-  wsSend(state, {
-    type: "DeleteMessage",
-    data: { message_id: messageId },
-  });
+  _messaging.deleteMessage(state, messageId);
 }
 
-/// Rejoindre un channel vocal
 export async function joinVoiceChannel(channelId: number) {
   const server = activeServer();
   const state = activeState();
   if (!server || !state) return;
-
-  state.voiceStatus = "connecting";
-  state.voiceConnectingChannelId = channelId;
-
-  try {
-    const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
-
-    await joinVoice(url, token, {
-      onConnected: () => {
-        state.voiceChannelId = channelId;
-        state.voiceStatus = "connected";
-        // Apply pre-existing mute/deaf state
-        if (state.isMuted) {
-          voiceToggleMute(); // mic was enabled by default on join, disable it
-        }
-        if (state.isDeafened) {
-          voiceToggleDeafen();
-        }
-        wsSend(state, { type: "JoinVoice", data: { channel_id: channelId } });
-        sendVoiceStateUpdate(state);
-      },
-      onDisconnected: () => {
-        const prevChannel = state.voiceChannelId;
-        if (!prevChannel) return; // jamais vraiment connecté, onError s'en occupe
-        state.voiceChannelId = null;
-        state.voiceConnectingChannelId = null;
-        state.voiceStatus = "idle";
-        wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
-      },
-      onParticipantJoined: () => {},
-      onParticipantLeft: () => {},
-      onActiveSpeakersChanged: (identities) => {
-        state.speakingUsers = new Set(identities);
-      },
-      onTrackChanged: () => {
-        state.videoTrackVersion++;
-      },
-      onError: (err) => {
-        state.voiceStatus = "error";
-        console.error("Voice error:", err);
-      },
-    });
-  } catch {
-    state.voiceStatus = "error";
-  }
+  await _voice.joinVoiceChannel(server, state, channelId);
 }
 
-/// Quitter le channel vocal
 export async function leaveVoiceChannel() {
   const state = activeState();
   if (!state) return;
-
-  const prevChannel = state.voiceChannelId;
-  await leaveVoice();
-  state.voiceChannelId = null;
-  state.voiceConnectingChannelId = null;
-  state.voiceStatus = "idle";
-  state.isScreenSharing = false;
-  state.isCameraOn = false;
-  // Keep mute/deaf state — user may want to rejoin muted
-
-  if (prevChannel) {
-    wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
-  }
+  await _voice.leaveVoiceChannel(state);
 }
 
-/// Toggle mute micro
 export function toggleMute() {
   const state = activeState();
   if (!state) return;
-  if (state.voiceChannelId) {
-    const micEnabled = voiceToggleMute();
-    state.isMuted = !micEnabled;
-  } else {
-    state.isMuted = !state.isMuted;
-  }
-  // If unmuting while deafened, undeafen too
-  if (!state.isMuted && state.isDeafened) {
-    state.isDeafened = false;
-    if (state.voiceChannelId) voiceToggleDeafen();
-  }
-  sendVoiceStateUpdate(state);
+  _voice.toggleMute(state);
 }
 
-/// Toggle deafen (sourd)
 export function toggleDeafen() {
   const state = activeState();
   if (!state) return;
-  const wasDeafened = state.isDeafened;
-
-  if (!wasDeafened) {
-    // Becoming deafened — remember current mute state
-    state.wasMutedBeforeDeafen = state.isMuted;
-    state.isDeafened = true;
-    if (!state.isMuted) {
-      state.isMuted = true;
-      if (state.voiceChannelId) voiceToggleMute();
-    }
-    if (state.voiceChannelId) voiceToggleDeafen();
-  } else {
-    // Undeafening — restore previous mute state
-    state.isDeafened = false;
-    if (state.voiceChannelId) voiceToggleDeafen();
-    if (!state.wasMutedBeforeDeafen) {
-      state.isMuted = false;
-      if (state.voiceChannelId) voiceToggleMute();
-    }
-  }
-  sendVoiceStateUpdate(state);
+  _voice.toggleDeafen(state);
 }
 
-/// Toggle screen share
 export async function toggleScreenShare() {
   const state = activeState();
-  if (!state?.voiceChannelId) return;
-  if (state.isScreenSharing) {
-    await voiceStopScreenShare();
-    state.isScreenSharing = false;
-  } else {
-    const ok = await voiceStartScreenShare();
-    state.isScreenSharing = ok;
-  }
-  state.videoTrackVersion++;
+  if (!state) return;
+  await _voice.toggleScreenShare(state);
 }
 
-/// Toggle webcam
 export async function toggleCamera() {
   const state = activeState();
-  if (!state?.voiceChannelId) return;
-  const next = !state.isCameraOn;
-  const ok = await voiceSetCamera(next);
-  if (ok) state.isCameraOn = next;
-  state.videoTrackVersion++;
+  if (!state) return;
+  await _voice.toggleCamera(state);
 }
 
-/// Force mute un autre user (nécessite MUTE_MEMBERS)
 export function forceMute(userId: number, muted: boolean) {
   const state = activeState();
   if (!state) return;
-  wsSend(state, {
-    type: "ForceMute",
-    data: { user_id: userId, muted },
-  });
+  _voice.forceMute(state, userId, muted);
 }
 
-/// Force deafen un autre user (nécessite DEAFEN_MEMBERS)
 export function forceDeafen(userId: number, deafened: boolean) {
   const state = activeState();
   if (!state) return;
-  wsSend(state, {
-    type: "ForceDeafen",
-    data: { user_id: userId, deafened },
-  });
+  _voice.forceDeafen(state, userId, deafened);
 }
 
-/// Set notification preference for a channel or server
 export async function setNotificationPref(
   scope: "channel" | "server",
   targetId: number,
@@ -727,294 +390,12 @@ export async function setNotificationPref(
   const server = activeServer();
   const state = activeState();
   if (!server || !state) return;
-
-  await api.setNotificationPref(server.url, server.token, {
-    scope,
-    target_id: targetId,
-    level,
-    mute_until: muteUntil ?? null,
-  });
-
-  // Update local state
-  const existing = state.notificationPrefs.findIndex(
-    (p) => p.scope === scope && p.target_id === targetId
-  );
-  const pref = { scope, target_id: targetId, level, mute_until: muteUntil ?? null };
-  if (existing >= 0) {
-    state.notificationPrefs[existing] = pref;
-  } else {
-    state.notificationPrefs.push(pref);
-  }
+  await _notifs.setNotificationPref(server, state, scope, targetId, level, muteUntil);
 }
 
-/// Remove notification preference (reset to default)
 export async function removeNotificationPref(scope: "channel" | "server", targetId: number) {
   const server = activeServer();
   const state = activeState();
   if (!server || !state) return;
-
-  await api.deleteNotificationPref(server.url, server.token, scope, targetId);
-  state.notificationPrefs = state.notificationPrefs.filter(
-    (p) => !(p.scope === scope && p.target_id === targetId)
-  );
-}
-
-/// Déconnecter d'un serveur (mute — plus de WS, plus de notifs)
-export function muteServer(serverId: string) {
-  const state = store.serverStates.get(serverId);
-  if (state) {
-    state.wsConnection?.destroy();
-    state.wsConnection = null;
-    state.connected = false;
-    state.muted = true;
-  }
-
-  if (store.activeServerId === serverId) {
-    const next = store.savedServers.find(
-      (s) => s.id !== serverId && store.serverStates.get(s.id)?.connected
-    );
-    store.activeServerId = next?.id ?? null;
-  }
-}
-
-/// Reconnecter un serveur muté
-export function unmuteServer(serverId: string) {
-  const state = store.serverStates.get(serverId);
-  if (state) {
-    state.muted = false;
-  }
-  connectToServer(serverId);
-}
-
-export function removeServer(serverId: string) {
-  const state = store.serverStates.get(serverId);
-  state?.wsConnection?.destroy();
-  store.serverStates.delete(serverId);
-  store.savedServers = store.savedServers.filter((s) => s.id !== serverId);
-  persistServers();
-
-  if (store.activeServerId === serverId) {
-    store.activeServerId = store.savedServers[0]?.id ?? null;
-  }
-}
-
-// ── Notification helpers ──
-
-let notifAudio: HTMLAudioElement | null = null;
-function getNotifAudio(): HTMLAudioElement {
-  if (!notifAudio) {
-    notifAudio = new Audio("/notif.wav");
-    notifAudio.volume = 0.5;
-  }
-  return notifAudio;
-}
-
-function getEffectiveNotifLevel(state: ServerState, channelId: number): "all" | "mentions" | "nothing" {
-  const now = new Date().toISOString();
-  // Channel-level pref takes priority
-  const channelPref = state.notificationPrefs.find(
-    (p) => p.scope === "channel" && p.target_id === channelId
-  );
-  if (channelPref) {
-    if (channelPref.mute_until && channelPref.mute_until < now) {
-      // Mute expired — treat as default (fall through to server)
-    } else {
-      return channelPref.level as "all" | "mentions" | "nothing";
-    }
-  }
-  // Server-level pref
-  const serverPref = state.notificationPrefs.find(
-    (p) => p.scope === "server" && p.target_id === 0
-  );
-  if (serverPref) {
-    if (serverPref.mute_until && serverPref.mute_until < now) {
-      return "all"; // expired
-    }
-    return serverPref.level as "all" | "mentions" | "nothing";
-  }
-  return "all";
-}
-
-function isMentioned(state: ServerState, msg: Message): boolean {
-  if (!state.user) return false;
-  // Direct user mention
-  if (msg.mentions?.some((m) => m.kind === "user" && m.id === state.user!.id)) return true;
-  // Role mention
-  const userRoleIds = state.userRoles.get(state.user.id) ?? [];
-  if (msg.mentions?.some((m) => m.kind === "role" && userRoleIds.includes(m.id))) return true;
-  return false;
-}
-
-function fireNotification(state: ServerState, serverId: string, msg: Message) {
-  if (msg.author_id === state.user?.id) return;
-
-  const level = getEffectiveNotifLevel(state, msg.channel_id);
-  const mentioned = isMentioned(state, msg);
-
-  if (level === "nothing") return;
-  if (level === "mentions" && !mentioned) return;
-
-  // Track mention count
-  if (mentioned) {
-    state.channelMentions.set(msg.channel_id, (state.channelMentions.get(msg.channel_id) ?? 0) + 1);
-  }
-
-  // Don't fire sound/browser notif if user is viewing this exact channel
-  const isViewing = store.activeServerId === serverId && state.activeChannelId === msg.channel_id && document.hasFocus();
-  if (isViewing) return;
-
-  // Play sound
-  try { getNotifAudio().play(); } catch {}
-
-  // Browser notification
-  if (Notification.permission === "granted") {
-    const server = store.savedServers.find((s) => s.id === serverId);
-    const authorName = state.users.get(msg.author_id)?.display_name ?? "Someone";
-    const channelName = state.channels.find((c) => c.id === msg.channel_id)?.name ?? "channel";
-    const title = mentioned ? `${authorName} vous a mentionné` : `${authorName} dans #${channelName}`;
-    const body = msg.content.length > 100 ? msg.content.slice(0, 100) + "..." : msg.content;
-    new Notification(title, { body, tag: `sorry-${serverId}-${msg.id}`, icon: server?.iconUrl ? `${server.url}${server.iconUrl}` : undefined });
-  }
-}
-
-function handleEvent(serverId: string, event: ServerEvent) {
-  const state = store.serverStates.get(serverId);
-  if (!state) return;
-
-  switch (event.type) {
-    case "MessageCreate": {
-      const msg = event.data as Message;
-      const msgs = state.messages.get(msg.channel_id);
-      if (msgs) {
-        msgs.push(msg);
-      } else {
-        state.messages.set(msg.channel_id, [msg]);
-      }
-      // Per-channel unread tracking
-      const isViewingChannel = store.activeServerId === serverId && state.activeChannelId === msg.channel_id;
-      if (!isViewingChannel && msg.author_id !== state.user?.id) {
-        state.channelUnread.set(msg.channel_id, (state.channelUnread.get(msg.channel_id) ?? 0) + 1);
-      }
-      if (store.activeServerId !== serverId) {
-        state.unreadCount++;
-      }
-      // Fire notification (sound + browser)
-      fireNotification(state, serverId, msg);
-      break;
-    }
-    case "MessageDelete": {
-      const { id } = event.data as { id: number };
-      for (const [, msgs] of state.messages) {
-        const idx = msgs.findIndex((m) => m.id === id);
-        if (idx >= 0) { msgs.splice(idx, 1); break; }
-      }
-      break;
-    }
-    case "MessageUpdate": {
-      const msg = event.data as Message;
-      const msgs = state.messages.get(msg.channel_id);
-      if (msgs) {
-        const idx = msgs.findIndex((m) => m.id === msg.id);
-        if (idx >= 0) msgs[idx] = msg;
-      }
-      break;
-    }
-    case "UserOnline": {
-      const { user } = event.data as { user: User };
-      state.onlineUsers.add(user.id);
-      state.users.set(user.id, user);
-      break;
-    }
-    case "UserOffline": {
-      const { user_id } = event.data as { user_id: number };
-      state.onlineUsers.delete(user_id);
-      break;
-    }
-    case "UserJoinedVoice": {
-      const { user, channel_id, voice_state: vs } = event.data as { user: User; channel_id: number; voice_state: VoiceUserState };
-      if (!state.voiceState.has(channel_id)) {
-        state.voiceState.set(channel_id, new Map());
-      }
-      state.voiceState.get(channel_id)!.set(user.id, vs ?? defaultVoiceUserState());
-      break;
-    }
-    case "UserLeftVoice": {
-      const { user_id, channel_id } = event.data as { user_id: number; channel_id: number };
-      state.voiceState.get(channel_id)?.delete(user_id);
-      break;
-    }
-    case "VoiceStateUpdate": {
-      const { user_id, channel_id, voice_state: vs } = event.data as { user_id: number; channel_id: number; voice_state: VoiceUserState };
-
-      // Get previous state to detect force changes
-      const prevVs = state.voiceState.get(channel_id)?.get(user_id);
-      const wasForced = prevVs?.force_muted ?? false;
-      const wasForcedDeaf = prevVs?.force_deafened ?? false;
-
-      if (!state.voiceState.has(channel_id)) {
-        state.voiceState.set(channel_id, new Map());
-      }
-      state.voiceState.get(channel_id)!.set(user_id, vs);
-
-      // Only react to force changes on myself
-      if (user_id === state.user?.id && state.voiceChannelId) {
-        // Force mute/deafen: don't touch isMuted/isDeafened (those reflect self state only)
-        // LiveKit server-side handles the actual mute via API
-
-        // Force deafen changed: ON — deafen audio locally (can't hear others)
-        if (vs.force_deafened && !wasForcedDeaf) {
-          voiceSetDeafened(true);
-        }
-        // Force deafen changed: OFF — restore audio
-        if (!vs.force_deafened && wasForcedDeaf) {
-          voiceSetDeafened(false);
-        }
-      }
-      break;
-    }
-    case "RoleCreate": {
-      const role = event.data as Role;
-      state.roles.push(role);
-      break;
-    }
-    case "RoleUpdate": {
-      const role = event.data as Role;
-      const idx = state.roles.findIndex((r) => r.id === role.id);
-      if (idx >= 0) state.roles[idx] = role;
-      break;
-    }
-    case "RoleDelete": {
-      const { id } = event.data as { id: number };
-      state.roles = state.roles.filter((r) => r.id !== id);
-      break;
-    }
-    case "UserRoleUpdate": {
-      const { user_id, role_ids, permissions } = event.data as { user_id: number; role_ids: number[]; permissions: number };
-      state.userRoles.set(user_id, role_ids);
-      // Update permissions in real-time if this is the current user
-      if (state.user && user_id === state.user.id) {
-        state.permissions = permissions;
-      }
-      break;
-    }
-    case "UserUpdate": {
-      const user = event.data as User;
-      state.users.set(user.id, user);
-      if (state.user?.id === user.id) {
-        state.user = user;
-      }
-      break;
-    }
-    case "ServerUpdate": {
-      const { name, icon_url, description } = event.data as { name: string; description: string | null; icon_url: string | null };
-      const saved = store.savedServers.find((s) => s.id === serverId);
-      if (saved) {
-        saved.name = name;
-        saved.iconUrl = icon_url;
-        saved.description = description;
-        persistServers();
-      }
-      break;
-    }
-  }
+  await _notifs.removeNotificationPref(server, state, scope, targetId);
 }

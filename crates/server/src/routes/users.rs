@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
+use crate::error::AppError;
+use crate::perms::require_user_hierarchy;
 use crate::state::AppState;
-
-const ALLOWED_AVATAR_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+use crate::upload;
 
 #[derive(Serialize)]
 pub struct MeResponse {
@@ -33,27 +34,15 @@ pub struct MeResponse {
 async fn me(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<Json<MeResponse>, StatusCode> {
+) -> Result<Json<MeResponse>, AppError> {
     let user = crate::db::users::find_by_id(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    let permissions = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let users = crate::db::users::list_all(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let roles = crate::db::roles::list_all(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let user_roles = crate::db::roles::get_all_user_roles(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let permissions = crate::db::roles::get_user_permissions(&state.db, auth.0).await?;
+    let users = crate::db::users::list_all(&state.db).await?;
+    let roles = crate::db::roles::list_all(&state.db).await?;
+    let user_roles = crate::db::roles::get_all_user_roles(&state.db).await?;
 
     let online: Vec<i64> = state.online_users.read().unwrap().keys().copied().collect();
 
@@ -87,23 +76,19 @@ async fn update_me(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<UpdateMePayload>,
-) -> Result<Json<shared::models::User>, StatusCode> {
+) -> Result<Json<shared::models::User>, AppError> {
     let trimmed = payload.display_name.trim();
     if trimmed.is_empty() || trimmed.len() > 32 {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Display name must be 1-32 chars".into()));
     }
 
-    crate::db::users::update_display_name(&state.db, auth.0, trimmed)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::db::users::update_display_name(&state.db, auth.0, trimmed).await?;
 
     let user = crate::db::users::find_by_id(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     state.broadcast(shared::events::ServerEvent::UserUpdate(user.clone()));
-
     Ok(Json(user))
 }
 
@@ -118,35 +103,28 @@ async fn change_password(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<ChangePasswordPayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     if payload.new_password.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Password cannot be empty".into()));
     }
 
-    // Fetch user with password hash
     let user = crate::db::users::find_by_id_internal(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify current password (client sends SHA-256 pre-hash)
     let hash = PasswordHash::new(&user.password_hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Argon2::default()
         .verify_password(payload.current_password.as_bytes(), &hash)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|_| AppError::Unauthorized)?;
 
-    // Hash new password
     let salt = SaltString::generate(&mut OsRng);
     let new_hash = Argon2::default()
         .hash_password(payload.new_password.as_bytes(), &salt)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| AppError::Internal(e.to_string()))?
         .to_string();
 
-    crate::db::users::update_password(&state.db, auth.0, &new_hash)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::users::update_password(&state.db, auth.0, &new_hash).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -155,34 +133,9 @@ async fn user_roles(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
     Path(user_id): Path<i64>,
-) -> Result<Json<Vec<shared::models::Role>>, StatusCode> {
-    let roles = crate::db::roles::get_user_roles(&state.db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<Vec<shared::models::Role>>, AppError> {
+    let roles = crate::db::roles::get_user_roles(&state.db, user_id).await?;
     Ok(Json(roles))
-}
-
-/// Check that actor outranks target user (for ban/kick)
-async fn require_user_outranks(
-    db: &sqlx::SqlitePool,
-    actor_id: i64,
-    target_id: i64,
-) -> Result<(), StatusCode> {
-    if actor_id == 1 { return Ok(()); }
-    if target_id == 1 { return Err(StatusCode::FORBIDDEN); }
-
-    let actor_roles = crate::db::roles::get_user_roles(db, actor_id)
-        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let target_roles = crate::db::roles::get_user_roles(db, target_id)
-        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let actor_pos = actor_roles.iter().map(|r| r.position).min().unwrap_or(i64::MAX);
-    let target_pos = target_roles.iter().map(|r| r.position).min().unwrap_or(i64::MAX);
-
-    if actor_pos >= target_pos {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    Ok(())
 }
 
 /// POST /api/users/:id/ban — ban a user
@@ -190,38 +143,23 @@ async fn ban_user(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(user_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     if auth.0 == user_id {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Cannot ban yourself".into()));
     }
-    if user_id == 1 {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
-        return Err(StatusCode::FORBIDDEN);
+    if user_id == shared::OWNER_USER_ID {
+        return Err(AppError::Forbidden);
     }
 
-    // Cannot ban users with equal or higher rank
-    require_user_outranks(&state.db, auth.0, user_id).await?;
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::BAN_MEMBERS).await?;
+    require_user_hierarchy(&state.db, auth.0, user_id).await?;
 
     crate::db::users::find_by_id(&state.db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    crate::db::users::ban(&state.db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Add to in-memory banned set
+    crate::db::users::ban(&state.db, user_id).await?;
     state.banned_users.write().unwrap().insert(user_id);
-
-    // Disconnect the user
     state.broadcast(shared::events::ServerEvent::UserOffline { user_id });
 
     Ok(StatusCode::NO_CONTENT)
@@ -231,19 +169,9 @@ async fn ban_user(
 async fn list_banned(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<Json<Vec<shared::models::BannedUser>>, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let banned = crate::db::users::list_banned(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+) -> Result<Json<Vec<shared::models::BannedUser>>, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::BAN_MEMBERS).await?;
+    let banned = crate::db::users::list_banned(&state.db).await?;
     Ok(Json(banned))
 }
 
@@ -252,22 +180,10 @@ async fn unban_user(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(user_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    crate::db::users::unban(&state.db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Remove from in-memory banned set
+) -> Result<StatusCode, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::BAN_MEMBERS).await?;
+    crate::db::users::unban(&state.db, user_id).await?;
     state.banned_users.write().unwrap().remove(&user_id);
-
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -276,59 +192,26 @@ async fn upload_avatar(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     mut multipart: Multipart,
-) -> Result<Json<shared::models::User>, StatusCode> {
-    let mut file_data: Option<(Vec<u8>, String, String)> = None; // (data, content_type, ext)
+) -> Result<Json<shared::models::User>, AppError> {
+    let file = upload::parse_single_image(&mut multipart, "avatar", 5 * 1024 * 1024).await?;
 
-    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "file" || name == "avatar" {
-            let raw_filename = field.file_name().unwrap_or("avatar.png").to_string();
-            let ext = std::path::Path::new(&raw_filename)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if !ALLOWED_AVATAR_EXTENSIONS.contains(&ext.as_str()) {
-                return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
-            }
-            let content_type = field.content_type().unwrap_or("image/png").to_string();
-            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            if data.is_empty() || data.len() > 5 * 1024 * 1024 {
-                return Err(StatusCode::PAYLOAD_TOO_LARGE);
-            }
-            file_data = Some((data.to_vec(), content_type, ext));
-            break;
-        }
-    }
-
-    let (data, content_type, ext) = file_data.ok_or(StatusCode::BAD_REQUEST)?;
-
-    // Delete old avatar from S3
     let _ = crate::storage::delete_prefix(&state.storage, &format!("avatars/{}/", auth.0)).await;
 
-    // Upload new avatar
-    let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), file.ext);
     let key = format!("avatars/{}/{}", auth.0, stored_name);
 
-    crate::storage::upload(&state.storage, &key, &data, &content_type)
+    crate::storage::upload(&state.storage, &key, &file.data, &file.content_type)
         .await
-        .map_err(|e| {
-            tracing::error!("Avatar upload failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::Internal(format!("Avatar upload failed: {e}")))?;
 
     let avatar_url = format!("/avatars/{}/{}", auth.0, stored_name);
-    crate::db::users::update_avatar_url(&state.db, auth.0, Some(&avatar_url))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::db::users::update_avatar_url(&state.db, auth.0, Some(&avatar_url)).await?;
 
     let user = crate::db::users::find_by_id(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     state.broadcast(shared::events::ServerEvent::UserUpdate(user.clone()));
-
     Ok(Json(user))
 }
 
@@ -336,11 +219,9 @@ async fn upload_avatar(
 async fn delete_avatar(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     let _ = crate::storage::delete_prefix(&state.storage, &format!("avatars/{}/", auth.0)).await;
-    crate::db::users::update_avatar_url(&state.db, auth.0, None)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::db::users::update_avatar_url(&state.db, auth.0, None).await?;
 
     if let Ok(Some(user)) = crate::db::users::find_by_id(&state.db, auth.0).await {
         state.broadcast(shared::events::ServerEvent::UserUpdate(user));
@@ -353,27 +234,21 @@ async fn delete_avatar(
 pub async fn serve_avatar(
     State(state): State<Arc<AppState>>,
     Path((user_id, filename)): Path<(String, String)>,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, AppError> {
     use axum::http::header;
     use axum::response::IntoResponse;
 
     if user_id.contains("..") || filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Invalid path".into()));
     }
 
     let key = format!("avatars/{}/{}", user_id, filename);
     let data = crate::storage::download(&state.storage, &key)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|_| AppError::NotFound)?;
 
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-    let content_type = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    };
+    let content_type = upload::content_type_from_ext(&ext);
 
     Ok((
         [

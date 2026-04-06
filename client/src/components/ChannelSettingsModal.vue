@@ -217,7 +217,7 @@ function close() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -261,7 +261,7 @@ function close() {
 .settings-tab:hover { background: var(--bg-modifier-hover); color: var(--text-normal); }
 .settings-tab.active { background: var(--bg-modifier-active); color: var(--header-primary); }
 .settings-tab.danger { color: var(--danger); }
-.settings-tab.danger:hover { background: rgba(208, 80, 80, 0.1); }
+.settings-tab.danger:hover { background: var(--danger-bg); }
 
 /* ── Content ── */
 .settings-content {
@@ -395,7 +395,7 @@ function close() {
   font-size: 0.5625rem;
   font-weight: 600;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-bright);
   padding: 1px 6px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -452,6 +452,6 @@ function close() {
 .tri-btn:hover { background: var(--bg-modifier-hover); box-shadow: none; }
 
 .tri-btn.active.inherit { background: var(--bg-modifier-active); color: var(--text-normal); }
-.tri-btn.active.allow { background: rgba(95, 173, 95, 0.2); color: var(--green); }
-.tri-btn.active.deny { background: rgba(208, 80, 80, 0.2); color: var(--danger); }
+.tri-btn.active.allow { background: var(--green-bg); color: var(--green); }
+.tri-btn.active.deny { background: var(--danger-bg-hover); color: var(--danger); }
 </style>

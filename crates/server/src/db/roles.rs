@@ -164,17 +164,17 @@ pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result
         perms |= r.permissions;
     }
 
-    // Implicit everyone role (ID=2) — skip for guest users
+    // Implicit everyone role — skip for guest users
     let is_guest = crate::db::users::is_guest(db, user_id).await?;
     if !is_guest {
-        if let Some(everyone) = find_by_id(db, 2).await? {
+        if let Some(everyone) = find_by_id(db, shared::EVERYONE_ROLE_ID).await? {
             perms |= everyone.permissions;
         }
     }
 
-    // Implicit Owner role (ID=1) for user ID 1
-    if user_id == 1 {
-        if let Some(owner) = find_by_id(db, 1).await? {
+    // Implicit Owner role for the owner user
+    if user_id == shared::OWNER_USER_ID {
+        if let Some(owner) = find_by_id(db, shared::OWNER_ROLE_ID).await? {
             perms |= owner.permissions;
         }
     }
@@ -242,8 +242,29 @@ pub async fn delete_channel_overwrite(
     Ok(())
 }
 
-/// Récupère les channel overwrites pour les rôles d'un user
-/// Includes implicit Membre (ID=2) role for all users and Owner (ID=1) for user 1
+/// Merge overwrites for a single implicit role into the allow/deny accumulators.
+async fn merge_implicit_overwrite(
+    db: &SqlitePool,
+    role_id: i64,
+    channel_id: i64,
+    allow: &mut i64,
+    deny: &mut i64,
+) -> sqlx::Result<()> {
+    if let Some(r) = sqlx::query!(
+        "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
+        role_id,
+        channel_id
+    )
+    .fetch_optional(db)
+    .await? {
+        *allow |= r.allow;
+        *deny |= r.deny;
+    }
+    Ok(())
+}
+
+/// Récupère les channel overwrites pour les rôles d'un user.
+/// Includes implicit Everyone role for non-guests and Owner role for user 1.
 pub async fn get_channel_overwrites(
     db: &SqlitePool,
     user_id: i64,
@@ -268,37 +289,15 @@ pub async fn get_channel_overwrites(
         deny |= r.deny;
     }
 
-    // Implicit everyone role (ID=2) overwrites — skip for guest users
+    // Implicit everyone role overwrites — skip for guest users
     let is_guest = crate::db::users::is_guest(db, user_id).await?;
     if !is_guest {
-        let everyone_id: i64 = 2;
-        let everyone_rows = sqlx::query!(
-            "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
-            everyone_id,
-            channel_id
-        )
-        .fetch_optional(db)
-        .await?;
-        if let Some(r) = everyone_rows {
-            allow |= r.allow;
-            deny |= r.deny;
-        }
+        merge_implicit_overwrite(db, shared::EVERYONE_ROLE_ID, channel_id, &mut allow, &mut deny).await?;
     }
 
-    // Implicit Owner role (ID=1) overwrites for user 1
-    if user_id == 1 {
-        let owner_id: i64 = 1;
-        let owner_rows = sqlx::query!(
-            "SELECT allow, deny FROM channel_permission_overwrites WHERE role_id = ? AND channel_id = ?",
-            owner_id,
-            channel_id
-        )
-        .fetch_optional(db)
-        .await?;
-        if let Some(r) = owner_rows {
-            allow |= r.allow;
-            deny |= r.deny;
-        }
+    // Implicit Owner role overwrites for the owner user
+    if user_id == shared::OWNER_USER_ID {
+        merge_implicit_overwrite(db, shared::OWNER_ROLE_ID, channel_id, &mut allow, &mut deny).await?;
     }
 
     Ok((allow, deny))

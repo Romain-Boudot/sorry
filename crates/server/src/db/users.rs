@@ -12,6 +12,9 @@ pub struct UserRow {
     pub guest: i64,
 }
 
+/// Convert a DB row to a public User model.
+/// By default, omits username/created_at (used in login response).
+/// Pass `full: true` to include username/created_at (used in admin/list views).
 pub fn to_model(row: &UserRow) -> User {
     User {
         id: row.id.unwrap_or(0),
@@ -19,17 +22,6 @@ pub fn to_model(row: &UserRow) -> User {
         avatar_url: row.avatar_url.clone(),
         username: None,
         created_at: None,
-        guest: row.guest != 0,
-    }
-}
-
-pub fn to_model_full(row: &UserRow, created_at: Option<String>) -> User {
-    User {
-        id: row.id.unwrap_or(0),
-        display_name: row.display_name.clone(),
-        avatar_url: row.avatar_url.clone(),
-        username: Some(row.username.clone()),
-        created_at,
         guest: row.guest != 0,
     }
 }

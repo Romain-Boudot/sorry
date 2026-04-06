@@ -3,7 +3,7 @@ set -e
 
 # Sorry — One-command deploy
 
-IMAGE="rg.fr-par.scw.cloud/sorry/sorry:latest"
+IMAGE="${SORRY_IMAGE:-rg.fr-par.scw.cloud/sorry/sorry:latest}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/sorry}"
 
 # ── Colors ──
@@ -21,175 +21,195 @@ warn()  { echo -e "${yellow}!${reset} $1"; }
 error() { echo -e "${red}✗${reset} $1"; exit 1; }
 ask()   { echo -en "${bold}$1${reset} "; }
 
-# ── Check dependencies ──
-MISSING=""
-for cmd in curl awk grep sort head base64 tr sed; do
-  command -v "$cmd" &>/dev/null || MISSING="$MISSING $cmd"
-done
-[ -n "$MISSING" ] && error "Commandes manquantes:$MISSING — installe-les avant de relancer"
+# ── Helpers ──
 
-# ── Detect container engine ──
-ENGINE=""
-COMPOSE=""
-if command -v podman &>/dev/null; then
-  ENGINE="podman"
-  if command -v podman-compose &>/dev/null; then
-    COMPOSE="podman-compose"
-  elif podman compose version &>/dev/null 2>&1; then
-    COMPOSE="podman compose"
-  fi
-elif command -v docker &>/dev/null; then
-  ENGINE="docker"
-  if docker compose version &>/dev/null 2>&1; then
-    COMPOSE="docker compose"
-  elif command -v docker-compose &>/dev/null; then
-    COMPOSE="docker-compose"
-  fi
-fi
-
-[ -z "$ENGINE" ] && error "Neither podman nor docker found. Install one first."
-[ -z "$COMPOSE" ] && error "$ENGINE found but no compose plugin. Install ${ENGINE}-compose."
-
-echo ""
-echo -e "${bold}  Sorry — Self-hosted voice & text${reset}"
-echo -e "${dim}  https://github.com/Romain-Boudot/sorry${reset}"
-echo ""
-ok "Engine: $ENGINE ($COMPOSE)"
-
-# ── Interactive setup ──
 gen_secret() { head -c 48 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32; }
 
-echo ""
-echo -e "${bold}Configuration${reset}"
-echo ""
+# Read a value from the user, with a default
+read_input() {
+  local result
+  read -r result < /dev/tty
+  echo "${result:-$1}"
+}
 
-# Deploy mode
-echo -e "  ${dim}1)${reset} Local   — acces depuis cette machine uniquement"
-echo -e "  ${dim}2)${reset} Public  — accessible depuis le reseau / internet"
-echo ""
-ask "Mode [1/2]:"
-read -r DEPLOY_MODE < /dev/tty
-DEPLOY_MODE="${DEPLOY_MODE:-1}"
-
-DOMAIN=""
-USE_HTTPS=false
-HOST="localhost"
-
-if [ "$DEPLOY_MODE" = "2" ]; then
-  # Detect public IP
-  PUBLIC_IP=$(curl -s -4 ifconfig.me 2>/dev/null || curl -s -4 icanhazip.com 2>/dev/null || echo "")
-  if [ -n "$PUBLIC_IP" ]; then
-    ok "IP detectee: $PUBLIC_IP"
+# Validate that a value is a positive integer
+validate_int() {
+  local val="$1" name="$2"
+  if ! [[ "$val" =~ ^[0-9]+$ ]]; then
+    error "$name doit etre un nombre entier positif (recu: '$val')"
   fi
+}
+
+# ── Check dependencies ──
+
+check_dependencies() {
+  local MISSING=""
+  for cmd in curl awk grep sort head base64 tr sed; do
+    command -v "$cmd" &>/dev/null || MISSING="$MISSING $cmd"
+  done
+  [ -n "$MISSING" ] && error "Commandes manquantes:$MISSING — installe-les avant de relancer"
+}
+
+# ── Detect container engine ──
+
+detect_engine() {
+  ENGINE=""
+  COMPOSE=""
+  if command -v podman &>/dev/null; then
+    ENGINE="podman"
+    if command -v podman-compose &>/dev/null; then
+      COMPOSE="podman-compose"
+    elif podman compose version &>/dev/null 2>&1; then
+      COMPOSE="podman compose"
+    fi
+  elif command -v docker &>/dev/null; then
+    ENGINE="docker"
+    if docker compose version &>/dev/null 2>&1; then
+      COMPOSE="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+      COMPOSE="docker-compose"
+    fi
+  fi
+
+  [ -z "$ENGINE" ] && error "Neither podman nor docker found. Install one first."
+  [ -z "$COMPOSE" ] && error "$ENGINE found but no compose plugin. Install ${ENGINE}-compose."
+  ok "Engine: $ENGINE ($COMPOSE)"
+}
+
+# ── Deployment mode (local vs public) ──
+
+setup_deployment_mode() {
   echo ""
+  echo -e "  ${dim}1)${reset} Local   — acces depuis cette machine uniquement"
+  echo -e "  ${dim}2)${reset} Public  — accessible depuis le reseau / internet"
+  echo ""
+  ask "Mode [1/2]:"
+  DEPLOY_MODE=$(read_input "1")
 
-  ask "Nom de domaine (vide = utiliser l'IP):"
-  read -r DOMAIN < /dev/tty
+  DOMAIN=""
+  USE_HTTPS=false
+  HOST="localhost"
 
-  if [ -n "$DOMAIN" ]; then
-    HOST="$DOMAIN"
-    ask "Activer HTTPS ? (TLS auto via Caddy) [O/n]:"
-    read -r HTTPS_CHOICE < /dev/tty
-    HTTPS_CHOICE="${HTTPS_CHOICE:-o}"
-    if [[ "$HTTPS_CHOICE" =~ ^[oOyY] ]]; then
-      USE_HTTPS=true
+  if [ "$DEPLOY_MODE" = "2" ]; then
+    local PUBLIC_IP
+    PUBLIC_IP=$(curl -s -4 ifconfig.me 2>/dev/null || curl -s -4 icanhazip.com 2>/dev/null || echo "")
+    if [ -n "$PUBLIC_IP" ]; then
+      ok "IP detectee: $PUBLIC_IP"
     fi
+    echo ""
+
+    ask "Nom de domaine (vide = utiliser l'IP):"
+    DOMAIN=$(read_input "")
+
+    if [ -n "$DOMAIN" ]; then
+      HOST="$DOMAIN"
+      ask "Activer HTTPS ? (TLS auto via Caddy) [O/n]:"
+      local HTTPS_CHOICE
+      HTTPS_CHOICE=$(read_input "o")
+      if [[ "$HTTPS_CHOICE" =~ ^[oOyY] ]]; then
+        USE_HTTPS=true
+      fi
+    else
+      if [ -z "$PUBLIC_IP" ]; then
+        error "Impossible de detecter l'IP publique. Relance avec un nom de domaine."
+      fi
+      HOST="$PUBLIC_IP"
+      info "Les clients se connecteront via http://$HOST"
+    fi
+  fi
+}
+
+# ── Server settings ──
+
+setup_server_info() {
+  echo ""
+  ask "Nom du serveur [Sorry Server]:"
+  SERVER_NAME=$(read_input "Sorry Server")
+
+  ask "Admin username [admin]:"
+  ADMIN_USERNAME=$(read_input "admin")
+
+  ask "Admin password (vide = auto-genere):"
+  read -rs ADMIN_PASSWORD < /dev/tty
+  echo ""
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    ADMIN_PASSWORD="$(gen_secret)"
+    info "Password genere: $ADMIN_PASSWORD"
+  fi
+}
+
+# ── Voice capacity ──
+
+setup_voice_capacity() {
+  echo ""
+  echo -e "${bold}Capacite vocale${reset}"
+  echo ""
+  echo -e "  ${dim}Chaque utilisateur en vocal utilise des ports UDP dedies.${reset}"
+  echo -e "  ${dim}Ce n'est pas une limite stricte : au-dela de ce quota, les${reset}"
+  echo -e "  ${dim}utilisateurs peuvent toujours se connecter mais la qualite${reset}"
+  echo -e "  ${dim}audio/video peut etre degradee (latence plus elevee).${reset}"
+  echo ""
+  ask "Slots voix simultanes [25]:"
+  VOICE_SLOTS=$(read_input "25")
+  validate_int "$VOICE_SLOTS" "Slots voix"
+
+  ask "Slots video simultanes [0]:"
+  VIDEO_SLOTS=$(read_input "0")
+  validate_int "$VIDEO_SLOTS" "Slots video"
+
+  UDP_PORTS=$(( VOICE_SLOTS * 2 + VIDEO_SLOTS * 2 ))
+  UDP_START=50000
+  UDP_END=$((UDP_START + UDP_PORTS))
+  ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — ${UDP_PORTS} ports UDP"
+}
+
+# ── Generate secrets ──
+
+generate_secrets() {
+  JWT_SECRET="$(gen_secret)"
+  LIVEKIT_API_KEY="sorry_$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+  LIVEKIT_API_SECRET="$(gen_secret)"
+
+  if [ "$USE_HTTPS" = true ]; then
+    LIVEKIT_URL="wss://${HOST}/livekit"
   else
-    if [ -z "$PUBLIC_IP" ]; then
-      error "Impossible de detecter l'IP publique. Relance avec un nom de domaine."
+    LIVEKIT_URL="ws://${HOST}/livekit"
+  fi
+}
+
+# ── Handle existing installation ──
+
+handle_existing_install() {
+  if [ -f "$INSTALL_DIR/.env" ]; then
+    warn "Installation existante detectee dans $INSTALL_DIR"
+    ask "Ecraser la configuration ? Les donnees seront conservees. [o/N]:"
+    local OVERWRITE
+    OVERWRITE=$(read_input "n")
+    if [[ ! "$OVERWRITE" =~ ^[oOyY] ]]; then
+      info "Mise a jour uniquement (pull + restart)..."
+      cd "$INSTALL_DIR"
+      $COMPOSE pull
+      $COMPOSE up -d
+      ok "Mis a jour !"
+      exit 0
     fi
-    HOST="$PUBLIC_IP"
-    info "Les clients se connecteront via http://$HOST"
+    # Keep existing secrets
+    info "Conservation des secrets existants..."
+    local EXISTING_JWT EXISTING_LK_KEY EXISTING_LK_SECRET
+    EXISTING_JWT=$(grep '^JWT_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+    EXISTING_LK_KEY=$(grep '^LIVEKIT_API_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+    EXISTING_LK_SECRET=$(grep '^LIVEKIT_API_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+    [ -n "$EXISTING_JWT" ] && JWT_SECRET="$EXISTING_JWT"
+    [ -n "$EXISTING_LK_KEY" ] && LIVEKIT_API_KEY="$EXISTING_LK_KEY"
+    [ -n "$EXISTING_LK_SECRET" ] && LIVEKIT_API_SECRET="$EXISTING_LK_SECRET"
   fi
-fi
+}
 
-echo ""
-ask "Nom du serveur [Sorry Server]:"
-read -r SERVER_NAME < /dev/tty
-SERVER_NAME="${SERVER_NAME:-Sorry Server}"
+# ── Write config files ──
 
-ask "Admin username [admin]:"
-read -r ADMIN_USERNAME < /dev/tty
-ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
-
-ask "Admin password (vide = auto-genere):"
-read -rs ADMIN_PASSWORD < /dev/tty
-echo ""
-if [ -z "$ADMIN_PASSWORD" ]; then
-  ADMIN_PASSWORD="$(gen_secret)"
-  info "Password genere: $ADMIN_PASSWORD"
-fi
-
-# Voice capacity
-echo ""
-echo -e "${bold}Capacite vocale${reset}"
-echo ""
-echo -e "  ${dim}Chaque utilisateur en vocal utilise des ports UDP dedies.${reset}"
-echo -e "  ${dim}Ce n'est pas une limite stricte : au-dela de ce quota, les${reset}"
-echo -e "  ${dim}utilisateurs peuvent toujours se connecter mais la qualite${reset}"
-echo -e "  ${dim}audio/video peut etre degradee (latence plus elevee).${reset}"
-echo ""
-ask "Slots voix simultanes [25]:"
-read -r VOICE_SLOTS < /dev/tty
-VOICE_SLOTS="${VOICE_SLOTS:-25}"
-
-ask "Slots video simultanes [0]:"
-read -r VIDEO_SLOTS < /dev/tty
-VIDEO_SLOTS="${VIDEO_SLOTS:-0}"
-
-UDP_PORTS=$(( VOICE_SLOTS * 2 + VIDEO_SLOTS * 2 ))
-UDP_START=50000
-UDP_END=$((UDP_START + UDP_PORTS))
-ok "~${VOICE_SLOTS} voix + ~${VIDEO_SLOTS} video — ${UDP_PORTS} ports UDP"
-
-# Generate secrets
-JWT_SECRET="$(gen_secret)"
-LIVEKIT_API_KEY="sorry_$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
-LIVEKIT_API_SECRET="$(gen_secret)"
-
-# Derive LiveKit URL
-if [ "$USE_HTTPS" = true ]; then
-  LIVEKIT_URL="wss://${HOST}/livekit"
-else
-  LIVEKIT_URL="ws://${HOST}/livekit"
-fi
-
-# ── Install ──
-echo ""
-ask "Dossier d'installation [$INSTALL_DIR]:"
-read -r CUSTOM_DIR < /dev/tty
-INSTALL_DIR="${CUSTOM_DIR:-$INSTALL_DIR}"
-
-# Check if already installed
-if [ -f "$INSTALL_DIR/.env" ]; then
-  warn "Installation existante detectee dans $INSTALL_DIR"
-  ask "Ecraser la configuration ? Les donnees seront conservees. [o/N]:"
-  read -r OVERWRITE < /dev/tty
-  OVERWRITE="${OVERWRITE:-n}"
-  if [[ ! "$OVERWRITE" =~ ^[oOyY] ]]; then
-    info "Mise a jour uniquement (pull + restart)..."
-    cd "$INSTALL_DIR"
-    $COMPOSE pull
-    $COMPOSE up -d
-    ok "Mis a jour !"
-    exit 0
-  fi
-  # Keep existing secrets
-  info "Conservation des secrets existants..."
-  EXISTING_JWT=$(grep '^JWT_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-  EXISTING_LK_KEY=$(grep '^LIVEKIT_API_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-  EXISTING_LK_SECRET=$(grep '^LIVEKIT_API_SECRET=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-  [ -n "$EXISTING_JWT" ] && JWT_SECRET="$EXISTING_JWT"
-  [ -n "$EXISTING_LK_KEY" ] && LIVEKIT_API_KEY="$EXISTING_LK_KEY"
-  [ -n "$EXISTING_LK_SECRET" ] && LIVEKIT_API_SECRET="$EXISTING_LK_SECRET"
-fi
-
-info "Installation dans $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/data/uploads"
-cd "$INSTALL_DIR"
-
-# .env
-cat > .env <<EOF
+write_configs() {
+  # .env
+  cat > .env <<EOF
 IMAGE=$IMAGE
 SERVER_NAME=$SERVER_NAME
 ADMIN_USERNAME=$ADMIN_USERNAME
@@ -199,20 +219,11 @@ LIVEKIT_URL=$LIVEKIT_URL
 LIVEKIT_API_KEY=$LIVEKIT_API_KEY
 LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
 CADDY_HOST=$HOST
+PORT=$([ "$USE_HTTPS" = true ] && echo 443 || echo 80)
 EOF
 
-if [ "$USE_HTTPS" = true ]; then
-  cat >> .env <<EOF
-PORT=443
-EOF
-else
-  cat >> .env <<EOF
-PORT=80
-EOF
-fi
-
-# docker-compose.yml
-cat > docker-compose.yml <<COMPOSE
+  # docker-compose.yml
+  cat > docker-compose.yml <<COMPOSE
 services:
   sorry:
     image: \${IMAGE:-sorry:latest}
@@ -261,8 +272,8 @@ services:
       - ./caddy/config:/config
 COMPOSE
 
-# Caddyfile
-cat > Caddyfile <<'CADDY'
+  # Caddyfile
+  cat > Caddyfile <<'CADDY'
 {$CADDY_HOST:localhost}:{$PORT:80} {
     handle /livekit/* {
         uri strip_prefix /livekit
@@ -274,8 +285,8 @@ cat > Caddyfile <<'CADDY'
 }
 CADDY
 
-# livekit.yaml
-cat > livekit.yaml <<LK
+  # livekit.yaml
+  cat > livekit.yaml <<LK
 port: 7880
 rtc:
   tcp_port: 7881
@@ -290,26 +301,62 @@ turn:
 keys:
   $LIVEKIT_API_KEY: $LIVEKIT_API_SECRET
 LK
+}
 
-# ── Start ──
+# ── Print summary ──
+
+print_summary() {
+  local PROTO="http"
+  [ "$USE_HTTPS" = true ] && PROTO="https"
+
+  echo ""
+  echo -e "${green}${bold}Sorry is running!${reset}"
+  echo ""
+  echo -e "  ${bold}URL${reset}        ${PROTO}://$HOST"
+  echo ""
+  echo -e "  ${bold}Admin${reset}      $ADMIN_USERNAME"
+  echo -e "  ${bold}Password${reset}   $ADMIN_PASSWORD"
+  echo ""
+  echo -e "  ${dim}Config:  $INSTALL_DIR/.env${reset}"
+  echo -e "  ${dim}Logs:    cd $INSTALL_DIR && $COMPOSE logs -f${reset}"
+  echo -e "  ${dim}Stop:    cd $INSTALL_DIR && $COMPOSE down${reset}"
+  echo -e "  ${dim}Update:  curl -fsSL https://raw.githubusercontent.com/Romain-Boudot/sorry/main/scripts/update.sh | bash${reset}"
+  echo ""
+}
+
+# ══════════════════════════════════════
+#  Main
+# ══════════════════════════════════════
+
+check_dependencies
+detect_engine
+
+echo ""
+echo -e "${bold}  Sorry — Self-hosted voice & text${reset}"
+echo -e "${dim}  https://github.com/Romain-Boudot/sorry${reset}"
+echo ""
+
+echo -e "${bold}Configuration${reset}"
+
+setup_deployment_mode
+setup_server_info
+setup_voice_capacity
+generate_secrets
+
+echo ""
+ask "Dossier d'installation [$INSTALL_DIR]:"
+INSTALL_DIR=$(read_input "$INSTALL_DIR")
+
+handle_existing_install
+
+info "Installation dans $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/data/uploads"
+cd "$INSTALL_DIR"
+
+write_configs
+
 echo ""
 info "Demarrage..."
 $COMPOSE up -d
 
-echo ""
-echo -e "${green}${bold}Sorry is running!${reset}"
-echo ""
-if [ "$USE_HTTPS" = true ]; then
-  echo -e "  ${bold}URL${reset}        https://$HOST"
-else
-  echo -e "  ${bold}URL${reset}        http://$HOST"
-fi
-echo ""
-echo -e "  ${bold}Admin${reset}      $ADMIN_USERNAME"
-echo -e "  ${bold}Password${reset}   $ADMIN_PASSWORD"
-echo ""
-echo -e "  ${dim}Config:  $INSTALL_DIR/.env${reset}"
-echo -e "  ${dim}Logs:    cd $INSTALL_DIR && $COMPOSE logs -f${reset}"
-echo -e "  ${dim}Stop:    cd $INSTALL_DIR && $COMPOSE down${reset}"
-echo -e "  ${dim}Update:  curl -fsSL https://raw.githubusercontent.com/Romain-Boudot/sorry/main/scripts/update.sh | bash${reset}"
-echo ""
+print_summary

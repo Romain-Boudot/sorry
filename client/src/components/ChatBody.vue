@@ -3,7 +3,7 @@
     <div v-if="dragging" class="drop-overlay">
       <div class="drop-overlay-inner">
         <Paperclip :size="40" :stroke-width="1.2" />
-        <p>Dépose tes fichiers ici</p>
+        <p>Depose tes fichiers ici</p>
       </div>
     </div>
     <div class="chat-messages" ref="messagesContainer" @scroll="onMessagesScroll">
@@ -47,15 +47,14 @@
               <span v-else>{{ resolveUser(msg.author_id)[0]?.toUpperCase() }}</span>
             </div>
             <div class="message-body">
-              <div v-if="msg.reply_to" class="reply-preview" @click="scrollToMessage(msg.reply_to.id)">
-                <div class="reply-spine"></div>
-                <div class="reply-mini-avatar">
-                  <img v-if="resolveAvatarUrl(msg.reply_to.author_id)" :src="resolveAvatarUrl(msg.reply_to.author_id)!" />
-                  <span v-else>{{ resolveUser(msg.reply_to.author_id)[0]?.toUpperCase() }}</span>
-                </div>
-                <span class="reply-author" :style="resolveUserColor(msg.reply_to.author_id) ? `color:${resolveUserColor(msg.reply_to.author_id)}` : ''">{{ resolveUser(msg.reply_to.author_id) }}</span>
-                <span class="reply-content">{{ msg.reply_to.content }}</span>
-              </div>
+              <ReplyPreview
+                v-if="msg.reply_to"
+                :avatar-url="resolveAvatarUrl(msg.reply_to.author_id)"
+                :author-name="resolveUser(msg.reply_to.author_id)"
+                :author-color="resolveUserColor(msg.reply_to.author_id)"
+                :content="msg.reply_to.content"
+                @click="scrollToMessage(msg.reply_to.id)"
+              />
               <div class="message-header">
                 <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
                 <span v-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
@@ -70,23 +69,11 @@
                   v-focus
                   rows="1"
                 ></textarea>
-                <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
+                <div class="message-edit-hint">Echap pour annuler · Entree pour enregistrer</div>
               </template>
               <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
-              <div v-if="msg.attachments?.length" class="message-attachments">
-                <template v-for="att in msg.attachments" :key="att.id">
-                  <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
-                    <img :src="attachmentUrl(att)" :alt="att.filename" loading="lazy" />
-                  </a>
-                  <a v-else :href="attachmentUrl(att)" :download="att.filename" target="_blank" class="attachment-file">
-                    <FileText :size="16" />
-                    <span class="att-name">{{ att.filename }}</span>
-                    <span class="att-size">{{ formatSize(att.size) }}</span>
-                    <Download :size="14" />
-                  </a>
-                </template>
-              </div>
+              <AttachmentList :attachments="msg.attachments" />
             </div>
           </template>
           <template v-else>
@@ -94,15 +81,14 @@
               <span class="message-time-hover">{{ formatTimeShort(msg.created_at) }}</span>
             </div>
             <div class="message-body">
-              <div v-if="msg.reply_to" class="reply-preview" @click="scrollToMessage(msg.reply_to.id)">
-                <div class="reply-spine"></div>
-                <div class="reply-mini-avatar">
-                  <img v-if="resolveAvatarUrl(msg.reply_to.author_id)" :src="resolveAvatarUrl(msg.reply_to.author_id)!" />
-                  <span v-else>{{ resolveUser(msg.reply_to.author_id)[0]?.toUpperCase() }}</span>
-                </div>
-                <span class="reply-author" :style="resolveUserColor(msg.reply_to.author_id) ? `color:${resolveUserColor(msg.reply_to.author_id)}` : ''">{{ resolveUser(msg.reply_to.author_id) }}</span>
-                <span class="reply-content">{{ msg.reply_to.content }}</span>
-              </div>
+              <ReplyPreview
+                v-if="msg.reply_to"
+                :avatar-url="resolveAvatarUrl(msg.reply_to.author_id)"
+                :author-name="resolveUser(msg.reply_to.author_id)"
+                :author-color="resolveUserColor(msg.reply_to.author_id)"
+                :content="msg.reply_to.content"
+                @click="scrollToMessage(msg.reply_to.id)"
+              />
               <template v-if="editingMessageId === msg.id">
                 <textarea
                   class="message-edit-input"
@@ -112,87 +98,27 @@
                   v-focus
                   rows="1"
                 ></textarea>
-                <div class="message-edit-hint">Echap pour annuler · Entrée pour enregistrer</div>
+                <div class="message-edit-hint">Echap pour annuler · Entree pour enregistrer</div>
               </template>
               <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
-              <div v-if="msg.attachments?.length" class="message-attachments">
-                <template v-for="att in msg.attachments" :key="att.id">
-                  <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
-                    <img :src="attachmentUrl(att)" :alt="att.filename" loading="lazy" />
-                  </a>
-                  <a v-else :href="attachmentUrl(att)" :download="att.filename" target="_blank" class="attachment-file">
-                    <FileText :size="16" />
-                    <span class="att-name">{{ att.filename }}</span>
-                    <span class="att-size">{{ formatSize(att.size) }}</span>
-                    <Download :size="14" />
-                  </a>
-                </template>
-              </div>
+              <AttachmentList :attachments="msg.attachments" />
             </div>
           </template>
         </div>
       </template>
     </div>
 
-    <div v-if="fileError" class="file-error">{{ fileError }}</div>
-    <div class="chat-input">
-      <div v-if="pendingFiles.length" class="pending-files">
-        <div v-for="(file, i) in pendingFiles" :key="i" class="pending-file">
-          <img v-if="file.type.startsWith('image/')" :src="objectUrls.get(file)" class="pending-thumb" />
-          <FileText v-else :size="24" class="pending-file-icon" />
-          <div class="pending-file-info">
-            <span class="pending-file-name">{{ file.name }}</span>
-            <span class="pending-file-size">{{ formatSize(file.size) }}</span>
-          </div>
-          <button class="pending-file-remove" @click="removeFile(i)">
-            <X :size="14" />
-          </button>
-        </div>
-      </div>
-      <div v-if="replyingTo" class="reply-bar">
-        <Reply :size="14" class="reply-bar-icon" />
-        <span class="reply-bar-text">
-          Reponse a <strong>{{ resolveUser(replyingTo.author_id) }}</strong>
-          <span class="reply-bar-content">{{ replyingTo.content.slice(0, 80) }}{{ replyingTo.content.length > 80 ? '...' : '' }}</span>
-        </span>
-        <button class="reply-bar-close" @click="replyingTo = null">
-          <X :size="14" />
-        </button>
-      </div>
-      <div class="chat-input-wrapper">
-        <!-- Mention autocomplete -->
-        <div v-if="mentionSuggestions.length" class="mention-popup">
-          <div
-            v-for="(item, i) in mentionSuggestions"
-            :key="item.key"
-            class="mention-popup-item"
-            :class="{ active: i === mentionIndex }"
-            @mousedown.prevent="insertMention(item)"
-          >
-            <span v-if="item.type === 'role'" class="mention-role-dot" :style="item.color ? `background:${item.color}` : ''"></span>
-            <span>{{ item.label }}</span>
-            <span class="mention-type-tag">{{ item.type === 'role' ? 'role' : 'user' }}</span>
-          </div>
-        </div>
-        <input type="file" ref="fileInput" multiple hidden @change="onFileSelect" />
-        <button class="chat-attach" @click="fileInput?.click()" title="Joindre un fichier">
-          <Paperclip :size="18" />
-        </button>
-        <textarea
-          ref="mainInput"
-          v-model="input"
-          @keydown="onMainKeydown"
-          @input="onInputChange"
-          @paste="onPaste"
-          :placeholder="`Envoyer un message dans #${activeChannel?.name ?? '...'}`"
-          rows="1"
-        ></textarea>
-        <button class="chat-send" @click="handleSend" :disabled="!input.trim() && !pendingFiles.length">
-          <SendHorizonal :size="18" />
-        </button>
-      </div>
-    </div>
+    <ChatInput
+      ref="chatInputRef"
+      :channel-name="activeChannel?.name ?? '...'"
+      :replying-to="replyingTo"
+      :is-scrolled-to-bottom="isScrolledToBottom"
+      :messages-container="messagesContainer"
+      @cancel-reply="replyingTo = null"
+      @sent="onMessageSent"
+      @edit-last="startEdit"
+    />
 
     <ContextMenu
       v-if="ctxMenu"
@@ -226,35 +152,25 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
-import { MessageSquare, SendHorizonal, Pencil, Trash2, Paperclip, X, FileText, Download, Loader2, Reply } from "lucide-vue-next";
-import { activeState, activeServer, sendMessage, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
+import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply } from "lucide-vue-next";
+import { activeState, activeServer, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
 import * as perms from "../permissions";
-import { api, type Message, type Attachment, type User } from "../api";
+import { api, type Message, type User } from "../api";
 import { renderMarkdown, extractUrls } from "../markdown";
 import LinkPreview from "./LinkPreview.vue";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
+import ReplyPreview from "./chat/ReplyPreview.vue";
+import AttachmentList from "./chat/AttachmentList.vue";
+import ChatInput from "./chat/ChatInput.vue";
 
-const MAX_FILE_SIZE = computed(() => state.value?.maxFileSize ?? 25 * 1024 * 1024);
-const MAX_FILES = 10;
-const ALLOWED_EXTENSIONS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "svg",
-  "mp4", "webm", "mov",
-  "mp3", "ogg", "wav", "flac",
-  "pdf", "txt", "json", "csv",
-  "zip", "tar", "gz", "7z", "rar",
-]);
-
-const input = ref("");
 const messagesContainer = ref<HTMLElement>();
-const mainInput = ref<HTMLTextAreaElement>();
-const fileInput = ref<HTMLInputElement>();
+const chatInputRef = ref<InstanceType<typeof ChatInput>>();
 const editingMessageId = ref<number | null>(null);
 const editContent = ref("");
 const replyingTo = ref<Message | null>(null);
-const pendingFiles = ref<File[]>([]);
 const dragging = ref(false);
-const objectUrls = ref<Map<File, string>>(new Map());
+
 const vFocus = {
   mounted: (el: HTMLElement) => {
     el.focus();
@@ -267,82 +183,6 @@ const state = computed(() => activeState());
 const activeChannel = computed(() =>
   state.value?.channels.find((c) => c.id === state.value?.activeChannelId)
 );
-
-// ── Mention autocomplete ──
-interface MentionItem {
-  key: string;
-  type: "user" | "role";
-  id: number;
-  label: string;
-  color?: string | null;
-}
-
-const mentionQuery = ref("");
-const mentionStart = ref(-1);
-const mentionIndex = ref(0);
-
-const mentionSuggestions = computed((): MentionItem[] => {
-  if (mentionStart.value < 0) return [];
-  const q = mentionQuery.value.toLowerCase();
-  const st = state.value;
-  if (!st) return [];
-  const items: MentionItem[] = [];
-  // Users
-  for (const [id, user] of st.users) {
-    if (user.display_name.toLowerCase().includes(q)) {
-      items.push({ key: `u-${id}`, type: "user", id, label: user.display_name });
-    }
-  }
-  // Roles (hide Admin role id=1, it's a hidden owner role)
-  for (const role of st.roles) {
-    if (role.id === 1) continue;
-    if (role.name.toLowerCase().includes(q)) {
-      items.push({ key: `r-${role.id}`, type: "role", id: role.id, label: role.name, color: role.color });
-    }
-  }
-  return items.slice(0, 10);
-});
-
-function updateMentionState() {
-  const el = mainInput.value;
-  if (!el) { mentionStart.value = -1; return; }
-  const pos = el.selectionStart ?? 0;
-  const text = input.value.slice(0, pos);
-  const atIdx = text.lastIndexOf("@");
-  if (atIdx < 0 || (atIdx > 0 && text[atIdx - 1] !== " " && text[atIdx - 1] !== "\n")) {
-    mentionStart.value = -1;
-    return;
-  }
-  const query = text.slice(atIdx + 1);
-  if (query.includes(" ") && query.length > 20) {
-    mentionStart.value = -1;
-    return;
-  }
-  mentionStart.value = atIdx;
-  mentionQuery.value = query;
-  mentionIndex.value = 0;
-}
-
-function insertMention(item: MentionItem) {
-  const el = mainInput.value;
-  if (!el || mentionStart.value < 0) return;
-  const pos = el.selectionStart ?? 0;
-  const before = input.value.slice(0, mentionStart.value);
-  const after = input.value.slice(pos);
-  const mentionTag = item.type === "role" ? `<@&${item.id}>` : `<@${item.id}>`;
-  input.value = before + mentionTag + " " + after;
-  mentionStart.value = -1;
-  nextTick(() => {
-    const newPos = before.length + mentionTag.length + 1;
-    el.setSelectionRange(newPos, newPos);
-    el.focus();
-  });
-}
-
-function onInputChange(e: Event) {
-  autoResize(e);
-  updateMentionState();
-}
 
 const messages = computed(() =>
   state.value?.messages.get(state.value?.activeChannelId ?? 0) ?? []
@@ -358,13 +198,11 @@ function scrollToBottom() {
   });
 }
 
-// Scroll to bottom on new messages (only if already at bottom)
 watch(() => messages.value.length, (newLen, oldLen) => {
-  if (!oldLen || newLen <= oldLen) return; // only for appended messages
+  if (!oldLen || newLen <= oldLen) return;
   if (isScrolledToBottom()) scrollToBottom();
 });
 
-// Scroll to bottom on channel switch
 watch(() => state.value?.activeChannelId, () => {
   noMoreMessages.value = false;
   scrollToBottom();
@@ -390,11 +228,9 @@ async function loadOlderMessages() {
       noMoreMessages.value = true;
       return;
     }
-    // Preserve scroll position
     const el = messagesContainer.value;
     const prevScrollHeight = el?.scrollHeight ?? 0;
 
-    // Prepend (API returns newest-first, so reverse)
     msgs.unshift(...older.reverse());
 
     nextTick(() => {
@@ -419,8 +255,6 @@ function onMessagesScroll() {
   }
 }
 
-// Group messages from the same author within 5 minutes
-// A reply always breaks grouping (like Discord)
 function isGrouped(index: number): boolean {
   if (index === 0) return false;
   const msg = messages.value[index];
@@ -462,106 +296,13 @@ function trimMessage(s: string): string {
   return s.replace(/^\s*\n/, "").replace(/\n\s*$/, "").trim();
 }
 
-function getExtension(name: string): string {
-  return (name.split(".").pop() || "").toLowerCase();
-}
-
-const fileError = ref("");
-
-function addFiles(fileList: FileList | File[]) {
-  fileError.value = "";
-  for (const file of fileList) {
-    if (pendingFiles.value.length >= MAX_FILES) {
-      fileError.value = `Maximum ${MAX_FILES} fichiers par message`;
-      break;
-    }
-    if (file.size === 0) continue;
-    if (file.size > MAX_FILE_SIZE.value) {
-      fileError.value = `${file.name} est trop volumineux (max ${Math.round(MAX_FILE_SIZE.value / 1024 / 1024)} Mo)`;
-      continue;
-    }
-    if (!ALLOWED_EXTENSIONS.has(getExtension(file.name))) {
-      fileError.value = `${file.name} : type de fichier non autorise`;
-      continue;
-    }
-    pendingFiles.value.push(file);
-    if (file.type.startsWith("image/")) {
-      objectUrls.value.set(file, URL.createObjectURL(file));
-    }
-  }
-  if (fileError.value) setTimeout(() => (fileError.value = ""), 4000);
-}
-
-function removeFile(index: number) {
-  const file = pendingFiles.value[index];
-  const url = objectUrls.value.get(file);
-  if (url) {
-    URL.revokeObjectURL(url);
-    objectUrls.value.delete(file);
-  }
-  pendingFiles.value.splice(index, 1);
-}
-
-function onFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement;
-  if (input.files) addFiles(input.files);
-  input.value = "";
-}
-
-function onPaste(e: ClipboardEvent) {
-  const items = e.clipboardData?.items;
-  if (!items) return;
-  const files: File[] = [];
-  for (const item of items) {
-    if (item.kind === "file") {
-      const file = item.getAsFile();
-      if (file) files.push(file);
-    }
-  }
-  if (files.length) {
-    e.preventDefault();
-    addFiles(files);
-  }
-}
-
-function onDragOver(e: DragEvent) {
-  e.preventDefault();
-  dragging.value = true;
-}
-
-function onDragLeave() {
-  dragging.value = false;
-}
-
-function onDrop(e: DragEvent) {
-  e.preventDefault();
-  dragging.value = false;
-  if (e.dataTransfer?.files.length) {
-    addFiles(e.dataTransfer.files);
-  }
-}
-
-function handleSend() {
-  const content = trimMessage(input.value);
-  const files = pendingFiles.value.length > 0 ? [...pendingFiles.value] : undefined;
-  if (!content && !files) return;
-  sendMessage(content || "", files, replyingTo.value?.id);
-  input.value = "";
-  replyingTo.value = null;
-  // Clear pending files
-  for (const [, url] of objectUrls.value) URL.revokeObjectURL(url);
-  objectUrls.value.clear();
-  pendingFiles.value = [];
-  nextTick(() => {
-    if (mainInput.value) {
-      mainInput.value.style.height = "auto";
-    }
-  });
-}
-
 function startReply(msg: Message) {
   replyingTo.value = msg;
-  nextTick(() => mainInput.value?.focus());
+  nextTick(() => chatInputRef.value?.focus());
+}
+
+function onMessageSent() {
+  // scrollToBottom is handled by the watcher on messages.value.length
 }
 
 function scrollToMessage(messageId: number) {
@@ -573,65 +314,22 @@ function scrollToMessage(messageId: number) {
   }
 }
 
-function isImage(att: Attachment): boolean {
-  return att.content_type.startsWith("image/");
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
-function attachmentUrl(att: Attachment): string {
-  const server = activeServer();
-  if (!server) return att.url;
-  return `${server.url}${att.url}`;
-}
-
-function onMainKeydown(e: KeyboardEvent) {
-  // Mention autocomplete navigation
-  if (mentionSuggestions.value.length > 0) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      mentionIndex.value = (mentionIndex.value + 1) % mentionSuggestions.value.length;
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      mentionIndex.value = (mentionIndex.value - 1 + mentionSuggestions.value.length) % mentionSuggestions.value.length;
-      return;
-    }
-    if (e.key === "Enter" || e.key === "Tab") {
-      e.preventDefault();
-      insertMention(mentionSuggestions.value[mentionIndex.value]);
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      mentionStart.value = -1;
-      return;
-    }
-  }
-
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    handleSend();
-    return;
-  }
-  if (e.key === "ArrowUp" && !input.value) {
-    const st = state.value;
-    if (!st?.activeChannelId || !st.user) return;
-    const msgs = st.messages.get(st.activeChannelId);
-    if (!msgs) return;
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].author_id === st.user.id) {
-        startEdit(msgs[i]);
-        e.preventDefault();
-        return;
+function startEdit(msg: Message) {
+  editingMessageId.value = msg.id;
+  editContent.value = msg.content;
+  nextTick(() => {
+    const container = messagesContainer.value;
+    if (!container) return;
+    const msgEl = container.querySelector(`.message.editing`) as HTMLElement;
+    if (msgEl) {
+      const rect = msgEl.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const overflow = rect.bottom + 60 - containerRect.bottom;
+      if (overflow > 0) {
+        container.scrollTop += overflow;
       }
     }
-  }
+  });
 }
 
 function onEditKeydown(e: KeyboardEvent) {
@@ -641,25 +339,6 @@ function onEditKeydown(e: KeyboardEvent) {
   } else if (e.key === "Escape") {
     cancelEdit();
   }
-}
-
-function startEdit(msg: Message) {
-  editingMessageId.value = msg.id;
-  editContent.value = msg.content;
-  nextTick(() => {
-    const container = messagesContainer.value;
-    if (!container) return;
-    const msgEl = container.querySelector(`.message.editing`) as HTMLElement;
-    if (msgEl) {
-      // Scroll so the whole message + some margin is visible
-      const rect = msgEl.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const overflow = rect.bottom + 60 - containerRect.bottom;
-      if (overflow > 0) {
-        container.scrollTop += overflow;
-      }
-    }
-  });
 }
 
 function submitEdit() {
@@ -679,6 +358,24 @@ function submitEdit() {
 function cancelEdit() {
   editingMessageId.value = null;
   editContent.value = "";
+}
+
+// ── Drag & drop (delegated to ChatInput) ──
+function onDragOver(e: DragEvent) {
+  e.preventDefault();
+  dragging.value = true;
+}
+
+function onDragLeave() {
+  dragging.value = false;
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  dragging.value = false;
+  if (e.dataTransfer?.files.length) {
+    chatInputRef.value?.addFiles(e.dataTransfer.files);
+  }
 }
 
 // ── Message actions ──
@@ -894,7 +591,7 @@ function formatTimeShort(ts: string): string {
   justify-content: center;
   font-weight: 600;
   font-size: 0.875rem;
-  color: #fff;
+  color: var(--text-bright);
   flex-shrink: 0;
   margin-top: 2px;
   overflow: hidden;
@@ -965,36 +662,13 @@ function formatTimeShort(ts: string): string {
   font-size: 0.9375rem;
 }
 
-.message-content :deep(p) {
-  margin: 0;
-}
-
-.message-content :deep(p + p) {
-  margin-top: 4px;
-}
-
-.message-content :deep(a) {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.message-content :deep(a:hover) {
-  text-decoration: underline;
-}
-
-.message-content :deep(strong) {
-  font-weight: 700;
-  color: var(--header-primary);
-}
-
-.message-content :deep(em) {
-  font-style: italic;
-}
-
-.message-content :deep(del) {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
+.message-content :deep(p) { margin: 0; }
+.message-content :deep(p + p) { margin-top: 4px; }
+.message-content :deep(a) { color: var(--accent); text-decoration: none; }
+.message-content :deep(a:hover) { text-decoration: underline; }
+.message-content :deep(strong) { font-weight: 700; color: var(--header-primary); }
+.message-content :deep(em) { font-style: italic; }
+.message-content :deep(del) { text-decoration: line-through; color: var(--text-muted); }
 
 .message-content :deep(code) {
   background: var(--bg-tertiary);
@@ -1072,64 +746,6 @@ function formatTimeShort(ts: string): string {
   padding-left: 24px;
 }
 
-.chat-input {
-  padding: 0 8px 8px;
-}
-
-.chat-input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  /* Match the user card height: --bar-height is set on .user-row (child),
-     but the border (1px × 2) is on .bottom-card (parent) → total = 48 + 2 = 50px.
-     Here the border is on this element itself, so border-box gives us 50px total. */
-  min-height: calc(var(--bar-height) + 2px);
-  background: var(--bg-floating);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  padding-right: 4px;
-}
-
-.chat-input textarea {
-  width: 100%;
-  min-height: var(--bar-height);
-  padding: 13px 16px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-normal);
-  font-size: 0.9375rem;
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  overflow: hidden;
-  overflow-wrap: break-word;
-  line-height: 1.375;
-  max-height: 200px;
-}
-
-.chat-input textarea::placeholder {
-  color: var(--text-faint);
-}
-
-.chat-send {
-  width: 32px;
-  height: var(--bar-height);
-  padding: 0;
-  margin: 0;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  transition: color 0.1s;
-}
-
-.chat-send:hover { color: var(--text-normal); box-shadow: none; }
-.chat-send:disabled { color: var(--text-faint); opacity: 0.5; }
-
 .message.editing {
   background: var(--bg-modifier-active);
 }
@@ -1198,13 +814,13 @@ function formatTimeShort(ts: string): string {
 
 .msg-action-btn.danger:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1255,7 +871,7 @@ function formatTimeShort(ts: string): string {
 
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .btn-danger:hover {
@@ -1267,7 +883,7 @@ function formatTimeShort(ts: string): string {
   position: absolute;
   inset: 0;
   z-index: 50;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1284,348 +900,10 @@ function formatTimeShort(ts: string): string {
   font-weight: 600;
 }
 
-/* ── Message attachments ── */
-.message-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.attachment-image {
-  display: block;
-  max-width: 400px;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.attachment-image img {
-  display: block;
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-  border-radius: 8px;
-}
-
-.attachment-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-normal);
-  text-decoration: none;
-  font-size: 0.8125rem;
-  max-width: 300px;
-  transition: background 0.15s;
-}
-
-.attachment-file:hover {
-  background: var(--bg-modifier-hover);
-}
-
-.att-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.att-size {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  flex-shrink: 0;
-}
-
-/* ── Pending files ── */
-.file-error {
-  padding: 6px 16px;
-  font-size: 0.75rem;
-  color: var(--danger);
-}
-
-.pending-files {
-  display: flex;
-  gap: 8px;
-  padding: 8px 8px 0;
-  flex-wrap: wrap;
-}
-
-.pending-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  max-width: 200px;
-  position: relative;
-}
-
-.pending-thumb {
-  width: 40px;
-  height: 40px;
-  object-fit: cover;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.pending-file-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.pending-file-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.pending-file-name {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-normal);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pending-file-size {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-
-.pending-file-remove {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--bg-modifier-hover);
-  color: var(--text-muted);
-  cursor: pointer;
-  border: none;
-  flex-shrink: 0;
-}
-
-.pending-file-remove:hover {
-  background: var(--danger);
-  color: #fff;
-}
-
-/* ── Attach button ── */
-.chat-attach {
-  width: 32px;
-  height: var(--bar-height);
-  padding: 0;
-  margin: 0 0 0 4px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  transition: color 0.1s;
-}
-
-.chat-attach:hover {
-  color: var(--text-normal);
-  box-shadow: none;
-}
-
-/* ── Reply preview in message ── */
-.reply-preview {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-  cursor: pointer;
-  position: relative;
-  padding-left: 0;
-  min-height: 20px;
-}
-
-.reply-preview:hover .reply-content {
-  color: var(--text-normal);
-}
-
-.reply-spine {
-  position: absolute;
-  left: -37px;
-  top: 43%;
-  width: 33px;
-  height: calc(57% + 3px);
-  border-left: 2px solid var(--text-faint);
-  border-top: 2px solid var(--text-faint);
-  border-top-left-radius: 8px;
-}
-
-.reply-mini-avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.5rem;
-  font-weight: 700;
-  color: #fff;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.reply-mini-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.reply-author {
-  font-weight: 600;
-  color: var(--header-primary);
-  flex-shrink: 0;
-  font-size: 0.75rem;
-}
-
-.reply-content {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 0.1s;
-}
-
-/* ── Reply bar above input ── */
-.reply-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-radius: 8px 8px 0 0;
-  border: 1px solid var(--border);
-  border-bottom: none;
-  font-size: 0.8125rem;
-  color: var(--text-muted);
-}
-
-.reply-bar + .chat-input-wrapper {
-  border-radius: 0 0 8px 8px;
-}
-
-.reply-bar-icon {
-  flex-shrink: 0;
-  color: var(--accent);
-}
-
-.reply-bar-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reply-bar-text strong {
-  color: var(--header-primary);
-}
-
-.reply-bar-content {
-  margin-left: 6px;
-  color: var(--text-faint);
-}
-
-.reply-bar-close {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.reply-bar-close:hover {
-  color: var(--text-normal);
-  background: var(--bg-modifier-hover);
-  box-shadow: none;
-}
-
 /* ── Message highlight on scroll ── */
 .message-highlight {
   background: var(--accent);
   background: rgba(88, 101, 242, 0.1);
   transition: background 0.3s;
-}
-
-/* ── Mention autocomplete popup ── */
-.mention-popup {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 6px;
-  margin-bottom: 4px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 50;
-}
-
-.mention-popup-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-normal);
-}
-
-.mention-popup-item:hover,
-.mention-popup-item.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-.mention-role-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  flex-shrink: 0;
-}
-
-.mention-type-tag {
-  margin-left: auto;
-  font-size: 0.6875rem;
-  color: var(--text-faint);
-  font-weight: 400;
-}
-
-.mention-popup-item:hover .mention-type-tag,
-.mention-popup-item.active .mention-type-tag {
-  color: rgba(255, 255, 255, 0.6);
 }
 </style>

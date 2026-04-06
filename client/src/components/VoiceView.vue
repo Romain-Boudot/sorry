@@ -251,13 +251,13 @@ const statusText = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .voice-video-source {
@@ -373,7 +373,7 @@ const statusText = computed(() => {
 
 .voice-action-btn.active {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .voice-action-btn.active:hover {
@@ -397,7 +397,7 @@ const statusText = computed(() => {
   width: auto;
   padding: 10px 24px;
   background: var(--green);
-  color: #fff;
+  color: var(--text-bright);
   font-weight: 600;
   font-size: 0.875rem;
   border-radius: 8px;

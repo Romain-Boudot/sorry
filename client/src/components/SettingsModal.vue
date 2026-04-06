@@ -269,7 +269,7 @@ function close() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -462,11 +462,11 @@ function close() {
 .avatar-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay-light);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-bright);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -492,7 +492,7 @@ function close() {
 }
 
 .settings-remove-btn:hover {
-  background: rgba(208, 80, 80, 0.15);
+  background: var(--danger-bg-hover);
   box-shadow: none;
 }
 
@@ -554,7 +554,7 @@ function close() {
   color: var(--text-muted);
 }
 .mic-test-btn:hover { background: var(--bg-modifier-hover); box-shadow: none; }
-.mic-test-btn.active { background: var(--danger); color: #fff; }
+.mic-test-btn.active { background: var(--danger); color: var(--text-bright); }
 .mic-test-btn.active:hover { background: var(--danger); opacity: 0.9; box-shadow: none; }
 
 .mic-level-bar {

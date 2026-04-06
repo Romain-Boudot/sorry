@@ -8,49 +8,11 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
+use crate::error::AppError;
+use crate::perms::{require_permission, require_channel_permission};
 use crate::state::AppState;
+use crate::upload;
 use shared::permissions;
-
-async fn require_permission(
-    db: &sqlx::SqlitePool,
-    user_id: i64,
-    permission: i64,
-) -> Result<(), StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if !permissions::has(perms, permission) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    Ok(())
-}
-
-async fn require_channel_permission(
-    db: &sqlx::SqlitePool,
-    user_id: i64,
-    channel_id: i64,
-    permission: i64,
-) -> Result<(), StatusCode> {
-    let role_perms = crate::db::roles::get_user_permissions(db, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Admin bypass tout
-    if permissions::has(role_perms, permissions::ADMINISTRATOR) {
-        return Ok(());
-    }
-
-    let (allow, deny) = crate::db::roles::get_channel_overwrites(db, user_id, channel_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let final_perms = permissions::compute(&[role_perms], allow, deny);
-
-    if !permissions::has(final_perms, permission) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    Ok(())
-}
 
 #[derive(Deserialize)]
 pub struct CreateChannelPayload {
@@ -75,12 +37,9 @@ pub struct SendMessagePayload {
 async fn list_channels(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<Json<Vec<shared::models::Channel>>, StatusCode> {
+) -> Result<Json<Vec<shared::models::Channel>>, AppError> {
     require_permission(&state.db, auth.0, permissions::VIEW_CHANNELS).await?;
-
-    let channels = crate::db::channels::list_all(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let channels = crate::db::channels::list_all(&state.db).await?;
     Ok(Json(channels))
 }
 
@@ -89,17 +48,15 @@ async fn create_channel(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<CreateChannelPayload>,
-) -> Result<Json<shared::models::Channel>, StatusCode> {
+) -> Result<Json<shared::models::Channel>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
 
     let kind = match payload.kind.as_str() {
         "text" | "voice" => payload.kind.as_str(),
-        _ => return Err(StatusCode::BAD_REQUEST),
+        _ => return Err(AppError::BadRequest("Invalid channel kind".into())),
     };
 
-    let id = crate::db::channels::create(&state.db, &payload.name, kind, payload.group_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let id = crate::db::channels::create(&state.db, &payload.name, kind, payload.group_id).await?;
 
     Ok(Json(shared::models::Channel {
         id,
@@ -124,18 +81,15 @@ async fn update_channel(
     auth: AuthUser,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateChannelPayload>,
-) -> Result<Json<shared::models::Channel>, StatusCode> {
+) -> Result<Json<shared::models::Channel>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
 
     let row = crate::db::channels::find_by_id(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     if let Some(ref name) = payload.name {
-        crate::db::channels::update_name(&state.db, id, name)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        crate::db::channels::update_name(&state.db, id, name).await?;
     }
 
     let name = payload.name.unwrap_or(row.name);
@@ -156,24 +110,16 @@ async fn delete_channel(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
 
     crate::db::channels::find_by_id(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Collect message IDs before cascade delete so we can clean up S3
-    let message_ids = crate::db::messages::list_ids_by_channel(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let message_ids = crate::db::messages::list_ids_by_channel(&state.db, id).await?;
+    crate::db::channels::delete(&state.db, id).await?;
 
-    crate::db::channels::delete(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Clean up files for all deleted messages
     if !message_ids.is_empty() {
         let storage = state.storage.clone();
         tokio::spawn(async move {
@@ -194,14 +140,13 @@ async fn list_messages(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Query(query): Query<ListMessagesQuery>,
-) -> Result<Json<Vec<shared::models::Message>>, StatusCode> {
+) -> Result<Json<Vec<shared::models::Message>>, AppError> {
     require_channel_permission(&state.db, auth.0, channel_id, permissions::READ_MESSAGE_HISTORY)
         .await?;
 
     crate::db::channels::find_by_id(&state.db, channel_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     let mut messages = crate::db::messages::list_by_channel(
         &state.db,
@@ -209,55 +154,14 @@ async fn list_messages(
         query.limit.unwrap_or(50).min(100),
         query.before,
     )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .await?;
 
-    crate::db::messages::enrich_with_attachments(&state.db, &mut messages)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::db::messages::enrich_with_attachments(&state.db, &mut messages).await?;
 
     Ok(Json(messages))
 }
 
 const MAX_FILE_SIZE: usize = 25 * 1024 * 1024; // 25 MB
-const MAX_FILES_PER_MESSAGE: usize = 10;
-
-const ALLOWED_EXTENSIONS: &[&str] = &[
-    // Images
-    "png", "jpg", "jpeg", "gif", "webp", "svg",
-    // Video
-    "mp4", "webm", "mov",
-    // Audio
-    "mp3", "ogg", "wav", "flac",
-    // Documents
-    "pdf", "txt", "json", "csv",
-    // Archives
-    "zip", "tar", "gz", "7z", "rar",
-];
-
-fn sanitize_filename(name: &str) -> String {
-    let name: String = name
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    // Limit length to 255
-    if name.len() > 255 {
-        name[..255].to_string()
-    } else if name.is_empty() {
-        "file".to_string()
-    } else {
-        name
-    }
-}
-
-fn is_allowed_extension(filename: &str) -> bool {
-    let ext = std::path::Path::new(filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-    ALLOWED_EXTENSIONS.contains(&ext.as_str())
-}
 
 /// POST /api/channels/:id/messages (JSON — text only)
 async fn send_message_json(
@@ -265,20 +169,17 @@ async fn send_message_json(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<SendMessagePayload>,
-) -> Result<Json<shared::models::Message>, StatusCode> {
+) -> Result<Json<shared::models::Message>, AppError> {
     require_channel_permission(&state.db, auth.0, channel_id, permissions::SEND_MESSAGES).await?;
 
     crate::db::channels::find_by_id(&state.db, channel_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     let message = crate::db::messages::create(&state.db, channel_id, auth.0, &payload.content, payload.reply_to_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
     state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
-
     Ok(Json(message))
 }
 
@@ -288,97 +189,53 @@ async fn send_message_upload(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     mut multipart: Multipart,
-) -> Result<Json<shared::models::Message>, StatusCode> {
+) -> Result<Json<shared::models::Message>, AppError> {
     require_channel_permission(&state.db, auth.0, channel_id, permissions::SEND_MESSAGES).await?;
 
     crate::db::channels::find_by_id(&state.db, channel_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    let mut content = String::new();
-    let mut reply_to_id: Option<i64> = None;
-    // (sanitized_filename, content_type, data, ext)
-    let mut files: Vec<(String, String, Vec<u8>, String)> = Vec::new();
+    let parsed = upload::parse_message_upload(&mut multipart, state.max_file_size).await?;
 
-    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "content" {
-            content = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-        } else if name == "reply_to_id" {
-            let val = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            reply_to_id = val.parse().ok();
-        } else if name == "file" {
-            if files.len() >= MAX_FILES_PER_MESSAGE {
-                return Err(StatusCode::BAD_REQUEST);
-            }
-            let raw_filename = field.file_name().unwrap_or("file").to_string();
-            let filename = sanitize_filename(&raw_filename);
-            if !is_allowed_extension(&filename) {
-                return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
-            }
-            let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
-            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            if data.is_empty() {
-                return Err(StatusCode::BAD_REQUEST);
-            }
-            if data.len() > state.max_file_size {
-                return Err(StatusCode::PAYLOAD_TOO_LARGE);
-            }
-            let ext = std::path::Path::new(&filename)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("bin")
-                .to_lowercase();
-            files.push((filename, content_type, data.to_vec(), ext));
-        }
-    }
-
-    if content.is_empty() && files.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // Create message in DB first (need the ID for S3 keys)
-    let mut message = crate::db::messages::create(&state.db, channel_id, auth.0, &content, reply_to_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Create message in DB first (need the ID for storage keys)
+    let mut message = crate::db::messages::create(
+        &state.db, channel_id, auth.0, &parsed.content, parsed.reply_to_id,
+    ).await?;
 
     // Upload files and create attachment records
-    // On failure: clean up already-uploaded files + delete the message
-    if !files.is_empty() {
+    if !parsed.files.is_empty() {
         let mut uploaded_keys: Vec<String> = Vec::new();
 
-        for (filename, content_type, data, ext) in &files {
-            let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+        for file in &parsed.files {
+            let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), file.ext);
             let key = format!("{}/{}", message.id, stored_name);
 
-            if let Err(e) = crate::storage::upload(&state.storage, &key, data, content_type).await {
+            if let Err(e) = crate::storage::upload(&state.storage, &key, &file.data, &file.content_type).await {
                 tracing::error!("File upload failed: {e}");
                 for k in &uploaded_keys {
                     let _ = crate::storage::delete_file(&state.storage, k).await;
                 }
                 let _ = crate::db::messages::delete(&state.db, message.id).await;
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Err(AppError::Internal("File upload failed".into()));
             }
             uploaded_keys.push(key);
 
             let att = crate::db::attachments::create(
                 &state.db,
                 message.id,
-                filename,
+                &file.filename,
                 &stored_name,
-                content_type,
-                data.len() as i64,
+                &file.content_type,
+                file.data.len() as i64,
             )
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .await?;
 
             message.attachments.push(att);
         }
     }
 
     state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
-
     Ok(Json(message))
 }
 
@@ -388,10 +245,8 @@ async fn send_message_upload(
 async fn list_groups(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
-) -> Result<Json<Vec<shared::models::ChannelGroup>>, StatusCode> {
-    let groups = crate::db::channel_groups::list_all(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<Vec<shared::models::ChannelGroup>>, AppError> {
+    let groups = crate::db::channel_groups::list_all(&state.db).await?;
     Ok(Json(groups))
 }
 
@@ -405,13 +260,9 @@ async fn create_group(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<CreateGroupPayload>,
-) -> Result<Json<shared::models::ChannelGroup>, StatusCode> {
+) -> Result<Json<shared::models::ChannelGroup>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    let id = crate::db::channel_groups::create(&state.db, &payload.name, 0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    let id = crate::db::channel_groups::create(&state.db, &payload.name, 0).await?;
     Ok(Json(shared::models::ChannelGroup {
         id,
         name: payload.name,
@@ -430,13 +281,9 @@ async fn update_group(
     auth: AuthUser,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateGroupPayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::channel_groups::update(&state.db, id, &payload.name)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::channel_groups::update(&state.db, id, &payload.name).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -445,13 +292,9 @@ async fn delete_group(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::channel_groups::delete(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::channel_groups::delete(&state.db, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -465,13 +308,9 @@ async fn reorder_channels(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<ReorderPayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::channels::reorder(&state.db, &payload.ids)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::channels::reorder(&state.db, &payload.ids).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -480,13 +319,9 @@ async fn reorder_groups(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<ReorderPayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::channel_groups::reorder(&state.db, &payload.ids)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::channel_groups::reorder(&state.db, &payload.ids).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -501,13 +336,9 @@ async fn move_channel(
     auth: AuthUser,
     Path(id): Path<i64>,
     Json(payload): Json<MoveChannelPayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::channels::update_group(&state.db, id, payload.group_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::channels::update_group(&state.db, id, payload.group_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -518,12 +349,9 @@ async fn list_overwrites(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(channel_id): Path<i64>,
-) -> Result<Json<Vec<shared::models::ChannelOverwrite>>, StatusCode> {
+) -> Result<Json<Vec<shared::models::ChannelOverwrite>>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    let overwrites = crate::db::roles::list_channel_overwrites(&state.db, channel_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let overwrites = crate::db::roles::list_channel_overwrites(&state.db, channel_id).await?;
     Ok(Json(overwrites))
 }
 
@@ -540,19 +368,11 @@ async fn set_overwrite(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<SetOverwritePayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
     crate::db::roles::set_channel_overwrite(
-        &state.db,
-        channel_id,
-        payload.role_id,
-        payload.allow,
-        payload.deny,
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+        &state.db, channel_id, payload.role_id, payload.allow, payload.deny,
+    ).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -567,13 +387,9 @@ async fn delete_overwrite(
     auth: AuthUser,
     Path(channel_id): Path<i64>,
     Json(payload): Json<DeleteOverwritePayload>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
-
-    crate::db::roles::delete_channel_overwrite(&state.db, channel_id, payload.role_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+    crate::db::roles::delete_channel_overwrite(&state.db, channel_id, payload.role_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -588,6 +404,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message_json))
         .route("/:id/upload", axum::routing::post(send_message_upload)
-            .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * MAX_FILES_PER_MESSAGE + 1024 * 64)))
+            .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * upload::MAX_FILES_PER_MESSAGE + 1024 * 64)))
         .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
 }

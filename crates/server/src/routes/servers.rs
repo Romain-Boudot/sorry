@@ -8,9 +8,9 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
+use crate::error::AppError;
 use crate::state::AppState;
-
-const ALLOWED_ICON_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+use crate::upload;
 
 async fn broadcast_server_update(state: &AppState) {
     let name = crate::db::servers::get_setting(&state.db, "name")
@@ -34,37 +34,28 @@ async fn update_server(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<UpdateServerPayload>,
-) -> Result<StatusCode, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::MANAGE_SERVER) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+) -> Result<StatusCode, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::MANAGE_SERVER).await?;
 
     if let Some(name) = &payload.name {
         let trimmed = name.trim();
         if trimmed.is_empty() || trimmed.len() > 64 {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(AppError::BadRequest("Name must be 1-64 chars".into()));
         }
-        crate::db::servers::set_setting(&state.db, "name", trimmed)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        crate::db::servers::set_setting(&state.db, "name", trimmed).await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
     }
 
     if let Some(desc) = &payload.description {
         let trimmed = desc.trim();
         if trimmed.is_empty() {
-            crate::db::servers::delete_setting(&state.db, "description")
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            crate::db::servers::delete_setting(&state.db, "description").await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
         } else if trimmed.len() > 256 {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(AppError::BadRequest("Description too long".into()));
         } else {
-            crate::db::servers::set_setting(&state.db, "description", trimmed)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            crate::db::servers::set_setting(&state.db, "description", trimmed).await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
         }
     }
 
@@ -77,59 +68,24 @@ async fn upload_icon(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     mut multipart: Multipart,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<serde_json::Value>, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::MANAGE_SERVER).await?;
 
-    if !shared::permissions::has(perms, shared::permissions::MANAGE_SERVER) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let file = upload::parse_single_image(&mut multipart, "icon", 5 * 1024 * 1024).await?;
 
-    let mut file_data: Option<(Vec<u8>, String, String)> = None;
-
-    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "file" || name == "icon" {
-            let raw_filename = field.file_name().unwrap_or("icon.png").to_string();
-            let ext = std::path::Path::new(&raw_filename)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if !ALLOWED_ICON_EXTENSIONS.contains(&ext.as_str()) {
-                return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
-            }
-            let content_type = field.content_type().unwrap_or("image/png").to_string();
-            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            if data.is_empty() || data.len() > 5 * 1024 * 1024 {
-                return Err(StatusCode::PAYLOAD_TOO_LARGE);
-            }
-            file_data = Some((data.to_vec(), content_type, ext));
-            break;
-        }
-    }
-
-    let (data, content_type, ext) = file_data.ok_or(StatusCode::BAD_REQUEST)?;
-
-    // Delete old icon
     let _ = crate::storage::delete_prefix(&state.storage, "server-icon/").await;
 
-    // Upload new icon
-    let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), file.ext);
     let key = format!("server-icon/{}", stored_name);
 
-    crate::storage::upload(&state.storage, &key, &data, &content_type)
+    crate::storage::upload(&state.storage, &key, &file.data, &file.content_type)
         .await
-        .map_err(|e| {
-            tracing::error!("Server icon upload failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::Internal(format!("Server icon upload failed: {e}")))?;
 
     let icon_url = format!("/server-icon/{}", stored_name);
     crate::db::servers::set_setting(&state.db, "icon_url", &icon_url)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     broadcast_server_update(&state).await;
     Ok(Json(serde_json::json!({ "icon_url": icon_url })))
@@ -139,14 +95,8 @@ async fn upload_icon(
 async fn delete_icon(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<StatusCode, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::MANAGE_SERVER) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+) -> Result<StatusCode, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::MANAGE_SERVER).await?;
 
     let _ = crate::storage::delete_prefix(&state.storage, "server-icon/").await;
     let _ = crate::db::servers::delete_setting(&state.db, "icon_url").await;
@@ -159,27 +109,21 @@ async fn delete_icon(
 pub async fn serve_icon(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(filename): axum::extract::Path<String>,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, AppError> {
     use axum::http::header;
     use axum::response::IntoResponse;
 
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::BadRequest("Invalid path".into()));
     }
 
     let key = format!("server-icon/{}", filename);
     let data = crate::storage::download(&state.storage, &key)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|_| AppError::NotFound)?;
 
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-    let content_type = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    };
+    let content_type = upload::content_type_from_ext(&ext);
 
     Ok((
         [

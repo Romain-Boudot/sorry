@@ -184,7 +184,7 @@ function close() {
   justify-content: center;
   font-weight: 700;
   font-size: 1.25rem;
-  color: #fff;
+  color: var(--text-bright);
   margin: -26px 0 0 16px;
   border: 4px solid var(--bg-tertiary);
   overflow: hidden;
@@ -280,7 +280,7 @@ function close() {
 
 .role-remove-btn:hover {
   color: var(--danger);
-  background: rgba(208, 80, 80, 0.15);
+  background: var(--danger-bg-hover);
   box-shadow: none;
 }
 

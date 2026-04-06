@@ -8,16 +8,10 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
+use crate::error::AppError;
 use crate::state::AppState;
 
-fn extract_client_ip(headers: &HeaderMap) -> std::net::IpAddr {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or_else(|| std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
-}
+use super::auth::extract_client_ip;
 
 #[derive(Deserialize)]
 pub struct CreateInvitePayload {
@@ -33,35 +27,20 @@ async fn create_invite(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(payload): Json<CreateInvitePayload>,
-) -> Result<Json<crate::db::invites::Invite>, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<crate::db::invites::Invite>, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::CREATE_INVITE).await?;
 
-    if !shared::permissions::has(perms, shared::permissions::CREATE_INVITE) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Validate role hierarchy: can only assign roles below your highest role
+    // Validate role hierarchy
     if let Some(role_id) = payload.role_id {
-        // Admins bypass hierarchy check
+        let perms = crate::db::roles::get_user_permissions(&state.db, auth.0).await?;
         if !shared::permissions::has(perms, shared::permissions::ADMINISTRATOR) {
-            let user_roles = crate::db::roles::get_user_roles(&state.db, auth.0)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let user_highest = user_roles.iter().map(|r| r.position).min().unwrap_or(i64::MAX);
             let target_role = crate::db::roles::find_by_id(&state.db, role_id)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .ok_or(StatusCode::BAD_REQUEST)?;
-            // Lower position = higher rank. Can only assign roles ranked below yours
-            if target_role.position <= user_highest {
-                return Err(StatusCode::FORBIDDEN);
-            }
+                .await?
+                .ok_or(AppError::BadRequest("Role not found".into()))?;
+            crate::perms::require_role_hierarchy(&state.db, auth.0, target_role.position).await?;
         }
     }
 
-    // Generate a short random code
     use rand::Rng;
     let code: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -70,16 +49,8 @@ async fn create_invite(
         .collect();
 
     let invite = crate::db::invites::create(
-        &state.db,
-        &code,
-        auth.0,
-        payload.max_uses,
-        payload.expires_at,
-        payload.role_id,
-        payload.guest,
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        &state.db, &code, auth.0, payload.max_uses, payload.expires_at, payload.role_id, payload.guest,
+    ).await.map_err(|e| AppError::Internal(e.to_string()))?;
 
     Ok(Json(invite))
 }
@@ -88,19 +59,11 @@ async fn create_invite(
 async fn list_invites(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-) -> Result<Json<Vec<crate::db::invites::Invite>>, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::CREATE_INVITE) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
+) -> Result<Json<Vec<crate::db::invites::Invite>>, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::CREATE_INVITE).await?;
     let invites = crate::db::invites::list_all(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(Json(invites))
 }
 
@@ -109,19 +72,11 @@ async fn delete_invite(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(code): Path<String>,
-) -> Result<StatusCode, StatusCode> {
-    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !shared::permissions::has(perms, shared::permissions::CREATE_INVITE) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
+) -> Result<StatusCode, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::CREATE_INVITE).await?;
     crate::db::invites::delete(&state.db, &code)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -130,27 +85,25 @@ async fn check_invite(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
     Path(code): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let client_ip = extract_client_ip(&headers);
     if !state.check_invite_rate_limit(client_ip) {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+        return Err(AppError::TooManyRequests);
     }
     let invite = crate::db::invites::find_by_code(&state.db, &code)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .ok_or(AppError::NotFound)?;
 
-    // Check expiration
     if let Some(expires) = invite.expires_at {
         if chrono::Utc::now().timestamp() > expires {
-            return Err(StatusCode::GONE);
+            return Err(AppError::Gone);
         }
     }
 
-    // Check max uses
     if let Some(max) = invite.max_uses {
         if invite.uses >= max {
-            return Err(StatusCode::GONE);
+            return Err(AppError::Gone);
         }
     }
 

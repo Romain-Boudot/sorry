@@ -244,13 +244,13 @@ function openMenu(event: MouseEvent, serverId: string) {
 .server-icon:hover {
   border-radius: 16px;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .server-icon.active {
   border-radius: 16px;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .server-icon.add-server {
@@ -261,7 +261,7 @@ function openMenu(event: MouseEvent, serverId: string) {
 
 .server-icon.add-server:hover {
   background: var(--green);
-  color: #fff;
+  color: var(--text-bright);
   border-radius: 16px;
 }
 

@@ -93,7 +93,7 @@ function close() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -136,7 +136,7 @@ function close() {
 .settings-tab:hover { background: var(--bg-modifier-hover); color: var(--text-normal); }
 .settings-tab.active { background: var(--bg-modifier-active); color: var(--header-primary); }
 .settings-tab.danger { color: var(--danger); }
-.settings-tab.danger:hover { background: rgba(208, 80, 80, 0.1); }
+.settings-tab.danger:hover { background: var(--danger-bg); }
 
 .settings-content {
   flex: 1;
