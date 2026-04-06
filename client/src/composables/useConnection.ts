@@ -3,7 +3,7 @@
  * Extracted from store.ts — operates on the same reactive store object.
  */
 import { api, resolveBaseUrl, createWsConnection, type Snapshot, type VoiceUserState } from "../api";
-import { store, persistServers, createServerState, type SavedServer, type ServerState } from "../store";
+import { store, persistServers, persistNav, createServerState, type SavedServer, type ServerState } from "../store";
 import { handleEvent } from "./useEvents";
 
 // ── Token refresh ──
@@ -174,6 +174,7 @@ export async function connectToServer(serverId: string) {
     await Promise.race([ready, timeout]);
 
     store.activeServerId = serverId;
+    persistNav();
   } catch {
     state.connected = false;
     state.wsConnection?.destroy();

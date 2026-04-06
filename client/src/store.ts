@@ -111,6 +111,41 @@ export function persistServers() {
   localStorage.setItem("servers", JSON.stringify(store.savedServers));
 }
 
+// ── Navigation persistence (survives page refresh) ──
+
+function loadNavState(): { serverId: string | null; channels: Record<string, number> } {
+  try {
+    return JSON.parse(sessionStorage.getItem("nav") || "{}");
+  } catch {
+    return { serverId: null, channels: {} };
+  }
+}
+
+export function persistNav() {
+  const channels: Record<string, number> = {};
+  for (const [id, state] of store.serverStates) {
+    if (state.activeChannelId) channels[id] = state.activeChannelId;
+  }
+  sessionStorage.setItem("nav", JSON.stringify({
+    serverId: store.activeServerId,
+    channels,
+  }));
+}
+
+/** Restore navigation state after reconnection. Call after connectAll(). */
+export function restoreNav() {
+  const nav = loadNavState();
+  if (nav.serverId && store.serverStates.has(nav.serverId)) {
+    store.activeServerId = nav.serverId;
+  }
+  for (const [id, channelId] of Object.entries(nav.channels ?? {})) {
+    const state = store.serverStates.get(id);
+    if (state && typeof channelId === "number") {
+      state.activeChannelId = channelId;
+    }
+  }
+}
+
 // ── Reactive store ──
 
 export const store = reactive({
@@ -296,6 +331,7 @@ export function switchToServer(serverId: string) {
   } else {
     connectToServer(serverId);
   }
+  persistNav();
 }
 
 export async function selectChannel(channelId: number) {
@@ -306,6 +342,7 @@ export async function selectChannel(channelId: number) {
   state.activeChannelId = channelId;
   state.channelUnread.delete(channelId);
   state.channelMentions.delete(channelId);
+  persistNav();
   if (!state.messages.has(channelId)) {
     const msgs = await api.listMessages(server.url, server.token, channelId);
     state.messages.set(channelId, msgs.reverse());

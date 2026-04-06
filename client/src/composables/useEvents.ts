@@ -4,7 +4,7 @@
  */
 import { type ServerEvent, type Message, type User, type Role, type VoiceUserState } from "../api";
 import { store, persistServers, type ServerState } from "../store";
-import { setDeafened as voiceSetDeafened } from "../voice";
+import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../voice";
 import { fireNotification } from "./useNotifications";
 
 function defaultVoiceUserState(): VoiceUserState {

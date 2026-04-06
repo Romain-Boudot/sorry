@@ -49,7 +49,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { Settings } from "lucide-vue-next";
-import { store, connectAll, activeState, isActiveChannelVoice, resolveUserColor } from "./store";
+import { store, connectAll, restoreNav, activeState, isActiveChannelVoice, resolveUserColor } from "./store";
 import { setMentionResolver } from "./markdown";
 import TopBar from "./components/TopBar.vue";
 import ServerList from "./components/ServerList.vue";
@@ -134,7 +134,8 @@ onMounted(async () => {
     });
   }
 
-  connectAll();
+  await connectAll();
+  restoreNav();
 });
 </script>
 

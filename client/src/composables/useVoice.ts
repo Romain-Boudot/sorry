@@ -6,6 +6,7 @@ import { api } from "../api";
 import {
   joinVoice, leaveVoice,
   toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen,
+  setDeafened as voiceSetDeafened,
   startScreenShare as voiceStartScreenShare, stopScreenShare as voiceStopScreenShare,
   setCameraEnabled as voiceSetCamera,
 } from "../voice";
@@ -60,12 +61,15 @@ export async function joinVoiceChannel(
 
 export async function leaveVoiceChannel(state: ServerState) {
   const prevChannel = state.voiceChannelId;
-  await leaveVoice();
+
+  // Reset state BEFORE disconnect to avoid race with onDisconnected callback
   state.voiceChannelId = null;
   state.voiceConnectingChannelId = null;
   state.voiceStatus = "idle";
   state.isScreenSharing = false;
   state.isCameraOn = false;
+
+  await leaveVoice();
 
   if (prevChannel) {
     wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
@@ -90,16 +94,18 @@ export function toggleDeafen(state: ServerState) {
   const wasDeafened = state.isDeafened;
 
   if (!wasDeafened) {
+    // Becoming deafened
     state.wasMutedBeforeDeafen = state.isMuted;
     state.isDeafened = true;
     if (!state.isMuted) {
       state.isMuted = true;
       if (state.voiceChannelId) voiceToggleMute();
     }
-    if (state.voiceChannelId) voiceToggleDeafen();
+    if (state.voiceChannelId) voiceSetDeafened(true);
   } else {
+    // Undeafening
     state.isDeafened = false;
-    if (state.voiceChannelId) voiceToggleDeafen();
+    if (state.voiceChannelId) voiceSetDeafened(false);
     if (!state.wasMutedBeforeDeafen) {
       state.isMuted = false;
       if (state.voiceChannelId) voiceToggleMute();

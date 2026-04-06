@@ -2,9 +2,123 @@ import {
   Room,
   RoomEvent,
   Track,
+  TrackPublication,
   Participant,
   RemoteParticipant,
 } from "livekit-client";
+import { reactive } from "vue";
+
+// ══════════════════════════════════════
+//  Media state — reactive, source of truth for all track info
+// ══════════════════════════════════════
+
+export interface ParticipantMedia {
+  identity: string;
+  name: string;
+  camera: boolean;
+  screenShare: boolean;
+}
+
+/**
+ * Reactive media state — components can read this directly.
+ * Updated automatically by LiveKit events + initial scan.
+ */
+export const mediaState = reactive({
+  /** Audio elements keyed by participant identity */
+  audioElements: new Map<string, HTMLAudioElement>(),
+  /** Per-participant media info (camera, screen share) */
+  participants: new Map<string, ParticipantMedia>(),
+  /** Whether local audio output is deafened (all remote audio muted) */
+  deafened: false,
+  /** Incremented on any track change — triggers computed re-evaluation */
+  version: 0,
+});
+
+// ══════════════════════════════════════
+//  Audio management — attach/detach/mute without touching subscriptions
+// ══════════════════════════════════════
+
+function attachAudio(identity: string, track: any) {
+  // Detach from any previous element
+  const existing = mediaState.audioElements.get(identity);
+  if (existing) {
+    existing.srcObject = null;
+    existing.remove();
+  }
+
+  const el = track.attach() as HTMLAudioElement;
+  el.muted = mediaState.deafened;
+  el.dataset.identity = identity;
+  document.body.appendChild(el);
+  mediaState.audioElements.set(identity, el);
+}
+
+function detachAudio(identity: string) {
+  const el = mediaState.audioElements.get(identity);
+  if (el) {
+    el.srcObject = null;
+    el.remove();
+    mediaState.audioElements.delete(identity);
+  }
+}
+
+function setAllAudioMuted(muted: boolean) {
+  mediaState.deafened = muted;
+  for (const el of mediaState.audioElements.values()) {
+    el.muted = muted;
+  }
+}
+
+function cleanupAllMedia() {
+  for (const [identity] of mediaState.audioElements) {
+    detachAudio(identity);
+  }
+  mediaState.audioElements.clear();
+  mediaState.participants.clear();
+  mediaState.deafened = false;
+  mediaState.version++;
+}
+
+// ══════════════════════════════════════
+//  Track scanning — build media state from current room
+// ══════════════════════════════════════
+
+function scanParticipantMedia(identity: string, name: string, pubs: Iterable<TrackPublication>) {
+  let camera = false;
+  let screenShare = false;
+
+  for (const pub of pubs) {
+    if (pub.kind !== Track.Kind.Video) continue;
+    if (pub.isMuted) continue;
+    if (pub.source === Track.Source.ScreenShare) {
+      screenShare = true;
+    } else if (pub.source === Track.Source.Camera) {
+      camera = true;
+    }
+  }
+
+  mediaState.participants.set(identity, { identity, name, camera, screenShare });
+}
+
+/** Full scan of all participants — called after connect and on any track change. */
+function scanAllTracks(room: Room) {
+  mediaState.participants.clear();
+
+  // Local
+  const local = room.localParticipant;
+  scanParticipantMedia(local.identity, local.name || local.identity, local.trackPublications.values());
+
+  // Remote
+  for (const p of room.remoteParticipants.values()) {
+    scanParticipantMedia(p.identity, p.name || p.identity, p.trackPublications.values());
+  }
+
+  mediaState.version++;
+}
+
+// ══════════════════════════════════════
+//  Room lifecycle
+// ══════════════════════════════════════
 
 let currentRoom: Room | null = null;
 
@@ -23,7 +137,6 @@ export async function joinVoice(
   token: string,
   callbacks: VoiceCallbacks
 ): Promise<Room> {
-  // Quitter la room actuelle si déjà connecté
   await leaveVoice();
 
   const room = new Room({
@@ -33,62 +146,72 @@ export async function joinVoice(
 
   room.on(RoomEvent.Disconnected, () => {
     currentRoom = null;
+    cleanupAllMedia();
     callbacks.onDisconnected();
   });
 
-  room.on(
-    RoomEvent.ParticipantConnected,
-    (participant: RemoteParticipant) => {
-      callbacks.onParticipantJoined(
-        participant.identity,
-        participant.name || participant.identity
-      );
-    }
-  );
+  room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+    callbacks.onParticipantJoined(participant.identity, participant.name || participant.identity);
+  });
 
-  room.on(
-    RoomEvent.ParticipantDisconnected,
-    (participant: RemoteParticipant) => {
-      callbacks.onParticipantLeft(participant.identity);
-    }
-  );
+  room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+    detachAudio(participant.identity);
+    mediaState.participants.delete(participant.identity);
+    mediaState.version++;
+    callbacks.onParticipantLeft(participant.identity);
+  });
 
-  room.on(
-    RoomEvent.ActiveSpeakersChanged,
-    (speakers: Participant[]) => {
-      callbacks.onActiveSpeakersChanged(speakers.map((s) => s.identity));
-    }
-  );
+  room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
+    callbacks.onActiveSpeakersChanged(speakers.map((s) => s.identity));
+  });
 
-  // Auto-subscribe aux tracks audio des autres
-  room.on(
-    RoomEvent.TrackSubscribed,
-    (track, _publication, _participant) => {
-      if (track.kind === Track.Kind.Audio) {
-        const el = track.attach();
-        document.body.appendChild(el);
-      }
-      if (track.kind === Track.Kind.Video) {
-        callbacks.onTrackChanged?.();
-      }
+  // ── Track subscribed: attach audio, update media state ──
+  room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+    if (track.kind === Track.Kind.Audio) {
+      attachAudio(participant.identity, track);
     }
-  );
+    // Rescan this participant's media
+    scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+    mediaState.version++;
+    callbacks.onTrackChanged?.();
+  });
 
-  room.on(
-    RoomEvent.TrackUnsubscribed,
-    (track, _publication, _participant) => {
-      track.detach().forEach((el) => el.remove());
-      if (track.kind === Track.Kind.Video) {
-        callbacks.onTrackChanged?.();
-      }
+  room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
+    if (track.kind === Track.Kind.Audio) {
+      detachAudio(participant.identity);
     }
-  );
+    track.detach().forEach((el) => el.remove());
+    if (participant) {
+      scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+    }
+    mediaState.version++;
+    callbacks.onTrackChanged?.();
+  });
 
-  // Notify on local track publish/unpublish (screen share, camera)
+  // ── Track mute/unmute: update media state (screen share stop = muted) ──
+  room.on(RoomEvent.TrackMuted, (_publication, participant) => {
+    if (participant) {
+      scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+      mediaState.version++;
+      callbacks.onTrackChanged?.();
+    }
+  });
+
+  room.on(RoomEvent.TrackUnmuted, (_publication, participant) => {
+    if (participant) {
+      scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+      mediaState.version++;
+      callbacks.onTrackChanged?.();
+    }
+  });
+
+  // ── Local track publish/unpublish ──
   room.on(RoomEvent.LocalTrackPublished, () => {
+    scanAllTracks(room);
     callbacks.onTrackChanged?.();
   });
   room.on(RoomEvent.LocalTrackUnpublished, () => {
+    scanAllTracks(room);
     callbacks.onTrackChanged?.();
   });
 
@@ -101,12 +224,24 @@ export async function joinVoice(
     if (savedMic) await room.switchActiveDevice("audioinput", savedMic);
     if (savedSpeaker) await room.switchActiveDevice("audiooutput", savedSpeaker);
 
-    // Publier le micro
+    // Publish microphone
     await room.localParticipant.setMicrophoneEnabled(true);
 
     currentRoom = room;
-    callbacks.onConnected(room);
 
+    // Initial scan — catches tracks already published by participants who joined before us
+    scanAllTracks(room);
+
+    // Attach audio for already-subscribed remote tracks
+    for (const participant of room.remoteParticipants.values()) {
+      for (const pub of participant.audioTrackPublications.values()) {
+        if (pub.track && pub.isSubscribed) {
+          attachAudio(participant.identity, pub.track);
+        }
+      }
+    }
+
+    callbacks.onConnected(room);
     return room;
   } catch (e: any) {
     callbacks.onError(e.message || "Erreur de connexion vocale");
@@ -119,7 +254,12 @@ export async function leaveVoice() {
     await currentRoom.disconnect();
     currentRoom = null;
   }
+  cleanupAllMedia();
 }
+
+// ══════════════════════════════════════
+//  Microphone controls
+// ══════════════════════════════════════
 
 export function toggleMute(): boolean {
   if (!currentRoom) return false;
@@ -133,33 +273,23 @@ export function setMuted(muted: boolean) {
   currentRoom.localParticipant.setMicrophoneEnabled(!muted);
 }
 
+// ══════════════════════════════════════
+//  Deafen — mute audio elements, keep subscriptions alive
+// ══════════════════════════════════════
+
 export function toggleDeafen(): boolean {
-  if (!currentRoom) return false;
-  const tracks = currentRoom.remoteParticipants;
-  let deafened = false;
-  tracks.forEach((p) => {
-    p.audioTrackPublications.forEach((pub_) => {
-      if (pub_.track) {
-        deafened = !pub_.isSubscribed;
-        pub_.setSubscribed(!pub_.isSubscribed);
-      }
-    });
-  });
-  return deafened;
+  const next = !mediaState.deafened;
+  setAllAudioMuted(next);
+  return next;
 }
 
 export function setDeafened(deafened: boolean) {
-  if (!currentRoom) return;
-  currentRoom.remoteParticipants.forEach((p) => {
-    p.audioTrackPublications.forEach((pub_) => {
-      if (pub_.track) {
-        pub_.setSubscribed(!deafened);
-      }
-    });
-  });
+  setAllAudioMuted(deafened);
 }
 
-// ── Screen share ──
+// ══════════════════════════════════════
+//  Screen share
+// ══════════════════════════════════════
 
 export async function startScreenShare(): Promise<boolean> {
   if (!currentRoom) return false;
@@ -184,7 +314,9 @@ export function isScreenSharing(): boolean {
   return currentRoom.localParticipant.isScreenShareEnabled;
 }
 
-// ── Webcam ──
+// ══════════════════════════════════════
+//  Webcam
+// ══════════════════════════════════════
 
 export async function setCameraEnabled(enabled: boolean): Promise<boolean> {
   if (!currentRoom) return false;
@@ -214,6 +346,10 @@ export async function switchCamera(deviceId: string) {
   await currentRoom.switchActiveDevice("videoinput", deviceId);
 }
 
+// ══════════════════════════════════════
+//  Audio devices
+// ══════════════════════════════════════
+
 export function isConnected(): boolean {
   return currentRoom !== null && currentRoom.state === "connected";
 }
@@ -222,7 +358,6 @@ export function getCurrentRoom(): Room | null {
   return currentRoom;
 }
 
-/// Enumerate available audio devices
 export async function getAudioDevices(): Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }> {
   try {
     const devices = await Room.getLocalDevices("audioinput");
@@ -233,37 +368,36 @@ export async function getAudioDevices(): Promise<{ inputs: MediaDeviceInfo[]; ou
   }
 }
 
-/// Switch microphone device
 export async function switchMicrophone(deviceId: string) {
   if (!currentRoom) return;
   await currentRoom.switchActiveDevice("audioinput", deviceId);
 }
 
-/// Switch speaker device
 export async function switchSpeaker(deviceId: string) {
   if (!currentRoom) return;
   await currentRoom.switchActiveDevice("audiooutput", deviceId);
 }
 
-/// Set mic enabled/disabled directly (for applying state on join)
 export function setMicEnabled(enabled: boolean) {
   if (!currentRoom) return;
   currentRoom.localParticipant.setMicrophoneEnabled(enabled);
 }
 
-/// Get WebRTC connection stats
+// ══════════════════════════════════════
+//  WebRTC connection stats
+// ══════════════════════════════════════
+
 export interface ConnectionStats {
   transport: "udp" | "tcp" | "turn-udp" | "turn-tcp" | "unknown";
   localAddress: string;
   remoteAddress: string;
-  rtt: number; // ms
+  rtt: number;
 }
 
 export async function getConnectionStats(): Promise<ConnectionStats | null> {
   if (!currentRoom) return null;
 
   try {
-    // Find the peer connection via Room internals
     const engine = (currentRoom as any).engine;
     const pc: RTCPeerConnection | undefined =
       engine?.pcManager?.publisher?.pc ??
