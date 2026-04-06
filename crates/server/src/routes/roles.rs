@@ -143,7 +143,7 @@ async fn create_role(
         position,
     };
 
-    let _ = state.event_tx.send(ServerEvent::RoleCreate(role.clone()));
+    state.broadcast(ServerEvent::RoleCreate(role.clone()));
 
     Ok(Json(role))
 }
@@ -183,7 +183,7 @@ async fn update_role(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let _ = state.event_tx.send(ServerEvent::RoleUpdate(shared::models::Role {
+    state.broadcast(ServerEvent::RoleUpdate(shared::models::Role {
         id,
         name: final_name,
         permissions: payload.permissions,
@@ -218,7 +218,7 @@ async fn delete_role(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let _ = state.event_tx.send(ServerEvent::RoleDelete { id });
+    state.broadcast(ServerEvent::RoleDelete { id });
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -260,7 +260,7 @@ async fn assign_role(
     let user_perms = crate::db::roles::get_user_permissions(&state.db, payload.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let _ = state.event_tx.send(ServerEvent::UserRoleUpdate {
+    state.broadcast(ServerEvent::UserRoleUpdate {
         user_id: payload.user_id,
         role_ids: roles.iter().map(|r| r.id).collect(),
         permissions: user_perms,
@@ -301,7 +301,7 @@ async fn remove_role(
     let user_perms = crate::db::roles::get_user_permissions(&state.db, payload.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let _ = state.event_tx.send(ServerEvent::UserRoleUpdate {
+    state.broadcast(ServerEvent::UserRoleUpdate {
         user_id: payload.user_id,
         role_ids: roles.iter().map(|r| r.id).collect(),
         permissions: user_perms,
@@ -335,7 +335,7 @@ async fn reorder_roles(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for role in roles {
-        let _ = state.event_tx.send(ServerEvent::RoleUpdate(role));
+        state.broadcast(ServerEvent::RoleUpdate(role));
     }
 
     Ok(StatusCode::NO_CONTENT)

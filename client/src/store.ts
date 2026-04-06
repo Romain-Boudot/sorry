@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, resolveBaseUrl, connectWS, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type VoiceUserState, type NotificationPref } from "./api";
+import { api, resolveBaseUrl, createWsConnection, type User, type Channel, type ChannelGroup, type Message, type Role, type ServerEvent, type SequencedEvent, type Snapshot, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
 import { joinVoice, leaveVoice, toggleMute as voiceToggleMute, toggleDeafen as voiceToggleDeafen, setMuted as voiceSetMuted, setDeafened as voiceSetDeafened, startScreenShare as voiceStartScreenShare, stopScreenShare as voiceStopScreenShare, setCameraEnabled as voiceSetCamera } from "./voice";
 
 export interface SavedServer {
@@ -16,6 +16,7 @@ export interface SavedServer {
 export interface ServerState {
   connected: boolean;
   muted: boolean; // déconnecté manuellement
+  wsState: WsConnectionState; // FSM connexion WS
   user: User | null;
   users: Map<number, User>;
   groups: ChannelGroup[];
@@ -24,7 +25,7 @@ export interface ServerState {
   activeChannelId: number | null;
   onlineUsers: Set<number>;
   voiceState: Map<number, Map<number, VoiceUserState>>;
-  ws: WebSocket | null;
+  wsConnection: WsConnection | null;
   unreadCount: number;
   permissions: number;
   roles: Role[];
@@ -55,6 +56,7 @@ function createServerState(): ServerState {
   return {
     connected: false,
     muted: false,
+    wsState: "disconnected",
     user: null,
     users: new Map(),
     groups: [],
@@ -63,7 +65,7 @@ function createServerState(): ServerState {
     activeChannelId: null,
     onlineUsers: new Set(),
     voiceState: new Map(),
-    ws: null,
+    wsConnection: null,
     unreadCount: 0,
     notificationPrefs: [],
     channelUnread: new Map(),
@@ -222,15 +224,21 @@ export function isActiveChannelVoice(): boolean {
   return ch?.kind === "voice";
 }
 
+/// Helper pour envoyer un message WS au serveur
+function wsSend(state: ServerState, msg: object) {
+  const ws = state.wsConnection?.ws;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
 /// Envoyer l'état vocal self au serveur (seulement si en vocal)
 function sendVoiceStateUpdate(state: ServerState) {
   if (!state.voiceChannelId) return;
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify({
-      type: "UpdateVoiceState",
-      data: { muted: state.isMuted, deafened: state.isDeafened },
-    }));
-  }
+  wsSend(state, {
+    type: "UpdateVoiceState",
+    data: { muted: state.isMuted, deafened: state.isDeafened },
+  });
 }
 
 /// Ajouter un nouveau serveur et s'y connecter
@@ -320,6 +328,80 @@ export async function addServerGuest(
   store.activeServerId = server.id;
 }
 
+/// Applique un snapshot complet sur le state d'un serveur.
+/// Appelé à la connexion initiale ET à chaque reconnexion.
+/// IMPORTANT: lit le state depuis le store (proxy réactif Vue) pour que les mutations déclenchent des re-renders.
+function applySnapshot(serverId: string, snapshot: Snapshot) {
+  const state = store.serverStates.get(serverId);
+  if (!state) return;
+  const server = store.savedServers.find((s) => s.id === serverId);
+
+  state.user = snapshot.user;
+  state.permissions = snapshot.permissions;
+  state.groups = snapshot.groups;
+  state.channels = snapshot.channels;
+  state.connected = true;
+  state.onlineUsers = new Set(snapshot.online_users);
+  state.onlineUsers.add(snapshot.user.id);
+  state.roles = snapshot.roles;
+  state.maxFileSize = snapshot.max_file_size;
+
+  state.users.clear();
+  for (const u of snapshot.users) {
+    state.users.set(u.id, u);
+  }
+
+  state.userRoles.clear();
+  for (const [uid, rids] of Object.entries(snapshot.user_roles)) {
+    state.userRoles.set(Number(uid), rids as number[]);
+  }
+
+  state.voiceState.clear();
+  for (const [chId, usersObj] of Object.entries(snapshot.voice_state)) {
+    const map = new Map<number, VoiceUserState>();
+    for (const [uid, vs] of Object.entries(usersObj)) {
+      map.set(Number(uid), vs as VoiceUserState);
+    }
+    state.voiceState.set(Number(chId), map);
+  }
+
+  // Update saved server info
+  if (server) {
+    server.name = snapshot.server_name;
+    server.iconUrl = snapshot.server_icon_url ?? null;
+    server.description = snapshot.server_description ?? null;
+    persistServers();
+  }
+
+  // Recharger les notification prefs (pas incluses dans le snapshot)
+  if (server) {
+    api.getNotificationPrefs(server.url, server.token)
+      .then((prefs) => {
+        const s = store.serverStates.get(serverId);
+        if (s) s.notificationPrefs = prefs;
+      })
+      .catch(() => {});
+  }
+
+  // Sélectionner le premier channel text si aucun n'est sélectionné
+  if (!state.activeChannelId) {
+    const firstText = snapshot.channels.find((c) => c.kind === "text");
+    if (firstText) {
+      state.activeChannelId = firstText.id;
+      // Charger les messages du channel actif via le proxy réactif
+      if (server) {
+        api.listMessages(server.url, server.token, firstText.id)
+          .then((msgs) => {
+            // Re-accéder au state via le store (proxy) pour garantir la réactivité
+            const s = store.serverStates.get(serverId);
+            if (s) s.messages.set(firstText.id, msgs.reverse());
+          })
+          .catch(() => {});
+      }
+    }
+  }
+}
+
 /// Connecter à un serveur (sans déconnecter les autres)
 export async function connectToServer(serverId: string) {
   const server = store.savedServers.find((s) => s.id === serverId);
@@ -342,72 +424,53 @@ export async function connectToServer(serverId: string) {
       persistServers();
     }
 
-    const [me, channels, groups, info] = await Promise.all([
-      api.me(server.url, server.token),
-      api.listChannels(server.url, server.token),
-      api.listGroups(server.url, server.token),
-      api.serverInfo(server.url).catch(() => null),
-    ]);
-
-    // Update saved server info from /info
-    if (info) {
-      server.name = info.name;
-      server.iconUrl = info.icon_url ?? null;
-      server.description = info.description ?? null;
-      persistServers();
-    }
-
-    state.user = me.user;
-    state.permissions = me.permissions;
-    state.groups = groups;
-    state.channels = channels;
-    state.connected = true;
-    state.onlineUsers = new Set(me.online_users);
-    state.onlineUsers.add(me.user.id);
     scheduleTokenRefresh(serverId);
-
-    for (const u of me.users) {
-      state.users.set(u.id, u);
-    }
-
-    state.roles = me.roles;
-    state.maxFileSize = me.max_file_size;
-    for (const [uid, rids] of Object.entries(me.user_roles)) {
-      state.userRoles.set(Number(uid), rids as number[]);
-    }
-
-    for (const [chId, usersObj] of Object.entries(me.voice_state)) {
-      const map = new Map<number, VoiceUserState>();
-      for (const [uid, vs] of Object.entries(usersObj)) {
-        map.set(Number(uid), vs as VoiceUserState);
-      }
-      state.voiceState.set(Number(chId), map);
-    }
-
-    const firstText = channels.find((c) => c.kind === "text");
-    if (firstText) {
-      state.activeChannelId = firstText.id;
-      const msgs = await api.listMessages(server.url, server.token, firstText.id);
-      state.messages.set(firstText.id, msgs.reverse());
-    }
-
-    // Load notification preferences
-    try {
-      state.notificationPrefs = await api.getNotificationPrefs(server.url, server.token);
-    } catch {}
 
     // Request browser notification permission
     if (Notification.permission === "default") {
       Notification.requestPermission();
     }
 
-    state.ws = connectWS(server.url, server.token, (event) =>
-      handleEvent(serverId, event)
+    // Connexion WS — le serveur envoie un snapshot automatiquement
+    // On attend le premier snapshot avant de considérer la connexion prête
+    let firstSnapshotReceived = false;
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((r) => { resolveReady = r; });
+
+    state.wsConnection = createWsConnection(server.url, () => server.token, {
+      onSnapshot: (snapshot) => {
+        applySnapshot(serverId, snapshot);
+        if (!firstSnapshotReceived) {
+          firstSnapshotReceived = true;
+          resolveReady();
+        }
+      },
+      onEvent: (event) => {
+        handleEvent(serverId, event);
+      },
+      onStateChange: (wsState) => {
+        state.wsState = wsState;
+        if (wsState === "connected") {
+          state.connected = true;
+        } else if (wsState === "disconnected") {
+          state.connected = false;
+        }
+        // Pendant "reconnecting", on garde connected=true
+        // pour ne pas perdre l'état UI
+      },
+    });
+
+    // Attendre le premier snapshot (avec timeout de 15s)
+    const timeout = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error("snapshot timeout")), 15000)
     );
+    await Promise.race([ready, timeout]);
 
     store.activeServerId = serverId;
   } catch {
     state.connected = false;
+    state.wsConnection?.destroy();
+    state.wsConnection = null;
   }
 }
 
@@ -463,37 +526,35 @@ export async function sendMessage(content: string, files?: File[], replyToId?: n
     // Use REST upload endpoint for messages with files
     await api.sendMessageWithFiles(server.url, server.token, state.activeChannelId, content, files, replyToId);
     // The server broadcasts MessageCreate via WS, so it will appear automatically
-  } else if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(
-      JSON.stringify({
-        type: "SendMessage",
-        data: { channel_id: state.activeChannelId, content, reply_to_id: replyToId ?? null },
-      })
-    );
+  } else {
+    wsSend(state, {
+      type: "SendMessage",
+      data: { channel_id: state.activeChannelId, content, reply_to_id: replyToId ?? null },
+    });
   }
 }
 
 export function editMessage(messageId: number, content: string) {
   const state = activeState();
-  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
-  state.ws.send(JSON.stringify({
+  if (!state) return;
+  wsSend(state, {
     type: "EditMessage",
     data: { message_id: messageId, content },
-  }));
+  });
 }
 
 export function deleteMessage(messageId: number) {
   const state = activeState();
-  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  if (!state) return;
   // Optimistic delete
   for (const [, msgs] of state.messages) {
     const idx = msgs.findIndex((m) => m.id === messageId);
     if (idx >= 0) { msgs.splice(idx, 1); break; }
   }
-  state.ws.send(JSON.stringify({
+  wsSend(state, {
     type: "DeleteMessage",
     data: { message_id: messageId },
-  }));
+  });
 }
 
 /// Rejoindre un channel vocal
@@ -519,10 +580,8 @@ export async function joinVoiceChannel(channelId: number) {
         if (state.isDeafened) {
           voiceToggleDeafen();
         }
-        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-          state.ws.send(JSON.stringify({ type: "JoinVoice", data: { channel_id: channelId } }));
-          sendVoiceStateUpdate(state);
-        }
+        wsSend(state, { type: "JoinVoice", data: { channel_id: channelId } });
+        sendVoiceStateUpdate(state);
       },
       onDisconnected: () => {
         const prevChannel = state.voiceChannelId;
@@ -530,9 +589,7 @@ export async function joinVoiceChannel(channelId: number) {
         state.voiceChannelId = null;
         state.voiceConnectingChannelId = null;
         state.voiceStatus = "idle";
-        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-          state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
-        }
+        wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
       },
       onParticipantJoined: () => {},
       onParticipantLeft: () => {},
@@ -566,8 +623,8 @@ export async function leaveVoiceChannel() {
   state.isCameraOn = false;
   // Keep mute/deaf state — user may want to rejoin muted
 
-  if (prevChannel && state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify({ type: "LeaveVoice", data: { channel_id: prevChannel } }));
+  if (prevChannel) {
+    wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
   }
 }
 
@@ -643,21 +700,21 @@ export async function toggleCamera() {
 /// Force mute un autre user (nécessite MUTE_MEMBERS)
 export function forceMute(userId: number, muted: boolean) {
   const state = activeState();
-  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
-  state.ws.send(JSON.stringify({
+  if (!state) return;
+  wsSend(state, {
     type: "ForceMute",
     data: { user_id: userId, muted },
-  }));
+  });
 }
 
 /// Force deafen un autre user (nécessite DEAFEN_MEMBERS)
 export function forceDeafen(userId: number, deafened: boolean) {
   const state = activeState();
-  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return;
-  state.ws.send(JSON.stringify({
+  if (!state) return;
+  wsSend(state, {
     type: "ForceDeafen",
     data: { user_id: userId, deafened },
-  }));
+  });
 }
 
 /// Set notification preference for a channel or server
@@ -706,8 +763,8 @@ export async function removeNotificationPref(scope: "channel" | "server", target
 export function muteServer(serverId: string) {
   const state = store.serverStates.get(serverId);
   if (state) {
-    if (state.ws) state.ws.close();
-    state.ws = null;
+    state.wsConnection?.destroy();
+    state.wsConnection = null;
     state.connected = false;
     state.muted = true;
   }
@@ -731,7 +788,7 @@ export function unmuteServer(serverId: string) {
 
 export function removeServer(serverId: string) {
   const state = store.serverStates.get(serverId);
-  if (state?.ws) state.ws.close();
+  state?.wsConnection?.destroy();
   store.serverStates.delete(serverId);
   store.savedServers = store.savedServers.filter((s) => s.id !== serverId);
   persistServers();

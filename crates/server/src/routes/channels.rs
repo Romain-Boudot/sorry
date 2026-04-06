@@ -277,7 +277,7 @@ async fn send_message_json(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let _ = state.event_tx.send(shared::events::ServerEvent::MessageCreate(message.clone()));
+    state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
 
     Ok(Json(message))
 }
@@ -377,7 +377,7 @@ async fn send_message_upload(
         }
     }
 
-    let _ = state.event_tx.send(shared::events::ServerEvent::MessageCreate(message.clone()));
+    state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
 
     Ok(Json(message))
 }

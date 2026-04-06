@@ -139,7 +139,7 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
       label: vs.force_muted ? "Unmute" : "Mute",
       icon: vs.force_muted ? Volume2 : MicOff,
       action: () => {
-        st.ws?.send(JSON.stringify({ type: "ForceMute", data: { user_id: uid, muted: !vs.force_muted } }));
+        st.wsConnection?.ws?.send(JSON.stringify({ type: "ForceMute", data: { user_id: uid, muted: !vs.force_muted } }));
       },
     });
   }
@@ -149,7 +149,7 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
       label: vs.force_deafened ? "Undeafen" : "Deafen",
       icon: vs.force_deafened ? Headphones : HeadphoneOff,
       action: () => {
-        st.ws?.send(JSON.stringify({ type: "ForceDeafen", data: { user_id: uid, deafened: !vs.force_deafened } }));
+        st.wsConnection?.ws?.send(JSON.stringify({ type: "ForceDeafen", data: { user_id: uid, deafened: !vs.force_deafened } }));
       },
     });
   }
@@ -161,7 +161,7 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
       icon: PhoneOff,
       danger: true,
       action: () => {
-        st.ws?.send(JSON.stringify({ type: "KickVoice", data: { user_id: uid } }));
+        st.wsConnection?.ws?.send(JSON.stringify({ type: "KickVoice", data: { user_id: uid } }));
       },
     });
   }

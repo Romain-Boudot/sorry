@@ -102,7 +102,7 @@ async fn update_me(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let _ = state.event_tx.send(shared::events::ServerEvent::UserUpdate(user.clone()));
+    state.broadcast(shared::events::ServerEvent::UserUpdate(user.clone()));
 
     Ok(Json(user))
 }
@@ -222,7 +222,7 @@ async fn ban_user(
     state.banned_users.write().unwrap().insert(user_id);
 
     // Disconnect the user
-    let _ = state.event_tx.send(shared::events::ServerEvent::UserOffline { user_id });
+    state.broadcast(shared::events::ServerEvent::UserOffline { user_id });
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -327,7 +327,7 @@ async fn upload_avatar(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let _ = state.event_tx.send(shared::events::ServerEvent::UserUpdate(user.clone()));
+    state.broadcast(shared::events::ServerEvent::UserUpdate(user.clone()));
 
     Ok(Json(user))
 }
@@ -343,7 +343,7 @@ async fn delete_avatar(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Ok(Some(user)) = crate::db::users::find_by_id(&state.db, auth.0).await {
-        let _ = state.event_tx.send(shared::events::ServerEvent::UserUpdate(user));
+        state.broadcast(shared::events::ServerEvent::UserUpdate(user));
     }
 
     Ok(StatusCode::NO_CONTENT)

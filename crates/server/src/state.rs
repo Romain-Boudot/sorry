@@ -2,9 +2,10 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::broadcast;
-use shared::events::ServerEvent;
+use shared::events::{SequencedEvent, ServerEvent};
 use shared::models::VoiceUserState;
 
 pub type UserId = i64;
@@ -23,7 +24,8 @@ pub struct AppState {
     pub max_file_size: usize,
     pub online_users: RwLock<HashMap<UserId, usize>>,
     pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
-    pub event_tx: broadcast::Sender<ServerEvent>,
+    pub event_tx: broadcast::Sender<SequencedEvent>,
+    pub seq_counter: AtomicU64,
     pub banned_users: RwLock<std::collections::HashSet<UserId>>,
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
     pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
@@ -59,11 +61,25 @@ impl AppState {
             online_users: RwLock::new(HashMap::new()),
             voice_state: RwLock::new(HashMap::new()),
             event_tx,
+            seq_counter: AtomicU64::new(0),
             banned_users: RwLock::new(banned_users),
             login_attempts: RwLock::new(HashMap::new()),
             og_cache: RwLock::new(HashMap::new()),
             invite_attempts: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Broadcast un event avec un numéro de séquence global auto-incrémenté.
+    pub fn broadcast(&self, event: ServerEvent) -> u64 {
+        let seq = self.seq_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let sequenced = SequencedEvent { seq, event };
+        let _ = self.event_tx.send(sequenced);
+        seq
+    }
+
+    /// Retourne le numéro de séquence courant (dernier event émis).
+    pub fn current_seq(&self) -> u64 {
+        self.seq_counter.load(Ordering::SeqCst)
     }
 
     /// Check if an IP is rate-limited (max 5 attempts per 60 seconds)

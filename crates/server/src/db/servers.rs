@@ -32,3 +32,25 @@ pub async fn delete_setting(db: &SqlitePool, key: &str) -> sqlx::Result<()> {
         .await?;
     Ok(())
 }
+
+/// Retourne (name, description, icon_url) du serveur en une seule query
+pub async fn get_settings(db: &SqlitePool) -> sqlx::Result<(String, Option<String>, Option<String>)> {
+    let rows = sqlx::query!(
+        "SELECT key, value FROM server_settings WHERE key IN ('name', 'description', 'icon_url')"
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut name = "Server".to_string();
+    let mut description = None;
+    let mut icon_url = None;
+    for row in rows {
+        match (row.key.as_deref(), row.value) {
+            (Some("name"), val) => name = val,
+            (Some("description"), val) => description = Some(val),
+            (Some("icon_url"), val) => icon_url = Some(val),
+            _ => {}
+        }
+    }
+    Ok((name, description, icon_url))
+}

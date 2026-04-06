@@ -20,7 +20,7 @@ async fn broadcast_server_update(state: &AppState) {
         .await.ok().flatten();
     let icon_url = crate::db::servers::get_setting(&state.db, "icon_url")
         .await.ok().flatten();
-    let _ = state.event_tx.send(shared::events::ServerEvent::ServerUpdate { name, description, icon_url });
+    state.broadcast(shared::events::ServerEvent::ServerUpdate { name, description, icon_url });
 }
 
 #[derive(Deserialize)]

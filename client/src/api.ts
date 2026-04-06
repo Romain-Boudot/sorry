@@ -487,27 +487,162 @@ export interface ServerEvent {
   data: unknown;
 }
 
-export function connectWS(
+/** Event séquencé reçu du serveur (contient seq + type + data) */
+export interface SequencedEvent extends ServerEvent {
+  seq: number;
+}
+
+/** Snapshot complet reçu à la connexion/reconnexion */
+export interface Snapshot {
+  seq: number;
+  user: User;
+  permissions: number;
+  users: User[];
+  online_users: number[];
+  channels: Channel[];
+  groups: ChannelGroup[];
+  roles: Role[];
+  user_roles: Record<number, number[]>;
+  voice_state: Record<number, Record<number, VoiceUserState>>;
+  server_name: string;
+  server_description: string | null;
+  server_icon_url: string | null;
+  max_file_size: number;
+}
+
+/** États FSM de la connexion WebSocket */
+export type WsConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting";
+
+export interface WsConnection {
+  ws: WebSocket | null;
+  state: WsConnectionState;
+  lastSeq: number;
+  reconnectAttempt: number;
+  /** Annule la reconnexion en cours et ferme le WS */
+  destroy: () => void;
+}
+
+/**
+ * Crée une connexion WS avec :
+ * - Backoff exponentiel (1s → 2s → 4s → 8s → max 30s)
+ * - Tracking du seq number pour détecter les gaps
+ * - Snapshot automatique à la connexion (envoyé par le serveur)
+ * - RequestSnapshot si gap détecté
+ */
+export function createWsConnection(
   baseUrl: string,
-  token: string,
-  onEvent: (event: ServerEvent) => void
-): WebSocket {
-  const url = new URL(baseUrl);
-  const proto = url.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${url.host}/ws?token=${token}`);
+  getToken: () => string,
+  callbacks: {
+    onSnapshot: (snapshot: Snapshot) => void;
+    onEvent: (event: SequencedEvent) => void;
+    onStateChange: (state: WsConnectionState) => void;
+  }
+): WsConnection {
+  let destroyed = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  ws.onmessage = (e) => {
-    try {
-      const event = JSON.parse(e.data) as ServerEvent;
-      onEvent(event);
-    } catch {
-      // ignore
+  const conn: WsConnection = {
+    ws: null,
+    state: "disconnected",
+    lastSeq: 0,
+    reconnectAttempt: 0,
+    destroy: () => {
+      destroyed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      conn.ws?.close();
+      conn.ws = null;
+      setState("disconnected");
+    },
+  };
+
+  function setState(s: WsConnectionState) {
+    conn.state = s;
+    callbacks.onStateChange(s);
+  }
+
+  function connect() {
+    if (destroyed) return;
+
+    // Fermer proprement l'ancien WS avant d'en créer un nouveau
+    if (conn.ws) {
+      const old = conn.ws;
+      old.onclose = null; // éviter que le onclose relance un reconnect
+      old.onmessage = null;
+      old.onerror = null;
+      old.close();
+      conn.ws = null;
     }
-  };
 
-  ws.onclose = () => {
-    setTimeout(() => connectWS(baseUrl, token, onEvent), 2000);
-  };
+    const isReconnect = conn.reconnectAttempt > 0;
+    setState(isReconnect ? "reconnecting" : "connecting");
 
-  return ws;
+    const url = new URL(baseUrl);
+    const proto = url.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${url.host}/ws?token=${getToken()}`);
+    conn.ws = ws;
+
+    ws.onopen = () => {
+      conn.reconnectAttempt = 0;
+      setState("connected");
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+
+        // Snapshot (envoyé automatiquement à la connexion ou sur RequestSnapshot)
+        if (msg.type === "Snapshot") {
+          const snapshot = msg.data as Snapshot;
+          conn.lastSeq = snapshot.seq;
+          callbacks.onSnapshot(snapshot);
+          return;
+        }
+
+        // Event séquencé normal
+        const event = msg as SequencedEvent;
+        if (event.seq !== undefined) {
+          // Ignorer les events déjà couverts par le snapshot
+          if (event.seq <= conn.lastSeq) return;
+          // Détecter un gap dans la séquence
+          if (conn.lastSeq > 0 && event.seq > conn.lastSeq + 1) {
+            console.warn(`[WS] Gap détecté: attendu ${conn.lastSeq + 1}, reçu ${event.seq}. Demande de snapshot.`);
+            ws.send(JSON.stringify({ type: "RequestSnapshot" }));
+            return;
+          }
+          conn.lastSeq = event.seq;
+        }
+
+        callbacks.onEvent(event);
+      } catch {
+        // ignore malformed
+      }
+    };
+
+    ws.onclose = () => {
+      if (destroyed) return;
+      conn.ws = null;
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      // onclose sera appelé après
+    };
+  }
+
+  function scheduleReconnect() {
+    if (destroyed) return;
+    setState("reconnecting");
+    conn.reconnectAttempt++;
+    // Backoff exponentiel: 1s, 2s, 4s, 8s, 16s, 30s max
+    const delay = Math.min(1000 * Math.pow(2, conn.reconnectAttempt - 1), 30000);
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  // Connexion initiale
+  connect();
+  return conn;
 }

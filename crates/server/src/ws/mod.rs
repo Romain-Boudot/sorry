@@ -5,12 +5,14 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::auth;
 use crate::state::AppState;
-use shared::events::{ClientEvent, ServerEvent};
+use shared::events::{ClientEvent, ServerEvent, Snapshot};
 use shared::models::VoiceUserState;
 use shared::permissions;
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -39,7 +41,18 @@ pub async fn handler(
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64) {
     tracing::info!("User {} connected via WebSocket", user_id);
 
-    // Marquer online (incrémenter le compteur de connexions)
+    // Subscribe AVANT tout broadcast pour ne perdre aucun event
+    let mut rx = state.event_tx.subscribe();
+    let mut last_snapshot_request = Instant::now();
+
+    // Envoyer le snapshot initial AVANT de marquer online
+    // pour éviter un flash UserOnline → UserOffline si le snapshot échoue
+    if let Err(e) = send_snapshot(&state, &mut socket, user_id).await {
+        tracing::warn!("Failed to send snapshot to user {}: {}", user_id, e);
+        return;
+    }
+
+    // Marquer online seulement après snapshot réussi
     let is_first_connection = {
         let mut online = state.online_users.write().unwrap();
         let count = online.entry(user_id).or_insert(0);
@@ -48,18 +61,17 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
     };
     if is_first_connection {
         if let Ok(Some(user)) = crate::db::users::find_by_id(&state.db, user_id).await {
-            let _ = state.event_tx.send(ServerEvent::UserOnline { user });
+            state.broadcast(ServerEvent::UserOnline { user });
         }
     }
-
-    let mut rx = state.event_tx.subscribe();
 
     loop {
         tokio::select! {
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Err(e) = handle_client_event(&state, user_id, &text).await {
+                        tracing::debug!("User {} sent: {}", user_id, &text[..text.len().min(200)]);
+                        if let Err(e) = handle_client_event(&state, &mut socket, user_id, &text, &mut last_snapshot_request).await {
                             tracing::warn!("Error handling client event: {}", e);
                         }
                     }
@@ -68,18 +80,33 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
                 }
             }
             event = rx.recv() => {
-                if let Ok(event) = event {
-                    if let Ok(json) = serde_json::to_string(&event) {
-                        if socket.send(Message::Text(json.into())).await.is_err() {
+                match event {
+                    Ok(seq_event) => {
+                        tracing::debug!("Sending seq={} to user {}", seq_event.seq, user_id);
+                        if let Ok(json) = serde_json::to_string(&seq_event) {
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        // Le client a perdu des events (buffer overflow) → renvoyer un snapshot
+                        tracing::warn!("User {} lagged by {} events, sending snapshot", user_id, n);
+                        if send_snapshot(&state, &mut socket, user_id).await.is_err() {
                             break;
                         }
                     }
+                    Err(_) => break,
                 }
             }
         }
     }
 
-    // Décrémenter le compteur de connexions
+    cleanup_user(&state, user_id).await;
+}
+
+/// Décrémenter le compteur de connexions et nettoyer l'état vocal si dernière connexion
+async fn cleanup_user(state: &AppState, user_id: i64) {
     let is_last_connection = {
         let mut online = state.online_users.write().unwrap();
         if let Some(count) = online.get_mut(&user_id) {
@@ -95,14 +122,12 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
         }
     };
 
-    // Seulement si c'était la dernière connexion
     if is_last_connection {
-        // Quitter tous les channels vocaux
         {
             let mut voice = state.voice_state.write().unwrap();
             for (channel_id, users) in voice.iter_mut() {
                 if users.remove(&user_id).is_some() {
-                    let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+                    state.broadcast(ServerEvent::UserLeftVoice {
                         user_id,
                         channel_id: *channel_id,
                     });
@@ -110,10 +135,66 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
             }
         }
 
-        let _ = state.event_tx.send(ServerEvent::UserOffline { user_id });
+        state.broadcast(ServerEvent::UserOffline { user_id });
     }
 
     tracing::info!("User {} disconnected (last={})", user_id, is_last_connection);
+}
+
+/// Construit et envoie un snapshot complet au client
+async fn send_snapshot(
+    state: &AppState,
+    socket: &mut WebSocket,
+    user_id: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Toutes les queries DB en parallèle pour minimiser la latence
+    let (user_opt, all_users, channels, groups, roles, user_perms, all_user_roles, server_settings) = tokio::try_join!(
+        crate::db::users::find_by_id(&state.db, user_id),
+        crate::db::users::list_all(&state.db),
+        crate::db::channels::list_all(&state.db),
+        crate::db::channel_groups::list_all(&state.db),
+        crate::db::roles::list_all(&state.db),
+        crate::db::roles::get_user_permissions(&state.db, user_id),
+        crate::db::roles::get_all_user_roles(&state.db),
+        crate::db::servers::get_settings(&state.db),
+    )?;
+    let user = user_opt.ok_or("user not found")?;
+
+    let online_users: Vec<i64> = {
+        let online = state.online_users.read().unwrap();
+        online.keys().copied().collect()
+    };
+
+    let voice_state: HashMap<i64, HashMap<i64, VoiceUserState>> = {
+        let vs = state.voice_state.read().unwrap();
+        vs.iter()
+            .map(|(cid, users)| (*cid, users.iter().map(|(uid, s)| (*uid, s.clone())).collect()))
+            .collect()
+    };
+
+    let snapshot = Snapshot {
+        seq: state.current_seq(),
+        user,
+        permissions: user_perms,
+        users: all_users,
+        online_users,
+        channels,
+        groups,
+        roles,
+        user_roles: all_user_roles,
+        voice_state,
+        server_name: server_settings.0,
+        server_description: server_settings.1,
+        server_icon_url: server_settings.2,
+        max_file_size: state.max_file_size,
+    };
+
+    let json = serde_json::to_string(&serde_json::json!({
+        "type": "Snapshot",
+        "data": snapshot,
+    }))?;
+    socket.send(Message::Text(json.into())).await?;
+    Ok(())
 }
 
 async fn check_channel_permission(
@@ -133,19 +214,31 @@ async fn check_channel_permission(
 
 async fn handle_client_event(
     state: &AppState,
+    socket: &mut WebSocket,
     user_id: i64,
     text: &str,
+    last_snapshot_request: &mut Instant,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event: ClientEvent = serde_json::from_str(text)?;
 
     match event {
+        ClientEvent::RequestSnapshot => {
+            // Rate limit: max 1 snapshot toutes les 5 secondes par client
+            if last_snapshot_request.elapsed() < std::time::Duration::from_secs(5) {
+                tracing::warn!("User {} snapshot request rate-limited", user_id);
+                return Ok(());
+            }
+            *last_snapshot_request = Instant::now();
+            send_snapshot(state, socket, user_id).await?;
+            return Ok(());
+        }
         ClientEvent::SendMessage { channel_id, content, reply_to_id } => {
             if !check_channel_permission(state, user_id, channel_id, permissions::SEND_MESSAGES).await? {
                 return Ok(());
             }
             let message = crate::db::messages::create(&state.db, channel_id, user_id, &content, reply_to_id)
                 .await?;
-            let _ = state.event_tx.send(ServerEvent::MessageCreate(message));
+            state.broadcast(ServerEvent::MessageCreate(message));
         }
         ClientEvent::EditMessage { message_id, content } => {
             let row = crate::db::messages::find_by_id(&state.db, message_id)
@@ -160,7 +253,7 @@ async fn handle_client_event(
                 .await?
                 .ok_or("message not found")?);
             let _ = crate::db::messages::enrich_with_attachments(&state.db, std::slice::from_mut(&mut updated)).await;
-            let _ = state.event_tx.send(ServerEvent::MessageUpdate(updated));
+            state.broadcast(ServerEvent::MessageUpdate(updated));
         }
         ClientEvent::DeleteMessage { message_id } => {
             let row = crate::db::messages::find_by_id(&state.db, message_id)
@@ -180,7 +273,7 @@ async fn handle_client_event(
                     tracing::error!("Failed to clean up files for message {}: {}", message_id, e);
                 }
             });
-            let _ = state.event_tx.send(ServerEvent::MessageDelete { id: message_id });
+            state.broadcast(ServerEvent::MessageDelete { id: message_id });
         }
         ClientEvent::JoinVoice { channel_id } => {
             if !check_channel_permission(state, user_id, channel_id, permissions::CONNECT).await? {
@@ -191,7 +284,7 @@ async fn handle_client_event(
                 let mut voice = state.voice_state.write().unwrap();
                 for (cid, users) in voice.iter_mut() {
                     if users.remove(&user_id).is_some() {
-                        let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+                        state.broadcast(ServerEvent::UserLeftVoice {
                             user_id,
                             channel_id: *cid,
                         });
@@ -204,7 +297,7 @@ async fn handle_client_event(
             let user = crate::db::users::find_by_id(&state.db, user_id)
                 .await?
                 .ok_or("user not found")?;
-            let _ = state.event_tx.send(ServerEvent::UserJoinedVoice {
+            state.broadcast(ServerEvent::UserJoinedVoice {
                 user,
                 channel_id,
                 voice_state: VoiceUserState::default(),
@@ -217,7 +310,7 @@ async fn handle_client_event(
                     users.remove(&user_id);
                 }
             }
-            let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+            state.broadcast(ServerEvent::UserLeftVoice {
                 user_id,
                 channel_id,
             });
@@ -236,7 +329,7 @@ async fn handle_client_event(
                 }
             }
             if let Some((cid, vs)) = channel_id {
-                let _ = state.event_tx.send(ServerEvent::VoiceStateUpdate {
+                state.broadcast(ServerEvent::VoiceStateUpdate {
                     user_id,
                     channel_id: cid,
                     voice_state: vs,
@@ -274,7 +367,7 @@ async fn handle_client_event(
                     }
                 });
 
-                let _ = state.event_tx.send(ServerEvent::VoiceStateUpdate {
+                state.broadcast(ServerEvent::VoiceStateUpdate {
                     user_id: target_id,
                     channel_id: cid,
                     voice_state: vs,
@@ -316,7 +409,7 @@ async fn handle_client_event(
                     }
                 });
 
-                let _ = state.event_tx.send(ServerEvent::VoiceStateUpdate {
+                state.broadcast(ServerEvent::VoiceStateUpdate {
                     user_id: target_id,
                     channel_id: cid,
                     voice_state: vs,
@@ -340,7 +433,7 @@ async fn handle_client_event(
                 }
             }
             if let Some(cid) = kicked_channel {
-                let _ = state.event_tx.send(ServerEvent::UserLeftVoice {
+                state.broadcast(ServerEvent::UserLeftVoice {
                     user_id: target_id,
                     channel_id: cid,
                 });

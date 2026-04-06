@@ -236,6 +236,7 @@ services:
       - LIVEKIT_API_SECRET=\${LIVEKIT_API_SECRET}
       - UPLOAD_DIR=\${UPLOAD_DIR:-./data/uploads}
       - MAX_FILE_SIZE_MB=\${MAX_FILE_SIZE_MB:-25}
+      - RUST_LOG=\${RUST_LOG:-server=info}
     volumes:
       - ./data:/app/data
 

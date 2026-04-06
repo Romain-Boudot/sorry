@@ -23,10 +23,11 @@ RUN cargo build --release --bin server
 
 # Runtime
 FROM alpine:3.20
-RUN apk add --no-cache sqlite-libs ca-certificates
+RUN apk add --no-cache sqlite-libs sqlite ca-certificates
 COPY --from=builder /app/target/release/server /usr/local/bin/server
 COPY migrations/ /app/migrations
 WORKDIR /app
 VOLUME /app/data
+ENV RUST_LOG=server=info
 EXPOSE 3000
 CMD ["server"]
