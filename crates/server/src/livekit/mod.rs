@@ -51,7 +51,7 @@ fn admin_token(api_key: &str, api_secret: &str) -> Result<String, jsonwebtoken::
     let claims = AdminClaims {
         iss: api_key.to_string(),
         exp: now + 60,
-        nbf: 0,
+        nbf: now,
         video: AdminGrant {
             room_admin: true,
             room: String::new(), // empty = all rooms
@@ -172,12 +172,12 @@ pub fn generate_token(
     // Build allowed publish sources based on permissions
     let mut sources = Vec::new();
     if can_speak {
-        sources.push("MICROPHONE".to_string());
+        sources.push("microphone".to_string());
     }
     if can_stream {
-        sources.push("CAMERA".to_string());
-        sources.push("SCREEN_SHARE".to_string());
-        sources.push("SCREEN_SHARE_AUDIO".to_string());
+        sources.push("camera".to_string());
+        sources.push("screen_share".to_string());
+        sources.push("screen_share_audio".to_string());
     }
 
     let can_publish = !sources.is_empty();
@@ -187,7 +187,7 @@ pub fn generate_token(
         sub: identity.to_string(),
         name: display_name.to_string(),
         exp: now + 6 * 3600,
-        nbf: 0,
+        nbf: now,
         video: VideoGrant {
             room: room_name.to_string(),
             room_join: true,
