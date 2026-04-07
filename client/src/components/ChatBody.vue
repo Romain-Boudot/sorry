@@ -223,13 +223,19 @@ function scrollToBottom() {
 }
 
 watch(() => messages.value.length, (newLen, oldLen) => {
-  if (!oldLen || newLen <= oldLen) return;
+  if (!oldLen) { scrollToBottom(); return; }
+  if (newLen <= oldLen) return;
   if (isScrolledToBottom()) scrollToBottom();
 });
 
 watch(() => state.value?.activeChannelId, () => {
   noMoreMessages.value = false;
   scrollToBottom();
+});
+
+// Scroll when transitioning from skeleton to real content
+watch(() => state.value?.connected, (connected) => {
+  if (connected) scrollToBottom();
 });
 
 onMounted(scrollToBottom);
