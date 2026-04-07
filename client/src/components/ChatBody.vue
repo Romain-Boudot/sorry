@@ -367,6 +367,8 @@ function scrollToMessage(messageId: number) {
   }
 }
 
+defineExpose({ scrollToMessage });
+
 function startEdit(msg: Message) {
   editingMessageId.value = msg.id;
   editContent.value = msg.content;

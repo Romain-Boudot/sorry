@@ -5,10 +5,10 @@
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
       <div v-if="store.activeServerId" class="main-area">
-        <ChatHeader />
+        <ChatHeader @jump-to="onSearchJump" />
         <div class="main-body">
           <VoiceView v-if="isVoice" />
-          <ChatBody v-else />
+          <ChatBody v-else ref="chatBodyRef" />
           <UserList v-if="!isVoice" />
         </div>
       </div>
@@ -70,6 +70,11 @@ import AudioControls from "./components/AudioControls.vue";
 const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
 const isTauri = ref("__TAURI_INTERNALS__" in window);
+const chatBodyRef = ref<InstanceType<typeof ChatBody>>();
+
+function onSearchJump(messageId: number) {
+  chatBodyRef.value?.scrollToMessage(messageId);
+}
 
 function handleInviteParams(params: URLSearchParams) {
   const invite = params.get("invite");

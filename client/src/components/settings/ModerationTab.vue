@@ -162,10 +162,51 @@
         <span v-if="!userRoleBadges(selectedUserId).length && !availableRoles.length" class="mod-no-roles">Aucun role</span>
       </div>
 
-      <div class="card-title" style="margin-top: 16px;">Activite</div>
-      <div class="mod-audit-placeholder">
-        <ScrollText :size="20" />
-        <span>L'historique d'activite sera disponible prochainement</span>
+      <!-- Activity tabs -->
+      <div class="mod-activity-tabs" style="margin-top: 16px;">
+        <button
+          class="mod-activity-tab"
+          :class="{ active: activityTab === 'messages' }"
+          @click="activityTab = 'messages'"
+        >Messages</button>
+        <button
+          class="mod-activity-tab"
+          :class="{ active: activityTab === 'actions' }"
+          @click="activityTab = 'actions'"
+        >Actions</button>
+      </div>
+
+      <!-- Messages tab -->
+      <div v-if="activityTab === 'messages'" class="mod-messages" ref="messagesContainer" @scroll="onMessagesScroll">
+        <div v-if="loadingMessages && !userMessages.length" class="mod-messages-status">
+          <Loader2 :size="14" class="spinner" /> Chargement...
+        </div>
+        <div v-else-if="!userMessages.length" class="mod-messages-status">
+          Aucun message
+        </div>
+        <template v-else>
+          <div v-for="msg in userMessages" :key="msg.id" class="mod-msg">
+            <div class="mod-msg-header">
+              <span class="mod-msg-channel">#{{ channelName(msg.channel_id) }}</span>
+              <span class="mod-msg-time">{{ formatMsgDate(msg.created_at) }}</span>
+            </div>
+            <div class="mod-msg-content">{{ truncate(msg.content, 200) }}</div>
+            <div v-if="msg.attachments.length" class="mod-msg-attachments">
+              {{ msg.attachments.length }} fichier{{ msg.attachments.length > 1 ? 's' : '' }}
+            </div>
+          </div>
+          <div v-if="loadingMessages" class="mod-messages-status">
+            <Loader2 :size="14" class="spinner" /> Chargement...
+          </div>
+        </template>
+      </div>
+
+      <!-- Actions tab (placeholder) -->
+      <div v-if="activityTab === 'actions'" class="mod-messages">
+        <div class="mod-messages-status" style="flex-direction: column; padding: 24px;">
+          <ScrollText :size="20" />
+          <span>Les logs d'actions seront disponibles prochainement</span>
+        </div>
       </div>
 
       <!-- Ban action -->
@@ -236,9 +277,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { X, ShieldCheck, Ban, UserRound, Search, Calendar, Plus, ScrollText } from "lucide-vue-next";
+import { X, ShieldCheck, Ban, UserRound, Search, Calendar, Plus, Loader2, ScrollText } from "lucide-vue-next";
 import { activeState, activeServer } from "../../store";
-import { api, type BannedUser } from "../../api";
+import { api, type BannedUser, type Message } from "../../api";
 
 const state = computed(() => activeState());
 
@@ -360,9 +401,70 @@ function selectedUserRoleIds(): number[] {
   return state.value?.userRoles.get(selectedUserId.value) ?? [];
 }
 
+const userMessages = ref<Message[]>([]);
+const loadingMessages = ref(false);
+const hasMoreMessages = ref(false);
+const activityTab = ref<"messages" | "actions">("messages");
+const messagesContainer = ref<HTMLElement>();
+
 function selectUser(userId: number) {
   selectedUserId.value = userId;
   selectedBannedId.value = null;
+  activityTab.value = "messages";
+  loadUserMessages(userId);
+}
+
+async function loadUserMessages(userId: number, before?: number) {
+  const s = activeServer();
+  if (!s) return;
+  loadingMessages.value = true;
+  try {
+    const msgs = await api.userMessages(s.url, s.token, userId, 20, before);
+    if (before) {
+      userMessages.value.push(...msgs);
+    } else {
+      userMessages.value = msgs;
+    }
+    hasMoreMessages.value = msgs.length >= 20;
+  } catch {
+    userMessages.value = [];
+    hasMoreMessages.value = false;
+  } finally {
+    loadingMessages.value = false;
+  }
+}
+
+function loadMoreMessages() {
+  if (!selectedUserId.value || !userMessages.value.length || loadingMessages.value) return;
+  const lastId = userMessages.value[userMessages.value.length - 1].id;
+  loadUserMessages(selectedUserId.value, lastId);
+}
+
+function onMessagesScroll() {
+  const el = messagesContainer.value;
+  if (!el || !hasMoreMessages.value) return;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+    loadMoreMessages();
+  }
+}
+
+function channelName(channelId: number): string {
+  const ch = state.value?.channels.find(c => c.id === channelId);
+  return ch?.name ?? "inconnu";
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + "..." : s;
+}
+
+function formatMsgDate(ts: string): string {
+  try {
+    const d = new Date(ts + "Z");
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })
+      + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return ts;
+  }
 }
 
 async function toggleUserRole(roleId: number) {
@@ -872,19 +974,97 @@ async function unbanUser(userId: number) {
   font-style: italic;
 }
 
-.mod-audit-placeholder {
+.mod-activity-tabs {
   display: flex;
-  flex-direction: column;
+  gap: 0;
+  background: var(--bg-tertiary);
+  border-radius: 8px 8px 0 0;
+  padding: 3px;
+}
+
+.mod-activity-tab {
+  flex: 1;
+  padding: 5px 8px;
+  margin: 0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s, color 0.15s;
+  text-align: center;
+}
+
+.mod-activity-tab:hover { color: var(--text-normal); }
+.mod-activity-tab.active { background: var(--bg-primary); color: var(--text-normal); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+
+.mod-messages {
+  background: var(--bg-tertiary);
+  border-radius: 0 0 6px 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.mod-messages-status {
+  display: flex;
   align-items: center;
   gap: 8px;
-  padding: 24px 16px;
-  color: var(--text-faint);
+  padding: 16px;
   font-size: 0.8125rem;
-  text-align: center;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  margin-top: 6px;
+  color: var(--text-faint);
 }
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.mod-msg {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mod-msg:last-child {
+  border-bottom: none;
+}
+
+.mod-msg-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.mod-msg-channel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.mod-msg-time {
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+.mod-msg-content {
+  font-size: 0.8125rem;
+  color: var(--text-normal);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.mod-msg-attachments {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
 
 .mod-danger-zone {
   margin-top: 20px;

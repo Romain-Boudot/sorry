@@ -199,6 +199,17 @@ export const api = {
     return request<Message[]>(baseUrl, `/channels/${channelId}/messages?${params}`, token);
   },
 
+  userMessages(baseUrl: string, token: string, userId: number, limit = 50, before?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", String(before));
+    return request<Message[]>(baseUrl, `/users/${userId}/messages?${params}`, token);
+  },
+
+  searchMessages(baseUrl: string, token: string, channelId: number, query: string, limit = 25) {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    return request<Message[]>(baseUrl, `/channels/${channelId}/search?${params}`, token);
+  },
+
   sendMessage(baseUrl: string, token: string, channelId: number, content: string, replyToId?: number) {
     return request<Message>(baseUrl, `/channels/${channelId}/messages`, token, {
       method: "POST",

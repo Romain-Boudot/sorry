@@ -3,7 +3,7 @@ use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -259,6 +259,39 @@ pub async fn serve_avatar(
     ).into_response())
 }
 
+#[derive(Deserialize)]
+pub struct UserMessagesQuery {
+    limit: Option<i64>,
+    before: Option<i64>,
+}
+
+/// GET /api/users/:id/messages?limit=50&before=123
+async fn user_messages(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(target_id): Path<i64>,
+    Query(query): Query<UserMessagesQuery>,
+) -> Result<Json<Vec<shared::models::Message>>, AppError> {
+    // Only allow viewing own messages or if caller has MANAGE_MESSAGES
+    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0).await?;
+    if auth.0 != target_id && !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
+        return Err(AppError::Forbidden);
+    }
+
+    let mut messages = crate::db::messages::list_by_author(
+        &state.db,
+        target_id,
+        query.limit.unwrap_or(50).min(100),
+        query.before,
+    )
+    .await?;
+
+    crate::db::messages::enrich_with_attachments(&state.db, &mut messages).await?;
+    crate::db::messages::enrich_with_reactions(&state.db, &mut messages).await?;
+
+    Ok(Json(messages))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/me", get(me).patch(update_me))
@@ -267,4 +300,5 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/banned", get(list_banned))
         .route("/:id/ban", post(ban_user).delete(unban_user))
         .route("/:id/roles", get(user_roles))
+        .route("/:id/messages", get(user_messages))
 }

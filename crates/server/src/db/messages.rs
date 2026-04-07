@@ -179,6 +179,86 @@ pub async fn list_by_channel(
     Ok(messages)
 }
 
+// ── By author ──
+
+pub async fn list_by_author(
+    db: &SqlitePool,
+    author_id: i64,
+    limit: i64,
+    before_id: Option<i64>,
+) -> sqlx::Result<Vec<Message>> {
+    let rows = match before_id {
+        Some(before) => {
+            sqlx::query_as!(
+                MessageRow,
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                 WHERE author_id = ? AND id < ?
+                 ORDER BY id DESC LIMIT ?"#,
+                author_id,
+                before,
+                limit
+            )
+            .fetch_all(db)
+            .await?
+        }
+        None => {
+            sqlx::query_as!(
+                MessageRow,
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                 WHERE author_id = ?
+                 ORDER BY id DESC LIMIT ?"#,
+                author_id,
+                limit
+            )
+            .fetch_all(db)
+            .await?
+        }
+    };
+
+    let mut messages: Vec<Message> = rows.iter().map(to_model).collect();
+    enrich_with_replies(db, &mut messages, &rows).await?;
+    Ok(messages)
+}
+
+// ── Search ──
+
+pub async fn search(
+    db: &SqlitePool,
+    channel_id: i64,
+    query: &str,
+    limit: i64,
+) -> sqlx::Result<Vec<Message>> {
+    let raw: Vec<(i64, i64, i64, String, String, Option<i64>)> = sqlx::query_as(
+        r#"SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.reply_to_id
+           FROM messages_fts f
+           JOIN messages m ON m.id = f.rowid
+           WHERE f.content MATCH ? AND m.channel_id = ?
+           ORDER BY rank
+           LIMIT ?"#,
+    )
+    .bind(query)
+    .bind(channel_id)
+    .bind(limit)
+    .fetch_all(db)
+    .await?;
+
+    let rows: Vec<MessageRow> = raw
+        .into_iter()
+        .map(|(id, channel_id, author_id, content, created_at, reply_to_id)| MessageRow {
+            id: Some(id),
+            channel_id,
+            author_id,
+            content,
+            created_at,
+            reply_to_id,
+        })
+        .collect();
+
+    let mut messages: Vec<Message> = rows.iter().map(to_model).collect();
+    enrich_with_replies(db, &mut messages, &rows).await?;
+    Ok(messages)
+}
+
 // ── Reactions ──
 
 /// Toggle a reaction: removes if already exists, adds otherwise.

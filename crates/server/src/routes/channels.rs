@@ -28,6 +28,12 @@ pub struct ListMessagesQuery {
 }
 
 #[derive(Deserialize)]
+pub struct SearchMessagesQuery {
+    q: String,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
 pub struct SendMessagePayload {
     content: String,
     reply_to_id: Option<i64>,
@@ -394,6 +400,51 @@ async fn delete_overwrite(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// GET /api/channels/:id/search?q=hello&limit=25
+async fn search_messages(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Query(query): Query<SearchMessagesQuery>,
+) -> Result<Json<Vec<shared::models::Message>>, AppError> {
+    require_channel_permission(&state.db, auth.0, channel_id, permissions::READ_MESSAGE_HISTORY)
+        .await?;
+
+    let q = query.q.trim();
+    if q.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    // Sanitize FTS5 query: wrap each word in quotes, last word gets prefix match (*)
+    let words: Vec<&str> = q.split_whitespace().collect();
+    let fts_query: String = words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let clean = w.replace('"', "");
+            if i == words.len() - 1 {
+                format!("\"{}\"*", clean) // prefix match on last word for live search
+            } else {
+                format!("\"{}\"", clean)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mut messages = crate::db::messages::search(
+        &state.db,
+        channel_id,
+        &fts_query,
+        query.limit.unwrap_or(25).min(50),
+    )
+    .await?;
+
+    crate::db::messages::enrich_with_attachments(&state.db, &mut messages).await?;
+    crate::db::messages::enrich_with_reactions(&state.db, &mut messages).await?;
+
+    Ok(Json(messages))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_channels).post(create_channel))
@@ -404,6 +455,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id", get(|| async { "channel" }).patch(update_channel).delete(delete_channel))
         .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message_json))
+        .route("/:id/search", get(search_messages))
         .route("/:id/upload", axum::routing::post(send_message_upload)
             .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * upload::MAX_FILES_PER_MESSAGE + 1024 * 64)))
         .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
