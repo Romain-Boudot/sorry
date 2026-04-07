@@ -160,7 +160,8 @@ async fn ban_user(
 
     crate::db::users::ban(&state.db, user_id).await?;
     state.banned_users.write().unwrap().insert(user_id);
-    state.broadcast(shared::events::ServerEvent::UserOffline { user_id });
+    // UserBanned will trigger WS disconnect for the banned user + notify others
+    state.broadcast(shared::events::ServerEvent::UserBanned { user_id });
 
     Ok(StatusCode::NO_CONTENT)
 }

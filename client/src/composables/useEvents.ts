@@ -6,6 +6,7 @@ import { type ServerEvent, type Message, type User, type Role, type VoiceUserSta
 import { store, persistServers, type ServerState } from "../store";
 import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../voice";
 import { fireNotification } from "./useNotifications";
+import { showToast } from "./useToast";
 
 function defaultVoiceUserState(): VoiceUserState {
   return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
@@ -136,6 +137,20 @@ export function handleEvent(serverId: string, event: ServerEvent) {
         saved.iconUrl = icon_url;
         saved.description = description;
         persistServers();
+      }
+      break;
+    }
+    case "UserBanned": {
+      const { user_id } = event.data as { user_id: number };
+      // If it's us, disconnect and notify
+      if (user_id === state.user?.id) {
+        state.wsConnection?.destroy();
+        state.wsConnection = null;
+        state.connected = false;
+        showToast("Tu as ete banni de ce serveur", "error", 5000);
+      } else {
+        // For other users, treat like offline
+        state.onlineUsers.delete(user_id);
       }
       break;
     }

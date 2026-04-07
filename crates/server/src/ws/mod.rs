@@ -37,6 +37,15 @@ pub async fn handler(
     };
 
     let user_id = claims.sub;
+
+    // Reject banned users
+    if state.banned_users.read().unwrap().contains(&user_id) {
+        return Response::builder()
+            .status(403)
+            .body("Banned".into())
+            .unwrap();
+    }
+
     ws.on_upgrade(move |socket| handle_socket(socket, state, user_id))
 }
 
@@ -80,6 +89,15 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
             event = rx.recv() => {
                 match event {
                     Ok(seq_event) => {
+                        // Force disconnect if this user was banned
+                        if matches!(&seq_event.event, ServerEvent::UserBanned { user_id: banned_id } if *banned_id == user_id) {
+                            tracing::info!("User {} banned, closing WS", user_id);
+                            // Send the event so client knows why
+                            if let Ok(json) = serde_json::to_string(&seq_event) {
+                                let _ = socket.send(Message::Text(json.into())).await;
+                            }
+                            break;
+                        }
                         tracing::debug!("Sending seq={} to user {}", seq_event.seq, user_id);
                         if let Ok(json) = serde_json::to_string(&seq_event) {
                             if socket.send(Message::Text(json.into())).await.is_err() {

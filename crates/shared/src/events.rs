@@ -21,6 +21,7 @@ pub enum ServerEvent {
     ServerUpdate { name: String, description: Option<String>, icon_url: Option<String> },
     ReactionAdded { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
     ReactionRemoved { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
+    UserBanned { user_id: i64 },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués

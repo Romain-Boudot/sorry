@@ -24,11 +24,8 @@
       <p class="card-hint">Ton nom visible sur ce serveur.</p>
       <div class="input-row">
         <input v-model="displayName" type="text" placeholder="Mon pseudo" maxlength="32" />
-        <button class="btn-sm" @click="saveDisplayName" :disabled="saving">
-          {{ saving ? '...' : 'Sauvegarder' }}
-        </button>
+        <SaveButton :loading="saving" :saved="saved" @click="saveDisplayName" />
       </div>
-      <p class="toast-success" v-if="saved">Sauvegarde !</p>
     </div>
 
     <div class="card">
@@ -40,12 +37,9 @@
         <input v-model="confirmPassword" type="password" placeholder="Confirmer" @keydown.enter="changePassword" />
       </div>
       <div class="password-actions">
-        <button class="btn-sm" @click="changePassword" :disabled="savingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword">
-          {{ savingPassword ? '...' : 'Changer' }}
-        </button>
+        <SaveButton label="Changer" :loading="savingPassword" :saved="passwordSaved" :disabled="!currentPassword || !newPassword || newPassword !== confirmPassword" @click="changePassword" />
         <span v-if="newPassword && confirmPassword && newPassword !== confirmPassword" class="password-error">Les mots de passe ne correspondent pas</span>
         <span v-if="passwordError" class="password-error">{{ passwordError }}</span>
-        <span v-if="passwordSaved" class="toast-success">Mot de passe change !</span>
       </div>
     </div>
   </div>
@@ -54,6 +48,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { Camera } from "lucide-vue-next";
+import SaveButton from "../SaveButton.vue";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
 

@@ -28,11 +28,8 @@
             <div class="card-title">Nom du groupe</div>
             <div class="input-row">
               <input v-model="groupName" type="text" placeholder="Nom" @keydown.enter="saveName" />
-              <button class="btn-sm" @click="saveName" :disabled="!groupName.trim() || groupName === group?.name">
-                Sauvegarder
-              </button>
+              <SaveButton :loading="savingName" :saved="nameSaved" :disabled="!groupName.trim() || groupName === group?.name" @click="saveName" />
             </div>
-            <p class="toast-success" v-if="nameSaved">Sauvegarde !</p>
           </div>
         </div>
       </div>
@@ -43,6 +40,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Trash2, Settings } from "lucide-vue-next";
+import SaveButton from "./SaveButton.vue";
 import { store, activeState, activeServer } from "../store";
 import { api } from "../api";
 
@@ -51,6 +49,7 @@ const groupId = computed(() => store.groupSettingsId);
 const group = computed(() => state.value?.groups.find((g) => g.id === groupId.value));
 
 const groupName = ref("");
+const savingName = ref(false);
 const nameSaved = ref(false);
 
 onMounted(() => {
@@ -63,11 +62,16 @@ async function saveName() {
   const id = groupId.value;
   if (!s || !st || !id || !groupName.value.trim()) return;
 
-  await api.updateGroup(s.url, s.token, id, groupName.value.trim());
-  const g = st.groups.find((g) => g.id === id);
-  if (g) g.name = groupName.value.trim();
-  nameSaved.value = true;
-  setTimeout(() => (nameSaved.value = false), 2000);
+  savingName.value = true;
+  try {
+    await api.updateGroup(s.url, s.token, id, groupName.value.trim());
+    const g = st.groups.find((g) => g.id === id);
+    if (g) g.name = groupName.value.trim();
+    nameSaved.value = true;
+    setTimeout(() => (nameSaved.value = false), 2500);
+  } finally {
+    savingName.value = false;
+  }
 }
 
 async function handleDelete() {

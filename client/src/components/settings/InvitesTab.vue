@@ -98,6 +98,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { Trash2, TicketPlus, Copy, Check, Link2, Circle, ChevronDown } from "lucide-vue-next";
+import { showToast } from "../../composables/useToast";
 import { activeState, activeServer, resolveUser } from "../../store";
 import { api, type Invite } from "../../api";
 import * as perms from "../../permissions";
@@ -209,6 +210,7 @@ async function revokeInvite(code: string) {
   if (!s) return;
   await api.deleteInvite(s.url, s.token, code);
   invites.value = invites.value.filter((i) => i.code !== code);
+  showToast("Invitation revoquee");
 }
 
 function formatExpiry(ts: number): string {

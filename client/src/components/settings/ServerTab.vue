@@ -25,9 +25,7 @@
       <div class="card-title">Nom du serveur</div>
       <div class="input-row">
         <input v-model="serverName" type="text" placeholder="Mon serveur" maxlength="64" />
-        <button class="btn-sm" @click="saveServerInfo" :disabled="savingServer">
-          {{ savingServer ? '...' : 'Sauvegarder' }}
-        </button>
+        <SaveButton :loading="savingServer" :saved="serverSaved" @click="saveServerInfo" />
       </div>
     </div>
 
@@ -35,9 +33,7 @@
       <div class="card-title">Description</div>
       <p class="card-hint">Une courte description de ton serveur (max 256 caracteres).</p>
       <textarea v-model="serverDescription" class="server-desc-input" placeholder="Description du serveur..." maxlength="256" rows="3"></textarea>
-      <button class="btn-sm" style="margin-top: 8px;" @click="saveServerInfo" :disabled="savingServer">
-        {{ savingServer ? '...' : 'Sauvegarder' }}
-      </button>
+      <SaveButton style="margin-top: 8px;" :loading="savingServer" :saved="serverSaved" @click="saveServerInfo" />
     </div>
   </div>
 </template>
@@ -45,6 +41,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { Server, Camera } from "lucide-vue-next";
+import SaveButton from "../SaveButton.vue";
 import { store, activeServer, persistServers } from "../../store";
 import { api } from "../../api";
 
@@ -53,6 +50,7 @@ const serverDescription = ref("");
 const serverIconUrl = ref<string | null>(null);
 const iconInput = ref<HTMLInputElement>();
 const savingServer = ref(false);
+const serverSaved = ref(false);
 
 onMounted(async () => {
   const s = activeServer();
@@ -79,6 +77,8 @@ async function saveServerInfo() {
       saved.name = serverName.value;
       persistServers();
     }
+    serverSaved.value = true;
+    setTimeout(() => (serverSaved.value = false), 2500);
   } finally {
     savingServer.value = false;
   }

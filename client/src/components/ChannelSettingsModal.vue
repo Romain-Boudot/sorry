@@ -39,11 +39,8 @@
             <div class="card-title">Nom du channel</div>
             <div class="input-row">
               <input v-model="channelName" type="text" placeholder="Nom" @keydown.enter="saveName" />
-              <button class="btn-sm" @click="saveName" :disabled="!channelName.trim() || channelName === channel?.name">
-                Sauvegarder
-              </button>
+              <SaveButton :loading="savingName" :saved="nameSaved" :disabled="!channelName.trim() || channelName === channel?.name" @click="saveName" />
             </div>
-            <p class="toast-success" v-if="nameSaved">Sauvegarde !</p>
           </div>
         </div>
 
@@ -83,6 +80,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Hash, Volume2, Trash2, ChevronDown, Settings, Shield } from "lucide-vue-next";
+import SaveButton from "./SaveButton.vue";
 import { store, activeState, activeServer } from "../store";
 import { api } from "../api";
 import * as perms from "../permissions";
@@ -116,6 +114,7 @@ const permsList = [
 
 // General
 const channelName = ref("");
+const savingName = ref(false);
 const nameSaved = ref(false);
 
 async function saveName() {
@@ -124,11 +123,16 @@ async function saveName() {
   const id = channelId.value;
   if (!s || !st || !id || !channelName.value.trim()) return;
 
-  await api.updateChannel(s.url, s.token, id, { name: channelName.value.trim() });
-  const ch = st.channels.find((c) => c.id === id);
-  if (ch) ch.name = channelName.value.trim();
-  nameSaved.value = true;
-  setTimeout(() => (nameSaved.value = false), 2000);
+  savingName.value = true;
+  try {
+    await api.updateChannel(s.url, s.token, id, { name: channelName.value.trim() });
+    const ch = st.channels.find((c) => c.id === id);
+    if (ch) ch.name = channelName.value.trim();
+    nameSaved.value = true;
+    setTimeout(() => (nameSaved.value = false), 2500);
+  } finally {
+    savingName.value = false;
+  }
 }
 
 // Permissions

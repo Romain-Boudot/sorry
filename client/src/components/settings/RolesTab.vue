@@ -83,7 +83,7 @@
       </div>
 
       <div class="detail-actions">
-        <button class="btn-sm" @click="saveRole">Sauvegarder</button>
+        <SaveButton :loading="savingRole" :saved="roleSaved" @click="saveRole" />
       </div>
     </div>
     <div class="split-detail empty" v-else>
@@ -98,6 +98,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Trash2, ShieldCheck, Lock, GripVertical } from "lucide-vue-next";
+import SaveButton from "../SaveButton.vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
@@ -106,6 +107,8 @@ import * as perms from "../../permissions";
 const roles = ref<{ id: number; name: string; permissions: number; color: string | null; position: number }[]>([]);
 const newRoleName = ref("");
 const editingRole = ref<{ id: number; name: string; permissions: number; color: string | null } | null>(null);
+const savingRole = ref(false);
+const roleSaved = ref(false);
 
 const customRoles = computed({
   get: () => roles.value.filter(r => r.id > 2),
@@ -202,17 +205,24 @@ async function saveRole() {
   const r = editingRole.value;
   if (!s || !r) return;
 
-  await api.updateRole(s.url, s.token, r.id, {
-    name: r.name,
-    permissions: r.permissions,
-    color: r.color,
-  });
+  savingRole.value = true;
+  try {
+    await api.updateRole(s.url, s.token, r.id, {
+      name: r.name,
+      permissions: r.permissions,
+      color: r.color,
+    });
 
-  const idx = roles.value.findIndex((x) => x.id === r.id);
-  if (idx >= 0) {
-    roles.value[idx].name = r.name;
-    roles.value[idx].permissions = r.permissions;
-    roles.value[idx].color = r.color;
+    const idx = roles.value.findIndex((x) => x.id === r.id);
+    if (idx >= 0) {
+      roles.value[idx].name = r.name;
+      roles.value[idx].permissions = r.permissions;
+      roles.value[idx].color = r.color;
+    }
+    roleSaved.value = true;
+    setTimeout(() => (roleSaved.value = false), 2500);
+  } finally {
+    savingRole.value = false;
   }
 }
 
@@ -260,7 +270,7 @@ async function onRoleDragEnd() {
   flex: 1;
   background: var(--bg-secondary);
   border-radius: 8px;
-  padding: 16px;
+  padding: 16px 16px 0;
   overflow-y: auto;
 }
 
@@ -495,9 +505,13 @@ async function onRoleDragEnd() {
 .detail-actions {
   display: flex;
   justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
   margin-top: 16px;
-  padding-top: 12px;
+  padding: 12px 0;
   border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  z-index: 1;
 }
 
 .item-row.sortable-chosen { background: var(--bg-modifier-active); border-radius: 6px; }

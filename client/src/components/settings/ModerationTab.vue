@@ -278,6 +278,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, ShieldCheck, Ban, UserRound, Search, Calendar, Plus, Loader2, ScrollText } from "lucide-vue-next";
+import { showToast } from "../../composables/useToast";
 import { activeState, activeServer } from "../../store";
 import { api, type BannedUser, type Message } from "../../api";
 
@@ -485,9 +486,15 @@ async function confirmBan() {
   const uid = selectedUserId.value;
   if (!s || !uid) return;
 
-  await api.banUser(s.url, s.token, uid);
-  showBanConfirm.value = false;
-  selectedUserId.value = null;
+  const name = selectedUser.value?.display_name;
+  try {
+    await api.banUser(s.url, s.token, uid);
+    showBanConfirm.value = false;
+    selectedUserId.value = null;
+    showToast(`${name} a ete banni`);
+  } catch {
+    showToast("Erreur lors du bannissement", "error");
+  }
 }
 
 async function loadBannedUsers() {
@@ -501,9 +508,15 @@ async function loadBannedUsers() {
 async function unbanUser(userId: number) {
   const s = activeServer();
   if (!s) return;
-  await api.unbanUser(s.url, s.token, userId);
-  bannedUsers.value = bannedUsers.value.filter(u => u.id !== userId);
-  if (selectedBannedId.value === userId) selectedBannedId.value = null;
+  const name = bannedUsers.value.find(u => u.id === userId)?.display_name;
+  try {
+    await api.unbanUser(s.url, s.token, userId);
+    bannedUsers.value = bannedUsers.value.filter(u => u.id !== userId);
+    if (selectedBannedId.value === userId) selectedBannedId.value = null;
+    showToast(`${name} a ete debanni`);
+  } catch {
+    showToast("Erreur lors du debannissement", "error");
+  }
 }
 </script>
 
