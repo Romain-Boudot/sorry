@@ -1,11 +1,26 @@
 <template>
   <div class="sidebar">
-    <div class="sidebar-header" @click="store.showServerSettingsModal = true">
-      <h2>{{ server?.name }}</h2>
-      <ChevronDown :size="16" class="sidebar-header-icon" />
+    <div class="sidebar-header" @click="state?.connected && (store.showServerSettingsModal = true)">
+      <h2 v-if="server?.name">{{ server.name }}</h2>
+      <div v-else class="skeleton skeleton-text" style="width: 120px; height: 16px;"></div>
+      <ChevronDown v-if="state?.connected" :size="16" class="sidebar-header-icon" />
     </div>
 
-    <div class="channel-list" @contextmenu.prevent="onContextMenu">
+    <!-- Skeleton while connecting -->
+    <div v-if="!state?.connected" class="channel-list skeleton-channels">
+      <div class="skeleton-group-title"><div class="skeleton skeleton-text" style="width: 70px; height: 10px;"></div></div>
+      <div v-for="i in 5" :key="i" class="skeleton-channel">
+        <div class="skeleton skeleton-icon"></div>
+        <div class="skeleton skeleton-text" :style="{ width: (60 + Math.random() * 80) + 'px' }"></div>
+      </div>
+      <div class="skeleton-group-title" style="margin-top: 16px;"><div class="skeleton skeleton-text" style="width: 90px; height: 10px;"></div></div>
+      <div v-for="i in 3" :key="'v'+i" class="skeleton-channel">
+        <div class="skeleton skeleton-icon"></div>
+        <div class="skeleton skeleton-text" :style="{ width: (60 + Math.random() * 80) + 'px' }"></div>
+      </div>
+    </div>
+
+    <div v-else class="channel-list" @contextmenu.prevent="onContextMenu">
       <!-- Header channels sans groupe -->
       <div v-if="ungrouped.length || canManage" class="channel-group-title ungrouped-header">
         <span>Channels</span>
@@ -508,4 +523,43 @@ function toggleGroup(groupId: number) {
 
 .channel-group-title.can-drag { cursor: grab; }
 .channel-group-title.can-drag:active { cursor: grabbing; }
+
+/* ── Skeleton ── */
+.skeleton-channels {
+  padding: 8px 0;
+  flex: 1;
+}
+
+.skeleton-group-title {
+  padding: 4px 10px;
+  margin-bottom: 4px;
+}
+
+.skeleton-channel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.skeleton-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.skeleton {
+  background: var(--bg-modifier-hover);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-text {
+  height: 14px;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
 </style>

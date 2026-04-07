@@ -3,8 +3,8 @@
     <TopBar />
     <div class="app-grid">
       <ServerList />
-      <Sidebar v-if="state?.connected" />
-      <div v-if="state?.connected" class="main-area">
+      <Sidebar v-if="store.activeServerId" />
+      <div v-if="store.activeServerId" class="main-area">
         <ChatHeader />
         <div class="main-body">
           <VoiceView v-if="isVoice" />
@@ -134,8 +134,8 @@ onMounted(async () => {
     });
   }
 
-  await connectAll();
   restoreNav();
+  connectAll();
 });
 </script>
 

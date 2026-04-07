@@ -3,7 +3,7 @@
  * Extracted from store.ts — operates on the same reactive store object.
  */
 import { api, resolveBaseUrl, createWsConnection, type Snapshot, type VoiceUserState } from "../api";
-import { store, persistServers, persistNav, createServerState, type SavedServer, type ServerState } from "../store";
+import { store, persistServers, persistNav, pendingChannels, createServerState, type SavedServer, type ServerState } from "../store";
 import { handleEvent } from "./useEvents";
 
 // ── Token refresh ──
@@ -98,16 +98,20 @@ function applySnapshot(serverId: string, snapshot: Snapshot) {
       .catch(() => {});
   }
 
-  // Select first text channel if none selected
+  // Restore pending channel from nav, or select first text channel
   if (!state.activeChannelId) {
-    const firstText = snapshot.channels.find((c) => c.kind === "text");
-    if (firstText) {
-      state.activeChannelId = firstText.id;
+    const pending = pendingChannels.get(serverId);
+    const channelExists = pending && snapshot.channels.some((c) => c.id === pending);
+    const targetChannel = channelExists ? pending : snapshot.channels.find((c) => c.kind === "text")?.id;
+    pendingChannels.delete(serverId);
+
+    if (targetChannel) {
+      state.activeChannelId = targetChannel;
       if (server) {
-        api.listMessages(server.url, server.token, firstText.id)
+        api.listMessages(server.url, server.token, targetChannel)
           .then((msgs) => {
             const s = store.serverStates.get(serverId);
-            if (s) s.messages.set(firstText.id, msgs.reverse());
+            if (s) s.messages.set(targetChannel, msgs.reverse());
           })
           .catch(() => {});
       }
@@ -127,8 +131,9 @@ export async function connectToServer(serverId: string) {
     return;
   }
 
-  const state = createServerState();
-  store.serverStates.set(serverId, state);
+  store.serverStates.set(serverId, createServerState());
+  // Always use the proxy reference so Vue reactivity tracks mutations
+  const state = store.serverStates.get(serverId)!;
 
   try {
     const resolvedUrl = await resolveBaseUrl(server.url);
@@ -159,11 +164,13 @@ export async function connectToServer(serverId: string) {
         handleEvent(serverId, event);
       },
       onStateChange: (wsState) => {
-        state.wsState = wsState;
+        const s = store.serverStates.get(serverId);
+        if (!s) return;
+        s.wsState = wsState;
         if (wsState === "connected") {
-          state.connected = true;
+          s.connected = true;
         } else if (wsState === "disconnected") {
-          state.connected = false;
+          s.connected = false;
         }
       },
     });

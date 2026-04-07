@@ -1,37 +1,45 @@
 <template>
   <div class="server-list">
-    <div
-      v-for="server in store.savedServers"
-      :key="server.id"
-      class="server-icon"
-      :class="{
-        active: server.id === store.activeServerId,
-        muted: getState(server.id)?.muted,
-        disconnected: !getState(server.id)?.connected && !getState(server.id)?.muted,
-      }"
-      :title="server.name"
-      @click="switchToServer(server.id)"
-      @contextmenu.prevent="openMenu($event, server.id)"
+    <VueDraggable
+      v-model="store.savedServers"
+      :animation="150"
+      handle=".server-icon"
+      @end="persistServers()"
+      class="server-drag-area"
     >
-      <img v-if="server.iconUrl" :src="`${server.url}${server.iconUrl}`" class="server-icon-img" />
-      <span v-else>{{ server.name[0]?.toUpperCase() }}</span>
-      <span
-        class="status-dot"
+      <div
+        v-for="server in store.savedServers"
+        :key="server.id"
+        class="server-icon"
         :class="{
-          connected: getState(server.id)?.connected,
+          active: server.id === store.activeServerId,
           muted: getState(server.id)?.muted,
+          disconnected: !getState(server.id)?.connected && !getState(server.id)?.muted,
         }"
-      ></span>
-      <span class="unread-badge mention" v-if="getMentions(server.id) > 0"></span>
-      <span class="unread-badge" v-else-if="getUnread(server.id) > 0"></span>
-      <span class="voice-indicator" v-if="getState(server.id)?.voiceChannelId">
-        <Phone :size="8" fill="currentColor" />
-      </span>
-      <span class="notif-muted-indicator" v-if="getNotifLevel(server.id) !== 'all'" :title="getNotifLevel(server.id) === 'nothing' ? 'Notifications desactivees' : 'Mentions uniquement'">
-        <BellOff v-if="getNotifLevel(server.id) === 'nothing'" :size="10" />
-        <BellMinus v-else :size="10" />
-      </span>
-    </div>
+        :title="server.name"
+        @click="switchToServer(server.id)"
+        @contextmenu.prevent="openMenu($event, server.id)"
+      >
+        <img v-if="server.iconUrl" :src="`${server.url}${server.iconUrl}`" class="server-icon-img" />
+        <span v-else>{{ server.name[0]?.toUpperCase() }}</span>
+        <span
+          class="status-dot"
+          :class="{
+            connected: getState(server.id)?.connected,
+            muted: getState(server.id)?.muted,
+          }"
+        ></span>
+        <span class="unread-badge mention" v-if="getMentions(server.id) > 0"></span>
+        <span class="unread-badge" v-else-if="getUnread(server.id) > 0"></span>
+        <span class="voice-indicator" v-if="getState(server.id)?.voiceChannelId">
+          <Phone :size="8" fill="currentColor" />
+        </span>
+        <span class="notif-muted-indicator" v-if="getNotifLevel(server.id) !== 'all'" :title="getNotifLevel(server.id) === 'nothing' ? 'Notifications desactivees' : 'Mentions uniquement'">
+          <BellOff v-if="getNotifLevel(server.id) === 'nothing'" :size="10" />
+          <BellMinus v-else :size="10" />
+        </span>
+      </div>
+    </VueDraggable>
 
     <div class="server-separator"></div>
 
@@ -55,6 +63,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { VueDraggable } from "vue-draggable-plus";
 import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight, Phone, Bell, BellMinus, BellOff } from "lucide-vue-next";
 import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers, setNotificationPref, removeNotificationPref, activeState } from "../store";
 import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
@@ -201,6 +210,13 @@ function openMenu(event: MouseEvent, serverId: string) {
   padding: 12px 0;
   gap: 8px;
   overflow-y: auto;
+}
+
+.server-drag-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .server-icon {

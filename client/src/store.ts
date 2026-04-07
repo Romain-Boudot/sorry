@@ -132,16 +132,27 @@ export function persistNav() {
   }));
 }
 
-/** Restore navigation state after reconnection. Call after connectAll(). */
+/**
+ * Pending channel selections from nav restore — applied when serverState is created.
+ * Keyed by serverId → channelId.
+ */
+export const pendingChannels = new Map<string, number>();
+
+/** Restore navigation state. Call BEFORE connectAll() so the UI shows immediately. */
 export function restoreNav() {
   const nav = loadNavState();
-  if (nav.serverId && store.serverStates.has(nav.serverId)) {
+  if (nav.serverId && store.savedServers.some((s) => s.id === nav.serverId)) {
     store.activeServerId = nav.serverId;
   }
   for (const [id, channelId] of Object.entries(nav.channels ?? {})) {
-    const state = store.serverStates.get(id);
-    if (state && typeof channelId === "number") {
-      state.activeChannelId = channelId;
+    if (typeof channelId === "number") {
+      // If state already exists, apply directly; otherwise store for later
+      const state = store.serverStates.get(id);
+      if (state) {
+        state.activeChannelId = channelId;
+      } else {
+        pendingChannels.set(id, channelId);
+      }
     }
   }
 }
@@ -320,9 +331,9 @@ export async function addServerGuest(
 }
 
 export function switchToServer(serverId: string) {
+  store.activeServerId = serverId;
   const state = store.serverStates.get(serverId);
   if (state?.connected) {
-    store.activeServerId = serverId;
     state.unreadCount = 0;
     if (state.activeChannelId) {
       state.channelUnread.delete(state.activeChannelId);

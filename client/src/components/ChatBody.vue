@@ -1,5 +1,28 @@
 <template>
   <div class="chat-body" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+    <!-- Skeleton while connecting -->
+    <div v-if="!state?.connected" class="chat-skeleton">
+      <div v-for="i in 6" :key="i" class="skeleton-message" :class="{ grouped: i % 3 !== 1 }">
+        <template v-if="i % 3 === 1">
+          <div class="skeleton skeleton-avatar"></div>
+          <div class="skeleton-msg-body">
+            <div class="skeleton-msg-header">
+              <div class="skeleton skeleton-text" :style="{ width: (60 + Math.random() * 60) + 'px', height: '14px' }"></div>
+              <div class="skeleton skeleton-text" style="width: 40px; height: 10px;"></div>
+            </div>
+            <div class="skeleton skeleton-text" :style="{ width: (150 + Math.random() * 200) + 'px', height: '14px' }"></div>
+          </div>
+        </template>
+        <template v-else>
+          <div class="skeleton-gutter"></div>
+          <div class="skeleton-msg-body">
+            <div class="skeleton skeleton-text" :style="{ width: (100 + Math.random() * 250) + 'px', height: '14px' }"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <template v-else>
     <div v-if="dragging" class="drop-overlay">
       <div class="drop-overlay-inner">
         <Paperclip :size="40" :stroke-width="1.2" />
@@ -147,6 +170,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -905,5 +929,62 @@ function formatTimeShort(ts: string): string {
   background: var(--accent);
   background: rgba(88, 101, 242, 0.1);
   transition: background 0.3s;
+}
+
+/* ── Skeleton ── */
+.chat-skeleton {
+  flex: 1;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.skeleton-message {
+  display: flex;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.skeleton-message:not(.grouped) {
+  margin-top: 16px;
+}
+
+.skeleton-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.skeleton-gutter {
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.skeleton-msg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.skeleton-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skeleton {
+  background: var(--bg-modifier-hover);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-text {
+  height: 14px;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }
 </style>
