@@ -9,6 +9,8 @@ import {
   setDeafened as voiceSetDeafened,
   startScreenShare as voiceStartScreenShare, stopScreenShare as voiceStopScreenShare,
   setCameraEnabled as voiceSetCamera,
+  isScreenSharing as voiceIsScreenSharing,
+  isCameraEnabled as voiceIsCameraEnabled,
 } from "../voice";
 import type { ServerState, SavedServer } from "../store";
 import { wsSend, sendVoiceStateUpdate } from "./helpers";
@@ -48,6 +50,14 @@ export async function joinVoiceChannel(
       },
       onTrackChanged: () => {
         state.videoTrackVersion++;
+        // Sync state with actual LiveKit track state (handles browser-native stop sharing, etc.)
+        const actualScreen = voiceIsScreenSharing();
+        const actualCamera = voiceIsCameraEnabled();
+        if (state.isScreenSharing !== actualScreen || state.isCameraOn !== actualCamera) {
+          state.isScreenSharing = actualScreen;
+          state.isCameraOn = actualCamera;
+          sendVoiceStateUpdate(state);
+        }
       },
       onError: (err) => {
         state.voiceStatus = "error";
