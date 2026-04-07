@@ -16,6 +16,11 @@ export function sendVoiceStateUpdate(state: ServerState) {
   if (!state.voiceChannelId) return;
   wsSend(state, {
     type: "UpdateVoiceState",
-    data: { muted: state.isMuted, deafened: state.isDeafened },
+    data: {
+      muted: state.isMuted,
+      deafened: state.isDeafened,
+      screen_sharing: state.isScreenSharing,
+      camera_on: state.isCameraOn,
+    },
   });
 }

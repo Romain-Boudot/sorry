@@ -124,6 +124,7 @@ export async function toggleScreenShare(state: ServerState) {
     state.isScreenSharing = ok;
   }
   state.videoTrackVersion++;
+  sendVoiceStateUpdate(state);
 }
 
 export async function toggleCamera(state: ServerState) {
@@ -132,6 +133,7 @@ export async function toggleCamera(state: ServerState) {
   const ok = await voiceSetCamera(next);
   if (ok) state.isCameraOn = next;
   state.videoTrackVersion++;
+  sendVoiceStateUpdate(state);
 }
 
 export function forceMute(state: ServerState, userId: number, muted: boolean) {

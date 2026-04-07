@@ -217,8 +217,8 @@ async fn handle_client_event(
         ClientEvent::LeaveVoice { channel_id } => {
             voice::handle_leave(state, user_id, channel_id).await?;
         }
-        ClientEvent::UpdateVoiceState { muted, deafened } => {
-            voice::handle_update_state(state, user_id, muted, deafened).await?;
+        ClientEvent::UpdateVoiceState { muted, deafened, screen_sharing, camera_on } => {
+            voice::handle_update_state(state, user_id, muted, deafened, screen_sharing, camera_on).await?;
         }
         ClientEvent::ForceMute { user_id: target_id, muted } => {
             voice::handle_force_mute(state, user_id, target_id, muted).await?;

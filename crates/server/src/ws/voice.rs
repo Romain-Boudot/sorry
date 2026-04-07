@@ -96,10 +96,14 @@ pub async fn handle_update_state(
     user_id: i64,
     muted: bool,
     deafened: bool,
+    screen_sharing: bool,
+    camera_on: bool,
 ) -> WsResult {
     let result = mutate_voice_state(state, user_id, |vs| {
         vs.muted = muted || vs.force_muted;
         vs.deafened = deafened || vs.force_deafened;
+        vs.screen_sharing = screen_sharing;
+        vs.camera_on = camera_on;
     });
     if let Some((cid, vs)) = result {
         state.broadcast(ServerEvent::VoiceStateUpdate {

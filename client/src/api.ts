@@ -451,6 +451,8 @@ export interface VoiceUserState {
   deafened: boolean;
   force_muted: boolean;
   force_deafened: boolean;
+  screen_sharing: boolean;
+  camera_on: boolean;
 }
 
 export interface Invite {

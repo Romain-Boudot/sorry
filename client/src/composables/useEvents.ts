@@ -8,7 +8,7 @@ import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../v
 import { fireNotification } from "./useNotifications";
 
 function defaultVoiceUserState(): VoiceUserState {
-  return { muted: false, deafened: false, force_muted: false, force_deafened: false };
+  return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
 }
 
 export function handleEvent(serverId: string, event: ServerEvent) {

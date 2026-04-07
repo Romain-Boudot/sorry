@@ -58,7 +58,7 @@ pub enum ClientEvent {
     DeleteMessage { message_id: i64 },
     JoinVoice { channel_id: i64 },
     LeaveVoice { channel_id: i64 },
-    UpdateVoiceState { muted: bool, deafened: bool },
+    UpdateVoiceState { muted: bool, deafened: bool, screen_sharing: bool, camera_on: bool },
     ForceMute { user_id: i64, muted: bool },
     ForceDeafen { user_id: i64, deafened: bool },
     KickVoice { user_id: i64 },

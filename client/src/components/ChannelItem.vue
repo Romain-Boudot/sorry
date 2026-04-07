@@ -46,6 +46,8 @@
         <span class="voice-user-name">{{ resolveUser(uid) }}</span>
         <MicOff v-if="vs.muted || vs.force_muted" class="voice-status-icon" :class="{ forced: vs.force_muted }" :size="12" />
         <Headphones v-if="vs.deafened || vs.force_deafened" class="voice-status-icon" :class="{ forced: vs.force_deafened }" :size="12" />
+        <Monitor v-if="vs.screen_sharing" class="voice-status-icon streaming" :size="12" />
+        <Video v-if="vs.camera_on" class="voice-status-icon streaming" :size="12" />
       </div>
     </div>
 
@@ -69,7 +71,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, BellMinus } from "lucide-vue-next";
+import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, BellMinus, Monitor, Video } from "lucide-vue-next";
 import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import type { Channel, User, VoiceUserState } from "../api";
@@ -292,6 +294,10 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 
 .voice-status-icon.forced {
   color: var(--danger);
+}
+
+.voice-status-icon.streaming {
+  color: var(--accent);
 }
 
 .channel-name.muted {

@@ -34,8 +34,8 @@
         <div class="voice-participant-icons">
           <MicOff v-if="vs.muted || vs.force_muted" :size="14" :class="{ forced: vs.force_muted }" />
           <HeadphoneOff v-if="vs.deafened || vs.force_deafened" :size="14" :class="{ forced: vs.force_deafened }" />
-          <Monitor v-if="getParticipantMedia(uid)?.screenShare" :size="14" class="streaming" />
-          <Video v-if="getParticipantMedia(uid)?.camera" :size="14" class="streaming" />
+          <Monitor v-if="vs.screen_sharing" :size="14" class="streaming" />
+          <Video v-if="vs.camera_on" :size="14" class="streaming" />
         </div>
         <!-- Force mute/deafen pour les admins -->
         <div v-if="uid !== state?.user?.id && (canMuteMembers || canDeafenMembers)" class="voice-participant-actions">
@@ -82,7 +82,7 @@ import { computed, ref, watch, nextTick } from "vue";
 import { Phone, Volume2, Loader, AlertCircle, MicOff, HeadphoneOff, Monitor, Video } from "lucide-vue-next";
 import { Track } from "livekit-client";
 import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen } from "../store";
-import { getCurrentRoom, mediaState, type ParticipantMedia } from "../voice";
+import { getCurrentRoom, mediaState } from "../voice";
 import * as perms from "../permissions";
 import type { VoiceUserState } from "../api";
 
@@ -135,11 +135,6 @@ const videoTracks = computed((): VideoTrackInfo[] => {
 
   return tracks;
 });
-
-/** Get media state for a participant by user ID (resolves identity from voiceState) */
-function getParticipantMedia(userId: number): ParticipantMedia | undefined {
-  return mediaState.participants.get(`user-${userId}`);
-}
 
 const prevTrackKeys = new Set<string>();
 

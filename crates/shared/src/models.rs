@@ -6,6 +6,10 @@ pub struct VoiceUserState {
     pub deafened: bool,
     pub force_muted: bool,
     pub force_deafened: bool,
+    #[serde(default)]
+    pub screen_sharing: bool,
+    #[serde(default)]
+    pub camera_on: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
