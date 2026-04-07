@@ -16,6 +16,8 @@ pub struct AppState {
     pub server_name: String,
     pub jwt_secret: String,
     pub jwt_ttl_secs: i64,
+    /// Short prefix for LiveKit room names, unique per instance.
+    pub room_prefix: String,
     pub livekit_url: String,
     pub livekit_internal_url: String,
     pub livekit_api_key: String,
@@ -46,11 +48,17 @@ impl AppState {
         max_file_size: usize,
         banned_users: std::collections::HashSet<UserId>,
     ) -> Self {
+        // Derive a short unique prefix from jwt_secret
+        use sha2::{Sha256, Digest};
+        let hash = Sha256::digest(jwt_secret.as_bytes());
+        let room_prefix = hex::encode(&hash[..4]);
+
         let (event_tx, _) = broadcast::channel(1024);
         Self {
             db,
             server_name,
             jwt_secret,
+            room_prefix,
             jwt_ttl_secs,
             livekit_url,
             livekit_internal_url,
@@ -67,6 +75,11 @@ impl AppState {
             og_cache: RwLock::new(HashMap::new()),
             invite_attempts: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// LiveKit room name, unique per instance: `{prefix}-voice-{channel_id}`
+    pub fn room_name(&self, channel_id: i64) -> String {
+        format!("{}-voice-{}", self.room_prefix, channel_id)
     }
 
     /// Broadcast un event avec un numéro de séquence global auto-incrémenté.

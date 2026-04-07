@@ -40,7 +40,7 @@ fn mutate_voice_state(
 
 /// Spawn a LiveKit mute call in the background.
 fn spawn_livekit_mute(state: &AppState, channel_id: i64, target_id: i64, muted: bool) {
-    let room = format!("voice-{}", channel_id);
+    let room = state.room_name(channel_id);
     let identity = format!("user-{}", target_id);
     let lk_url = state.livekit_internal_url.clone();
     let lk_key = state.livekit_api_key.clone();
@@ -186,7 +186,7 @@ pub async fn handle_kick(state: &AppState, actor_id: i64, target_id: i64) -> WsR
             channel_id: cid,
         });
 
-        let room = format!("voice-{}", cid);
+        let room = state.room_name(cid);
         let identity = format!("user-{}", target_id);
         let lk_url = state.livekit_internal_url.clone();
         let lk_key = state.livekit_api_key.clone();

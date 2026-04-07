@@ -53,8 +53,7 @@ async fn get_token(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Room name = "voice-{channel_id}"
-    let room_name = format!("voice-{}", payload.channel_id);
+    let room_name = state.room_name(payload.channel_id);
     let identity = format!("user-{}", auth.0);
 
     let can_speak = permissions::has(perms, permissions::SPEAK);
