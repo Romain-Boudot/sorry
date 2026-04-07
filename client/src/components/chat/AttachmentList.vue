@@ -1,23 +1,50 @@
 <template>
   <div v-if="attachments?.length" class="message-attachments">
     <template v-for="att in attachments" :key="att.id">
-      <a v-if="isImage(att)" :href="attachmentUrl(att)" target="_blank" class="attachment-image">
+      <button v-if="isImage(att)" class="attachment-image" @click="lightbox = { src: attachmentUrl(att), filename: att.filename }">
         <img :src="attachmentUrl(att)" :alt="att.filename" loading="lazy" />
-      </a>
-      <a v-else :href="attachmentUrl(att)" :download="att.filename" target="_blank" class="attachment-file">
+      </button>
+      <button v-else class="attachment-file" @click="downloadFile(att)">
         <FileText :size="16" />
         <span class="att-name">{{ att.filename }}</span>
         <span class="att-size">{{ formatSize(att.size) }}</span>
         <Download :size="14" />
-      </a>
+      </button>
     </template>
   </div>
+  <ImageLightbox
+    v-if="lightbox"
+    :src="lightbox.src"
+    :filename="lightbox.filename"
+    @close="lightbox = null"
+  />
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { FileText, Download } from "lucide-vue-next";
 import type { Attachment } from "../../api";
 import { activeServer } from "../../store";
+import ImageLightbox from "./ImageLightbox.vue";
+import { showToast } from "../../composables/useToast";
+
+const lightbox = ref<{ src: string; filename: string } | null>(null);
+
+async function downloadFile(att: Attachment) {
+  try {
+    const res = await fetch(attachmentUrl(att));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = att.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`${att.filename} telecharge`);
+  } catch {
+    showToast("Erreur lors du telechargement", "error");
+  }
+}
 
 defineProps<{
   attachments: Attachment[] | undefined;
@@ -54,6 +81,10 @@ function attachmentUrl(att: Attachment): string {
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
 }
 
 .attachment-image img {
@@ -65,17 +96,19 @@ function attachmentUrl(att: Attachment): string {
 }
 
 .attachment-file {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  width: auto;
   padding: 8px 12px;
+  margin: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-normal);
-  text-decoration: none;
   font-size: 0.8125rem;
   max-width: 300px;
+  cursor: pointer;
   transition: background 0.15s;
 }
 

@@ -1,5 +1,6 @@
 <template>
   <div class="app-shell" :class="{ 'is-tauri': isTauri }">
+    <ToastContainer />
     <TopBar />
     <div class="app-grid">
       <ServerList />
@@ -58,6 +59,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ChatHeader from "./components/ChatHeader.vue";
 import ChatBody from "./components/ChatBody.vue";
 import FileGallery from "./components/chat/FileGallery.vue";
+import ToastContainer from "./components/ToastContainer.vue";
 import VoiceView from "./components/VoiceView.vue";
 import UserList from "./components/UserList.vue";
 import EmptyState from "./components/EmptyState.vue";

@@ -27,29 +27,27 @@
 
       <!-- Media grid -->
       <div v-if="tab === 'media' && filtered.length" class="gallery-grid">
-        <a
+        <button
           v-for="att in filtered"
           :key="att.id"
-          :href="baseUrl + att.url"
-          target="_blank"
           class="gallery-thumb"
+          @click="isImage(att) ? openLightbox(att) : downloadFile(att)"
         >
           <img v-if="isImage(att)" :src="baseUrl + att.url" :alt="att.filename" loading="lazy" />
           <div v-else class="gallery-video-thumb">
             <Play :size="24" />
             <span>{{ att.filename }}</span>
           </div>
-        </a>
+        </button>
       </div>
 
       <!-- File list -->
       <div v-if="tab === 'files' && filtered.length" class="gallery-list">
-        <a
+        <button
           v-for="att in filtered"
           :key="att.id"
-          :href="baseUrl + att.url"
-          target="_blank"
           class="gallery-file"
+          @click="downloadFile(att)"
         >
           <FileIcon :size="16" />
           <div class="gallery-file-info">
@@ -58,19 +56,28 @@
               {{ resolveUser(att.author_id) }} · {{ formatDate(att.created_at) }} · {{ formatSize(att.size) }}
             </span>
           </div>
-        </a>
+        </button>
       </div>
 
       <div v-if="loading && items.length" class="gallery-status">
         <Loader2 :size="14" class="spinner" /> Chargement...
       </div>
     </div>
+
+    <ImageLightbox
+      v-if="lightbox"
+      :src="lightbox.src"
+      :filename="lightbox.filename"
+      @close="lightbox = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { X, Loader2, Play, FileIcon } from "lucide-vue-next";
+import ImageLightbox from "./ImageLightbox.vue";
+import { showToast } from "../../composables/useToast";
 import { activeState, activeServer, resolveUser } from "../../store";
 import { api, type ChannelAttachment } from "../../api";
 
@@ -85,6 +92,27 @@ const items = ref<ChannelAttachment[]>([]);
 const loading = ref(false);
 const hasMore = ref(false);
 const scrollContainer = ref<HTMLElement>();
+const lightbox = ref<{ src: string; filename: string } | null>(null);
+
+function openLightbox(att: ChannelAttachment) {
+  lightbox.value = { src: baseUrl.value + att.url, filename: att.filename };
+}
+
+async function downloadFile(att: ChannelAttachment) {
+  try {
+    const res = await fetch(baseUrl.value + att.url);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = att.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`${att.filename} telecharge`);
+  } catch {
+    showToast("Erreur lors du telechargement", "error");
+  }
+}
 
 const filtered = computed(() => {
   if (tab.value === "media") {
@@ -256,18 +284,27 @@ function formatSize(bytes: number): string {
 /* ── Media grid ── */
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
 }
 
 .gallery-thumb {
   aspect-ratio: 1;
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg-tertiary);
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.gallery-thumb:hover {
+  opacity: 0.8;
 }
 
 .gallery-thumb img {
@@ -305,10 +342,15 @@ function formatSize(bytes: number): string {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 8px;
+  margin: 0;
   border-radius: 6px;
-  text-decoration: none;
+  border: none;
+  background: transparent;
+  text-align: left;
   color: var(--text-normal);
+  cursor: pointer;
   transition: background 0.1s;
 }
 
