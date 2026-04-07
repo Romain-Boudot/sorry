@@ -27,7 +27,7 @@ struct LiveKitClaims {
 }
 
 /// Generate a short-lived admin token for LiveKit API calls
-fn admin_token(api_key: &str, api_secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+fn admin_token(api_key: &str, api_secret: &str, room_name: &str) -> Result<String, jsonwebtoken::errors::Error> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -45,7 +45,12 @@ fn admin_token(api_key: &str, api_secret: &str) -> Result<String, jsonwebtoken::
     struct AdminGrant {
         #[serde(rename = "roomAdmin")]
         room_admin: bool,
-        room: String,
+        #[serde(rename = "roomList")]
+        room_list: bool,
+        #[serde(rename = "roomCreate")]
+        room_create: bool,
+        #[serde(rename = "room", skip_serializing_if = "Option::is_none")]
+        room: Option<String>,
     }
 
     let claims = AdminClaims {
@@ -54,7 +59,9 @@ fn admin_token(api_key: &str, api_secret: &str) -> Result<String, jsonwebtoken::
         nbf: now,
         video: AdminGrant {
             room_admin: true,
-            room: String::new(), // empty = all rooms
+            room_list: true,
+            room_create: true,
+            room: Some(room_name.to_string()),
         },
     };
 
@@ -76,7 +83,7 @@ pub async fn set_participant_muted(
 ) -> Result<(), String> {
     if livekit_url.is_empty() { return Ok(()); }
 
-    let token = admin_token(api_key, api_secret).map_err(|e| e.to_string())?;
+    let token = admin_token(api_key, api_secret, room_name).map_err(|e| e.to_string())?;
 
     // First list participant's tracks
     let client = reqwest::Client::new();
@@ -137,20 +144,26 @@ pub async fn remove_participant(
 ) -> Result<(), String> {
     if livekit_url.is_empty() { return Ok(()); }
 
-    let token = admin_token(api_key, api_secret).map_err(|e| e.to_string())?;
+    let token = admin_token(api_key, api_secret, room_name).map_err(|e| e.to_string())?;
     let client = reqwest::Client::new();
     let base = livekit_url.trim_end_matches('/');
 
     #[derive(Serialize)]
     struct RemoveReq { room: String, identity: String }
 
-    client
+    let res = client
         .post(format!("{}/twirp/livekit.RoomService/RemoveParticipant", base))
         .bearer_auth(&token)
         .json(&RemoveReq { room: room_name.to_string(), identity: identity.to_string() })
         .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("LiveKit API {} — {}", status, body));
+    }
 
     Ok(())
 }
