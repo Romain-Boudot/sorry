@@ -10,7 +10,7 @@ IMAGE_NAME="${1:-sorry}"
 REGISTRY="${2:-}"
 
 # Read version from Cargo.toml
-VERSION=$(grep '^version' crates/server/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 TAG="${3:-$VERSION}"
 
 if [ -n "$REGISTRY" ]; then
