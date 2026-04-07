@@ -4,9 +4,11 @@ RUN apk add --no-cache musl-dev sqlite-dev sqlite
 WORKDIR /app
 
 COPY Cargo.lock ./
+COPY Cargo.toml ./
+# Remove tauri workspace member (not needed in Docker, avoids missing manifest error)
+RUN sed -i '/"client\/src-tauri"/d' Cargo.toml
 COPY crates/server/Cargo.toml crates/server/Cargo.toml
 COPY crates/shared/Cargo.toml crates/shared/Cargo.toml
-RUN printf '[workspace]\nmembers = ["crates/server", "crates/shared"]\nresolver = "2"\n' > Cargo.toml
 RUN mkdir -p crates/server/src crates/shared/src \
     && echo "fn main(){}" > crates/server/src/main.rs \
     && echo "" > crates/shared/src/lib.rs \
