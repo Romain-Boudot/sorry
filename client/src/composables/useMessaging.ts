@@ -44,3 +44,10 @@ export function deleteMessage(state: ServerState, messageId: number) {
     data: { message_id: messageId },
   });
 }
+
+export function toggleReaction(state: ServerState, messageId: number, emoji: string) {
+  wsSend(state, {
+    type: "ToggleReaction",
+    data: { message_id: messageId, emoji },
+  });
+}

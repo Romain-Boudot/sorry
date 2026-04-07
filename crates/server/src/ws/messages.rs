@@ -45,7 +45,42 @@ pub async fn handle_edit(
             .ok_or("message not found")?,
     );
     let _ = crate::db::messages::enrich_with_attachments(&state.db, std::slice::from_mut(&mut updated)).await;
+    let _ = crate::db::messages::enrich_with_reactions(&state.db, std::slice::from_mut(&mut updated)).await;
     state.broadcast(ServerEvent::MessageUpdate(updated));
+    Ok(())
+}
+
+pub async fn handle_toggle_reaction(
+    state: &AppState,
+    user_id: i64,
+    message_id: i64,
+    emoji: String,
+) -> WsResult {
+    if emoji.is_empty() || emoji.chars().count() > 32 {
+        return Ok(());
+    }
+
+    let row = crate::db::messages::find_by_id(&state.db, message_id)
+        .await?
+        .ok_or("message not found")?;
+
+    let added = crate::db::messages::toggle_reaction(&state.db, message_id, user_id, &emoji).await?;
+
+    if added {
+        state.broadcast(ServerEvent::ReactionAdded {
+            message_id,
+            channel_id: row.channel_id,
+            emoji,
+            user_id,
+        });
+    } else {
+        state.broadcast(ServerEvent::ReactionRemoved {
+            message_id,
+            channel_id: row.channel_id,
+            emoji,
+            user_id,
+        });
+    }
     Ok(())
 }
 

@@ -53,6 +53,16 @@
         >
           <!-- Hover actions -->
           <div v-if="editingMessageId !== msg.id" class="message-actions">
+            <button
+              v-for="emoji in quickEmojis"
+              :key="emoji"
+              class="msg-action-btn quick-emoji"
+              :title="emoji"
+              @click="onToggleReaction(msg.id, emoji)"
+            >{{ emoji }}</button>
+            <button class="msg-action-btn" title="Reaction" @click="openEmojiPicker(msg.id, $event)">
+              <SmilePlus :size="14" />
+            </button>
             <button class="msg-action-btn" title="Repondre" @click="startReply(msg)">
               <Reply :size="14" />
             </button>
@@ -97,6 +107,7 @@
               <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <AttachmentList :attachments="msg.attachments" />
+              <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
             </div>
           </template>
           <template v-else>
@@ -126,6 +137,7 @@
               <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <AttachmentList :attachments="msg.attachments" />
+              <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
             </div>
           </template>
         </div>
@@ -149,6 +161,14 @@
       :y="ctxMenu.y"
       :items="ctxMenu.items"
       @close="ctxMenu = null"
+    />
+
+    <EmojiPicker
+      v-if="emojiPicker"
+      :x="emojiPicker.x"
+      :y="emojiPicker.y"
+      @select="onEmojiSelect"
+      @close="emojiPicker = null"
     />
 
     <UserCard
@@ -176,8 +196,9 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from "vue";
-import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply } from "lucide-vue-next";
-import { activeState, activeServer, editMessage, deleteMessage, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
+import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus } from "lucide-vue-next";
+import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
+import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
 import * as perms from "../permissions";
 import { api, type Message, type User } from "../api";
 import { renderMarkdown, extractUrls } from "../markdown";
@@ -186,6 +207,8 @@ import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 import ReplyPreview from "./chat/ReplyPreview.vue";
 import AttachmentList from "./chat/AttachmentList.vue";
+import MessageReactions from "./chat/MessageReactions.vue";
+import EmojiPicker from "./chat/EmojiPicker.vue";
 import ChatInput from "./chat/ChatInput.vue";
 
 const messagesContainer = ref<HTMLElement>();
@@ -406,6 +429,32 @@ function onDrop(e: DragEvent) {
   if (e.dataTransfer?.files.length) {
     chatInputRef.value?.addFiles(e.dataTransfer.files);
   }
+}
+
+// ── Reactions ──
+const quickEmojis = ref(topEmojis());
+const emojiPicker = ref<{ x: number; y: number; messageId: number } | null>(null);
+
+function openEmojiPicker(messageId: number, e: MouseEvent | Event) {
+  const me = e as MouseEvent;
+  const x = Math.min(me.clientX, window.innerWidth - 300);
+  const y = Math.max(me.clientY - 280, 8);
+  emojiPicker.value = { x, y, messageId };
+}
+
+function onEmojiSelect(emoji: string) {
+  if (emojiPicker.value) {
+    recordEmoji(emoji);
+    toggleReaction(emojiPicker.value.messageId, emoji);
+    emojiPicker.value = null;
+    quickEmojis.value = topEmojis();
+  }
+}
+
+function onToggleReaction(messageId: number, emoji: string) {
+  recordEmoji(emoji);
+  toggleReaction(messageId, emoji);
+  quickEmojis.value = topEmojis();
 }
 
 // ── Message actions ──
@@ -840,6 +889,11 @@ function formatTimeShort(ts: string): string {
   background: var(--bg-modifier-hover);
   color: var(--text-normal);
   box-shadow: none;
+}
+
+.msg-action-btn.quick-emoji {
+  font-size: 0.875rem;
+  line-height: 1;
 }
 
 .msg-action-btn.danger:hover {

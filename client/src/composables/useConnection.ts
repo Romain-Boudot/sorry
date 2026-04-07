@@ -126,7 +126,7 @@ export async function connectToServer(serverId: string) {
   if (!server) return;
 
   const existing = store.serverStates.get(serverId);
-  if (existing?.connected) {
+  if (existing?.connected || existing?.wsConnection) {
     store.activeServerId = serverId;
     return;
   }

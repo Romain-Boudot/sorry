@@ -139,5 +139,37 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       }
       break;
     }
+    case "ReactionAdded": {
+      const { message_id, channel_id, emoji, user_id } = event.data as { message_id: number; channel_id: number; emoji: string; user_id: number };
+      const msgs = state.messages.get(channel_id);
+      const msg = msgs?.find((m) => m.id === message_id);
+      if (msg) {
+        const existing = msg.reactions.find((r) => r.emoji === emoji);
+        if (existing) {
+          if (!existing.user_ids.includes(user_id)) {
+            existing.user_ids.push(user_id);
+            existing.count++;
+          }
+        } else {
+          msg.reactions.push({ emoji, count: 1, user_ids: [user_id] });
+        }
+      }
+      break;
+    }
+    case "ReactionRemoved": {
+      const { message_id, channel_id, emoji, user_id } = event.data as { message_id: number; channel_id: number; emoji: string; user_id: number };
+      const msgs = state.messages.get(channel_id);
+      const msg = msgs?.find((m) => m.id === message_id);
+      if (msg) {
+        const idx = msg.reactions.findIndex((r) => r.emoji === emoji);
+        if (idx >= 0) {
+          const r = msg.reactions[idx];
+          r.user_ids = r.user_ids.filter((id) => id !== user_id);
+          r.count--;
+          if (r.count <= 0) msg.reactions.splice(idx, 1);
+        }
+      }
+      break;
+    }
   }
 }

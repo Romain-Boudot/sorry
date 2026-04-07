@@ -428,6 +428,12 @@ export interface Mention {
   id: number;
 }
 
+export interface Reaction {
+  emoji: string;
+  count: number;
+  user_ids: number[];
+}
+
 export interface Message {
   id: number;
   channel_id: number;
@@ -437,6 +443,7 @@ export interface Message {
   attachments: Attachment[];
   reply_to?: ReplyPreview;
   mentions: Mention[];
+  reactions: Reaction[];
 }
 
 export interface NotificationPref {

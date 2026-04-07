@@ -21,6 +21,7 @@ pub fn to_model(row: &MessageRow) -> Message {
         attachments: vec![],
         reply_to: None,
         mentions,
+        reactions: vec![],
     }
 }
 
@@ -176,4 +177,86 @@ pub async fn list_by_channel(
     let mut messages: Vec<Message> = rows.iter().map(to_model).collect();
     enrich_with_replies(db, &mut messages, &rows).await?;
     Ok(messages)
+}
+
+// ── Reactions ──
+
+/// Toggle a reaction: removes if already exists, adds otherwise.
+/// Returns `true` if added, `false` if removed.
+pub async fn toggle_reaction(
+    db: &SqlitePool,
+    message_id: i64,
+    user_id: i64,
+    emoji: &str,
+) -> sqlx::Result<bool> {
+    let deleted = sqlx::query(
+        "DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .bind(emoji)
+    .execute(db)
+    .await?;
+
+    if deleted.rows_affected() > 0 {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .bind(emoji)
+    .execute(db)
+    .await?;
+
+    Ok(true)
+}
+
+pub async fn enrich_with_reactions(
+    db: &SqlitePool,
+    messages: &mut [Message],
+) -> sqlx::Result<()> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT message_id, emoji, user_id FROM message_reactions WHERE message_id IN ({}) ORDER BY created_at",
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, (i64, String, i64)>(&query);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let rows: Vec<(i64, String, i64)> = q.fetch_all(db).await?;
+
+    // Group by message_id → ordered list of (emoji, user_ids)
+    // Preserve insertion order by tracking first-seen position per emoji
+    let mut map: std::collections::HashMap<i64, Vec<(String, Vec<i64>)>> =
+        std::collections::HashMap::new();
+    for (mid, emoji, uid) in rows {
+        let entries = map.entry(mid).or_default();
+        if let Some(entry) = entries.iter_mut().find(|(e, _)| *e == emoji) {
+            entry.1.push(uid);
+        } else {
+            entries.push((emoji, vec![uid]));
+        }
+    }
+
+    for msg in messages.iter_mut() {
+        if let Some(entries) = map.remove(&msg.id) {
+            msg.reactions = entries
+                .into_iter()
+                .map(|(emoji, user_ids)| shared::models::Reaction {
+                    count: user_ids.len() as i64,
+                    emoji,
+                    user_ids,
+                })
+                .collect();
+        }
+    }
+    Ok(())
 }

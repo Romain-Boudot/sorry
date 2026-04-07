@@ -87,6 +87,13 @@ pub enum MentionKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reaction {
+    pub emoji: String,
+    pub count: i64,
+    pub user_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: i64,
     pub channel_id: i64,
@@ -99,6 +106,8 @@ pub struct Message {
     pub reply_to: Option<ReplyPreview>,
     #[serde(default)]
     pub mentions: Vec<Mention>,
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

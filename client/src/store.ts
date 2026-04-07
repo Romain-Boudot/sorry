@@ -380,6 +380,12 @@ export function deleteMessage(messageId: number) {
   _messaging.deleteMessage(state, messageId);
 }
 
+export function toggleReaction(messageId: number, emoji: string) {
+  const state = activeState();
+  if (!state) return;
+  _messaging.toggleReaction(state, messageId, emoji);
+}
+
 export async function joinVoiceChannel(channelId: number) {
   const server = activeServer();
   const state = activeState();

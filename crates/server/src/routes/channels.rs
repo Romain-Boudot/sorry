@@ -157,6 +157,7 @@ async fn list_messages(
     .await?;
 
     crate::db::messages::enrich_with_attachments(&state.db, &mut messages).await?;
+    crate::db::messages::enrich_with_reactions(&state.db, &mut messages).await?;
 
     Ok(Json(messages))
 }

@@ -209,6 +209,9 @@ async fn handle_client_event(
         ClientEvent::DeleteMessage { message_id } => {
             messages::handle_delete(state, user_id, message_id).await?;
         }
+        ClientEvent::ToggleReaction { message_id, emoji } => {
+            messages::handle_toggle_reaction(state, user_id, message_id, emoji).await?;
+        }
 
         // ── Voice ──
         ClientEvent::JoinVoice { channel_id } => {

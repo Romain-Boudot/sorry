@@ -19,6 +19,8 @@ pub enum ServerEvent {
     UserRoleUpdate { user_id: i64, role_ids: Vec<i64>, permissions: i64 },
     UserUpdate(User),
     ServerUpdate { name: String, description: Option<String>, icon_url: Option<String> },
+    ReactionAdded { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
+    ReactionRemoved { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués
@@ -62,6 +64,7 @@ pub enum ClientEvent {
     ForceMute { user_id: i64, muted: bool },
     ForceDeafen { user_id: i64, deafened: bool },
     KickVoice { user_id: i64 },
+    ToggleReaction { message_id: i64, emoji: String },
     /// Demande de snapshot complet (reconnexion ou gap détecté)
     RequestSnapshot,
 }
