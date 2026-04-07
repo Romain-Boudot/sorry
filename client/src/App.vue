@@ -5,11 +5,12 @@
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
       <div v-if="store.activeServerId" class="main-area">
-        <ChatHeader @jump-to="onSearchJump" />
+        <ChatHeader :gallery-open="showGallery" @jump-to="onSearchJump" @toggle-gallery="showGallery = !showGallery" />
         <div class="main-body">
           <VoiceView v-if="isVoice" />
           <ChatBody v-else ref="chatBodyRef" />
-          <UserList v-if="!isVoice" />
+          <FileGallery v-if="showGallery && !isVoice" @close="showGallery = false" />
+          <UserList v-if="!isVoice && !showGallery" />
         </div>
       </div>
       <EmptyState v-else-if="!store.savedServers.length" class="main-area" />
@@ -56,6 +57,7 @@ import ServerList from "./components/ServerList.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ChatHeader from "./components/ChatHeader.vue";
 import ChatBody from "./components/ChatBody.vue";
+import FileGallery from "./components/chat/FileGallery.vue";
 import VoiceView from "./components/VoiceView.vue";
 import UserList from "./components/UserList.vue";
 import EmptyState from "./components/EmptyState.vue";
@@ -71,6 +73,7 @@ const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
 const isTauri = ref("__TAURI_INTERNALS__" in window);
 const chatBodyRef = ref<InstanceType<typeof ChatBody>>();
+const showGallery = ref(false);
 
 function onSearchJump(messageId: number) {
   chatBodyRef.value?.scrollToMessage(messageId);

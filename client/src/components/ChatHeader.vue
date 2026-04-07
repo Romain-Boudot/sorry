@@ -19,6 +19,9 @@
         <button class="search-close" @click="closeSearch"><X :size="14" /></button>
       </div>
       <div class="header-spacer"></div>
+      <button v-if="!searching && !isVoice" class="header-btn" :class="{ active: galleryOpen }" title="Fichiers" @click="$emit('toggle-gallery')">
+        <ImageIcon :size="16" />
+      </button>
       <button v-if="!searching" class="header-btn" title="Rechercher" @click="openSearch">
         <Search :size="16" />
       </button>
@@ -54,12 +57,17 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from "vue";
-import { Hash, Volume2, Search, X, Loader2 } from "lucide-vue-next";
+import { Hash, Volume2, Search, X, Loader2, ImageIcon } from "lucide-vue-next";
 import { activeState, activeServer, isActiveChannelVoice, resolveUser } from "../store";
 import { api, type Message } from "../api";
 
+defineProps<{
+  galleryOpen?: boolean;
+}>();
+
 defineEmits<{
   "jump-to": [messageId: number];
+  "toggle-gallery": [];
 }>();
 
 const state = computed(() => activeState());
@@ -184,7 +192,8 @@ function formatResultDate(ts: string): string {
   transition: background 0.1s, color 0.1s;
 }
 
-.header-btn:hover {
+.header-btn:hover,
+.header-btn.active {
   background: var(--bg-modifier-hover);
   color: var(--text-normal);
 }

@@ -43,6 +43,58 @@ pub async fn create(
     Ok(to_model(&row))
 }
 
+pub async fn list_by_channel(
+    db: &SqlitePool,
+    channel_id: i64,
+    limit: i64,
+    before_id: Option<i64>,
+) -> sqlx::Result<Vec<shared::models::ChannelAttachment>> {
+    let rows: Vec<(i64, i64, i64, String, String, String, i64, String)> = match before_id {
+        Some(before) => {
+            sqlx::query_as(
+                r#"SELECT a.id, a.message_id, m.author_id, a.filename, a.stored_name, a.content_type, a.size, a.created_at
+                   FROM attachments a
+                   JOIN messages m ON m.id = a.message_id
+                   WHERE m.channel_id = ? AND a.id < ?
+                   ORDER BY a.id DESC LIMIT ?"#,
+            )
+            .bind(channel_id)
+            .bind(before)
+            .bind(limit)
+            .fetch_all(db)
+            .await?
+        }
+        None => {
+            sqlx::query_as(
+                r#"SELECT a.id, a.message_id, m.author_id, a.filename, a.stored_name, a.content_type, a.size, a.created_at
+                   FROM attachments a
+                   JOIN messages m ON m.id = a.message_id
+                   WHERE m.channel_id = ?
+                   ORDER BY a.id DESC LIMIT ?"#,
+            )
+            .bind(channel_id)
+            .bind(limit)
+            .fetch_all(db)
+            .await?
+        }
+    };
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, message_id, author_id, filename, stored_name, content_type, size, created_at)| {
+            shared::models::ChannelAttachment {
+                id,
+                filename,
+                content_type,
+                size,
+                url: format!("/uploads/{}/{}", message_id, stored_name),
+                author_id,
+                created_at,
+            }
+        })
+        .collect())
+}
+
 pub async fn list_by_message_ids(
     db: &SqlitePool,
     message_ids: &[i64],

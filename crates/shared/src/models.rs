@@ -67,6 +67,17 @@ pub struct Attachment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelAttachment {
+    pub id: i64,
+    pub filename: String,
+    pub content_type: String,
+    pub size: i64,
+    pub url: String,
+    pub author_id: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplyPreview {
     pub id: i64,
     pub author_id: i64,

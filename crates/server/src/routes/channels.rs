@@ -34,6 +34,12 @@ pub struct SearchMessagesQuery {
 }
 
 #[derive(Deserialize)]
+pub struct ListAttachmentsQuery {
+    limit: Option<i64>,
+    before: Option<i64>,
+}
+
+#[derive(Deserialize)]
 pub struct SendMessagePayload {
     content: String,
     reply_to_id: Option<i64>,
@@ -400,6 +406,27 @@ async fn delete_overwrite(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// GET /api/channels/:id/attachments?limit=50&before=123
+async fn list_attachments(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Query(query): Query<ListAttachmentsQuery>,
+) -> Result<Json<Vec<shared::models::ChannelAttachment>>, AppError> {
+    require_channel_permission(&state.db, auth.0, channel_id, permissions::READ_MESSAGE_HISTORY)
+        .await?;
+
+    let attachments = crate::db::attachments::list_by_channel(
+        &state.db,
+        channel_id,
+        query.limit.unwrap_or(50).min(100),
+        query.before,
+    )
+    .await?;
+
+    Ok(Json(attachments))
+}
+
 /// GET /api/channels/:id/search?q=hello&limit=25
 async fn search_messages(
     State(state): State<Arc<AppState>>,
@@ -456,6 +483,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/group", axum::routing::patch(move_channel))
         .route("/:id/messages", get(list_messages).post(send_message_json))
         .route("/:id/search", get(search_messages))
+        .route("/:id/attachments", get(list_attachments))
         .route("/:id/upload", axum::routing::post(send_message_upload)
             .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * upload::MAX_FILES_PER_MESSAGE + 1024 * 64)))
         .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
