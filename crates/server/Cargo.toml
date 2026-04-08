@@ -39,3 +39,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 base32 = "0.5"
 urlencoding = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

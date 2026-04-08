@@ -16,6 +16,7 @@ pub struct AppState {
     pub server_name: String,
     pub jwt_secret: String,
     pub jwt_ttl_secs: i64,
+    pub started_at: Instant,
     /// Short prefix for LiveKit room names, unique per instance.
     pub room_prefix: String,
     pub livekit_url: String,
@@ -66,6 +67,7 @@ impl AppState {
             livekit_api_secret,
             storage,
             max_file_size,
+            started_at: Instant::now(),
             online_users: RwLock::new(HashMap::new()),
             voice_state: RwLock::new(HashMap::new()),
             event_tx,

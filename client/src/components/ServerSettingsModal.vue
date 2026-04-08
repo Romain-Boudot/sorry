@@ -39,6 +39,7 @@
         </div>
 
         <ServerTab v-if="activeTab === 'server'" />
+        <StatsTab v-else-if="activeTab === 'stats'" />
         <ProfileTab v-else-if="activeTab === 'profile'" />
         <RolesTab v-else-if="activeTab === 'roles'" />
         <ModerationTab v-else-if="activeTab === 'moderation'" />
@@ -51,7 +52,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { X, UserRound, KeyRound, Server, ShieldCheck, Gavel, TicketPlus } from "lucide-vue-next";
+import { X, UserRound, KeyRound, Server, ShieldCheck, Gavel, TicketPlus, BarChart3 } from "lucide-vue-next";
 import { store, activeState } from "../store";
 import * as perms from "../permissions";
 
@@ -61,6 +62,7 @@ import RolesTab from "./settings/RolesTab.vue";
 import ModerationTab from "./settings/ModerationTab.vue";
 import InvitesTab from "./settings/InvitesTab.vue";
 import SecurityTab from "./settings/SecurityTab.vue";
+import StatsTab from "./settings/StatsTab.vue";
 
 const state = computed(() => activeState());
 const activeTab = ref(store.serverSettingsTab || "profile");
@@ -72,6 +74,7 @@ const userTabs = [
 
 const serverTabs = [
   { id: "server", label: "Serveur", icon: Server, permission: perms.MANAGE_SERVER },
+  { id: "stats", label: "Statistiques", icon: BarChart3, permission: perms.MANAGE_SERVER },
   { id: "roles", label: "Roles", icon: ShieldCheck, permission: perms.MANAGE_ROLES },
   { id: "moderation", label: "Moderation", icon: Gavel, permission: perms.BAN_MEMBERS },
   { id: "invites", label: "Invitations", icon: TicketPlus, permission: perms.CREATE_INVITE },

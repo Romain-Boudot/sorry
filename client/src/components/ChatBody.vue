@@ -30,6 +30,7 @@
       </div>
     </div>
     <div class="chat-messages" ref="messagesContainer" @scroll="onMessagesScroll">
+      <div ref="messagesInner">
       <div v-if="loadingOlder" class="loading-older">
         <Loader2 :size="18" class="spinner" />
         Chargement...
@@ -142,6 +143,7 @@
           </template>
         </div>
       </template>
+      </div>
     </div>
 
     <ChatInput
@@ -195,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted } from "vue";
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus } from "lucide-vue-next";
 import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
 import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
@@ -239,6 +241,7 @@ const loadingOlder = ref(false);
 const noMoreMessages = ref(false);
 
 function scrollToBottom() {
+  wasAtBottom = true;
   nextTick(() => {
     const el = messagesContainer.value;
     if (el) el.scrollTop = el.scrollHeight;
@@ -251,17 +254,49 @@ watch(() => messages.value.length, (newLen, oldLen) => {
   if (isScrolledToBottom()) scrollToBottom();
 });
 
+// Auto-scroll when content height grows (images loaded, reactions added, etc.)
+// but only if user was already at the bottom.
+// ResizeObserver on the inner wrapper catches all child size changes.
+let wasAtBottom = true;
+const messagesInner = ref<HTMLElement>();
+let resizeObserver: ResizeObserver | null = null;
+
+function setupResizeObserver() {
+  resizeObserver?.disconnect();
+  const inner = messagesInner.value;
+  const container = messagesContainer.value;
+  if (!inner || !container) return;
+  resizeObserver = new ResizeObserver(() => {
+    if (wasAtBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
+  });
+  resizeObserver.observe(inner);
+}
+
+// Setup when connected (inner div appears via v-else)
+watch(() => state.value?.connected, (connected) => {
+  if (connected) {
+    scrollToBottom();
+    nextTick(setupResizeObserver);
+  }
+});
+
+// Also setup when channel changes (inner content replaced)
 watch(() => state.value?.activeChannelId, () => {
   noMoreMessages.value = false;
   scrollToBottom();
+  nextTick(setupResizeObserver);
 });
 
-// Scroll when transitioning from skeleton to real content
-watch(() => state.value?.connected, (connected) => {
-  if (connected) scrollToBottom();
+onMounted(() => {
+  scrollToBottom();
+  nextTick(setupResizeObserver);
 });
 
-onMounted(scrollToBottom);
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+});
 
 async function loadOlderMessages() {
   const server = activeServer();
@@ -303,6 +338,7 @@ async function loadOlderMessages() {
 function onMessagesScroll() {
   const el = messagesContainer.value;
   if (!el) return;
+  wasAtBottom = isScrolledToBottom();
   if (el.scrollTop < 100) {
     loadOlderMessages();
   }

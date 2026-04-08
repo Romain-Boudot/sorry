@@ -42,6 +42,10 @@ export const api = {
     return res.json() as Promise<{ name: string; description?: string; icon_url?: string }>;
   },
 
+  serverStats(baseUrl: string, token: string) {
+    return request<ServerStats>(baseUrl, "/server/stats", token);
+  },
+
   updateServer(baseUrl: string, token: string, data: { name?: string; description?: string }) {
     return request<void>(baseUrl, "/server", token, {
       method: "PATCH",
@@ -442,6 +446,25 @@ export interface ChannelAttachment {
   url: string;
   author_id: number;
   created_at: string;
+}
+
+export interface ServerStats {
+  version: string;
+  uptime_secs: number;
+  users_total: number;
+  users_online: number;
+  users_guests: number;
+  channels_text: number;
+  channels_voice: number;
+  messages_total: number;
+  messages_today: number;
+  files_total: number;
+  files_size_bytes: number;
+  bans_active: number;
+  invites_active: number;
+  db_size_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
 }
 
 export interface ReplyPreview {

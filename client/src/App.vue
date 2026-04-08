@@ -5,7 +5,7 @@
     <div class="app-grid">
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
-      <div v-if="store.activeServerId" class="main-area">
+      <div v-if="store.activeServerId" class="main-area has-sidebar">
         <ChatHeader :gallery-open="showGallery" @jump-to="onSearchJump" @toggle-gallery="showGallery = !showGallery" />
         <div class="main-body">
           <VoiceView v-if="isVoice" />
@@ -14,12 +14,19 @@
           <UserList v-if="!isVoice && !showGallery" />
         </div>
       </div>
-      <EmptyState v-else-if="!store.savedServers.length" class="main-area" />
       <div v-else class="main-area disconnected-state">
-        <p>Selectionne un serveur a gauche pour te connecter.</p>
+        <div class="disconnected-content">
+          <h1 class="disconnected-logo">Sorry</h1>
+          <p v-if="store.savedServers.length">Selectionne un serveur pour te connecter.</p>
+          <p v-else>Tu n'as rejoint aucun serveur.</p>
+          <button class="disconnected-btn" @click="store.showAddServerModal = true">
+            <Plus :size="16" />
+            Ajouter un serveur
+          </button>
+        </div>
       </div>
 
-      <div class="bottom-bar">
+      <div v-if="store.activeServerId" class="bottom-bar">
         <div class="bottom-card">
           <VoiceBar />
           <div class="user-row">
@@ -50,7 +57,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Settings } from "lucide-vue-next";
+import { Settings, Plus } from "lucide-vue-next";
 import { store, connectAll, restoreNav, activeState, isActiveChannelVoice, resolveUserColor } from "./store";
 import { setMentionResolver } from "./markdown";
 import TopBar from "./components/TopBar.vue";
@@ -62,7 +69,7 @@ import FileGallery from "./components/chat/FileGallery.vue";
 import ToastContainer from "./components/ToastContainer.vue";
 import VoiceView from "./components/VoiceView.vue";
 import UserList from "./components/UserList.vue";
-import EmptyState from "./components/EmptyState.vue";
+
 import AddServerModal from "./components/AddServerModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import ServerSettingsModal from "./components/ServerSettingsModal.vue";
@@ -178,6 +185,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.main-area.has-sidebar {
   border-top: 1px solid var(--border);
 }
 
@@ -283,9 +293,38 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
+  grid-column: channels / -1;
 }
 
-.disconnected-state p {
+.disconnected-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.disconnected-logo {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--text-faint);
+  letter-spacing: -0.02em;
+  user-select: none;
+}
+
+.disconnected-content p {
+  font-size: 0.875rem;
   color: var(--text-muted);
+}
+
+.disconnected-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  margin-top: 8px;
+  padding: 10px 20px;
+  font-size: 0.875rem;
+  border-radius: 8px;
 }
 </style>

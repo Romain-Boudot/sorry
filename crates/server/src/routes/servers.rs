@@ -1,10 +1,10 @@
 use axum::{
     extract::{Multipart, State},
     http::StatusCode,
-    routing::{patch, post},
+    routing::{get, patch, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::auth::AuthUser;
@@ -134,8 +134,110 @@ pub async fn serve_icon(
     ).into_response())
 }
 
+#[derive(Serialize)]
+struct ServerStats {
+    version: &'static str,
+    uptime_secs: u64,
+    users_total: i64,
+    users_online: usize,
+    users_guests: i64,
+    channels_text: i64,
+    channels_voice: i64,
+    messages_total: i64,
+    messages_today: i64,
+    files_total: i64,
+    files_size_bytes: i64,
+    bans_active: usize,
+    invites_active: i64,
+    db_size_bytes: u64,
+    disk_free_bytes: u64,
+    disk_total_bytes: u64,
+}
+
+/// GET /api/server/stats — server statistics (MANAGE_SERVER)
+async fn stats(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<ServerStats>, AppError> {
+    crate::perms::require_permission(&state.db, auth.0, shared::permissions::MANAGE_SERVER).await?;
+
+    let users_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let users_guests: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE guest = 1")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let channels_text: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE kind = 'text'")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let channels_voice: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE kind = 'voice'")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let messages_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let messages_today: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE created_at >= date('now')"
+    ).fetch_one(&state.db).await.unwrap_or(0);
+    let files_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM attachments")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let files_size_bytes: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0) FROM attachments")
+        .fetch_one(&state.db).await.unwrap_or(0);
+    let invites_active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM invites")
+        .fetch_one(&state.db).await.unwrap_or(0);
+
+    let users_online = state.online_users.read().unwrap().len();
+    let bans_active = state.banned_users.read().unwrap().len();
+    let uptime_secs = state.started_at.elapsed().as_secs();
+
+    // DB file size
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:./data.db".to_string());
+    let db_path = db_url.strip_prefix("sqlite:").unwrap_or("./data.db");
+    let db_size_bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+
+    // Disk space
+    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./data/uploads".to_string());
+    let (disk_free_bytes, disk_total_bytes) = get_disk_space(&upload_dir);
+
+    Ok(Json(ServerStats {
+        version: env!("CARGO_PKG_VERSION"),
+        uptime_secs,
+        users_total,
+        users_online,
+        users_guests,
+        channels_text,
+        channels_voice,
+        messages_total,
+        messages_today,
+        files_total,
+        files_size_bytes,
+        bans_active,
+        invites_active,
+        db_size_bytes,
+        disk_free_bytes,
+        disk_total_bytes,
+    }))
+}
+
+#[cfg(unix)]
+fn get_disk_space(path: &str) -> (u64, u64) {
+    use std::ffi::CString;
+    unsafe {
+        let c_path = CString::new(path).unwrap_or_else(|_| CString::new(".").unwrap());
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+            let free = stat.f_bavail as u64 * stat.f_frsize as u64;
+            let total = stat.f_blocks as u64 * stat.f_frsize as u64;
+            (free, total)
+        } else {
+            (0, 0)
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn get_disk_space(_path: &str) -> (u64, u64) {
+    (0, 0)
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", patch(update_server))
         .route("/icon", post(upload_icon).delete(delete_icon))
+        .route("/stats", get(stats))
 }
