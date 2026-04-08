@@ -58,6 +58,10 @@ export interface ServerState {
   isScreenSharing: boolean;
   isCameraOn: boolean;
   videoTrackVersion: number;
+  /** Map<channelId, Map<userId, timeout>> — users currently typing */
+  typingUsers: Map<number, Map<number, ReturnType<typeof setTimeout>>>;
+  /** Timestamp of last typing event sent by us */
+  lastTypingSent: number;
 }
 
 // ── Factory ──
@@ -94,6 +98,8 @@ export function createServerState(): ServerState {
     isScreenSharing: false,
     isCameraOn: false,
     videoTrackVersion: 0,
+    typingUsers: new Map(),
+    lastTypingSent: 0,
   };
 }
 
@@ -384,6 +390,12 @@ export function toggleReaction(messageId: number, emoji: string) {
   const state = activeState();
   if (!state) return;
   _messaging.toggleReaction(state, messageId, emoji);
+}
+
+export function sendTyping() {
+  const state = activeState();
+  if (!state) return;
+  _messaging.sendTyping(state);
 }
 
 export async function joinVoiceChannel(channelId: number) {

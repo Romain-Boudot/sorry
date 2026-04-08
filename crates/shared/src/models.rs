@@ -48,6 +48,8 @@ pub struct Channel {
     pub kind: ChannelKind,
     pub position: i64,
     pub group_id: Option<i64>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +121,8 @@ pub struct Message {
     pub mentions: Vec<Mention>,
     #[serde(default)]
     pub reactions: Vec<Reaction>,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -19,6 +19,7 @@ pub struct CreateChannelPayload {
     name: String,
     kind: String,
     group_id: Option<i64>,
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +71,11 @@ async fn create_channel(
 
     let id = crate::db::channels::create(&state.db, &payload.name, kind, payload.group_id).await?;
 
+    if let Some(ref desc) = payload.description {
+        let desc = if desc.trim().is_empty() { None } else { Some(desc.as_str()) };
+        crate::db::channels::update_description(&state.db, id, desc).await?;
+    }
+
     Ok(Json(shared::models::Channel {
         id,
         name: payload.name,
@@ -79,12 +85,14 @@ async fn create_channel(
         },
         position: 0,
         group_id: payload.group_id,
+        description: payload.description.filter(|d| !d.trim().is_empty()),
     }))
 }
 
 #[derive(Deserialize)]
 pub struct UpdateChannelPayload {
     name: Option<String>,
+    description: Option<String>,
 }
 
 /// PATCH /api/channels/:id
@@ -104,7 +112,17 @@ async fn update_channel(
         crate::db::channels::update_name(&state.db, id, name).await?;
     }
 
+    if let Some(ref desc) = payload.description {
+        let desc = if desc.trim().is_empty() { None } else { Some(desc.as_str()) };
+        crate::db::channels::update_description(&state.db, id, desc).await?;
+    }
+
     let name = payload.name.unwrap_or(row.name);
+    let description = if payload.description.is_some() {
+        payload.description.filter(|d| !d.trim().is_empty())
+    } else {
+        row.description
+    };
     Ok(Json(shared::models::Channel {
         id,
         name,
@@ -114,6 +132,7 @@ async fn update_channel(
         },
         position: row.position,
         group_id: row.group_id,
+        description,
     }))
 }
 
@@ -472,6 +491,52 @@ async fn search_messages(
     Ok(Json(messages))
 }
 
+/// POST /api/channels/:id/messages/:msg_id/pin
+async fn pin_message(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, msg_id)): Path<(i64, i64)>,
+) -> Result<StatusCode, AppError> {
+    require_channel_permission(&state.db, auth.0, channel_id, permissions::MANAGE_MESSAGES).await?;
+
+    let row = crate::db::messages::find_by_id(&state.db, msg_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    if row.channel_id != channel_id {
+        return Err(AppError::NotFound);
+    }
+
+    let new_pinned = row.pinned == 0;
+    crate::db::messages::set_pinned(&state.db, msg_id, new_pinned).await?;
+
+    let mut updated = crate::db::messages::to_model(
+        &crate::db::messages::find_by_id(&state.db, msg_id)
+            .await?
+            .ok_or(AppError::NotFound)?,
+    );
+    let _ = crate::db::messages::enrich_with_attachments(&state.db, std::slice::from_mut(&mut updated)).await;
+    let _ = crate::db::messages::enrich_with_reactions(&state.db, std::slice::from_mut(&mut updated)).await;
+    state.broadcast(shared::events::ServerEvent::MessageUpdate(updated));
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /api/channels/:id/pins
+async fn list_pinned(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<Vec<shared::models::Message>>, AppError> {
+    require_channel_permission(&state.db, auth.0, channel_id, permissions::READ_MESSAGE_HISTORY).await?;
+
+    let mut messages = crate::db::messages::list_pinned(&state.db, channel_id).await?;
+    crate::db::messages::enrich_with_attachments(&state.db, &mut messages).await?;
+    crate::db::messages::enrich_with_reactions(&state.db, &mut messages).await?;
+
+    Ok(Json(messages))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_channels).post(create_channel))
@@ -486,5 +551,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/attachments", get(list_attachments))
         .route("/:id/upload", axum::routing::post(send_message_upload)
             .layer(DefaultBodyLimit::max(MAX_FILE_SIZE * upload::MAX_FILES_PER_MESSAGE + 1024 * 64)))
+        .route("/:id/pins", get(list_pinned))
+        .route("/:id/messages/:msg_id/pin", axum::routing::post(pin_message))
         .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
 }

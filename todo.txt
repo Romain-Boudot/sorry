@@ -4,25 +4,25 @@ x Avatars utilisateur — pas de photo de profil, le modele User n'a que id + di
 x Scroll infini des messages — l'API supporte ?before=, mais le client ne charge que 50 messages sans "load more"
 x Mot de passe — update_password existe en DB mais aucune route ni UI
 x Ban — kick supprime le user, pas de systeme ban/unban
-- Channel topic/description — aucun champ description sur les channels
+x Channel topic/description — aucun champ description sur les channels
 x Icone/description du serveur — rien cote serveur info
 
 Important
 ---------
 x Reponses/quotes — pas de reply a un message
 x Mentions (@user) — pas de parsing ni notification
-- Reactions emoji — pas de reactions sur les messages
-- Recherche de messages
+x Reactions emoji — pas de reactions sur les messages
+x Recherche de messages
 x Unread par channel — le badge unread est global par serveur, pas par channel
 x Systeme d'invitation — actuellement il faut le mot de passe serveur, pas de lien d'invite
 x Detection des urls et preview (OG tags)
-- Typing indicator — "X is typing..." via WebSocket
-- Message pinning — epingler des messages importants
+x Typing indicator — "X is typing..." via WebSocket
+x Message pinning — epingler des messages importants
 
 Nice to have
 ------------
 x Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
-- Screen sharing — LiveKit le supporte, pas cable
+x Screen sharing — LiveKit le supporte, pas cable
 - Move user entre channels voice (action admin)
 - Limite d'utilisateurs par channel voice
 - Audit log pour les actions admin
@@ -40,6 +40,13 @@ x Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas
 Bugs
 ------------
 x ws event pour les display name
+x si je deaf et undeaf je n'entend plus rien, pas de undeaf ? pas de réabonnement Stream
+x si j'entre dans un channel avec qqn qui stream, je ne le vois pas
+x le state de je stream, je stream pas à l'air cassé ? si je quitte le vocal pendant que je stream
+x indicateur pour qqn qui stream
+x indicateur pour qqn webcam ?
+x passé le state de navigation en session storage ?
+x "reply to" fonctionne pas en prod ?
 
 Awesome Features
 ----------------

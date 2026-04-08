@@ -5,6 +5,10 @@
         <Volume2 v-if="isVoice" class="channel-icon" :size="18" />
         <Hash v-else class="channel-icon" :size="18" />
         <span>{{ activeChannel.name }}</span>
+        <template v-if="activeChannel.description">
+          <div class="topic-separator"></div>
+          <span class="topic">{{ activeChannel.description }}</span>
+        </template>
       </template>
       <div v-else class="search-bar">
         <Search :size="14" class="search-icon" />
@@ -19,6 +23,9 @@
         <button class="search-close" @click="closeSearch"><X :size="14" /></button>
       </div>
       <div class="header-spacer"></div>
+      <button v-if="!searching && !isVoice" class="header-btn" :class="{ active: pinsOpen }" title="Messages epingles" @click="$emit('toggle-pins')">
+        <Pin :size="16" />
+      </button>
       <button v-if="!searching && !isVoice" class="header-btn" :class="{ active: galleryOpen }" title="Fichiers" @click="$emit('toggle-gallery')">
         <ImageIcon :size="16" />
       </button>
@@ -57,17 +64,19 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from "vue";
-import { Hash, Volume2, Search, X, Loader2, ImageIcon } from "lucide-vue-next";
+import { Hash, Volume2, Search, X, Loader2, ImageIcon, Pin } from "lucide-vue-next";
 import { activeState, activeServer, isActiveChannelVoice, resolveUser } from "../store";
 import { api, type Message } from "../api";
 
 defineProps<{
   galleryOpen?: boolean;
+  pinsOpen?: boolean;
 }>();
 
 defineEmits<{
   "jump-to": [messageId: number];
   "toggle-gallery": [];
+  "toggle-pins": [];
 }>();
 
 const state = computed(() => activeState());
@@ -200,6 +209,23 @@ function formatResultDate(ts: string): string {
 
 .channel-icon {
   color: var(--text-muted);
+}
+
+.topic-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.topic {
+  font-weight: 400;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* ── Search bar ── */

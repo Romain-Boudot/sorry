@@ -6,12 +6,13 @@
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
       <div v-if="store.activeServerId" class="main-area has-sidebar">
-        <ChatHeader :gallery-open="showGallery" @jump-to="onSearchJump" @toggle-gallery="showGallery = !showGallery" />
+        <ChatHeader :gallery-open="showGallery" :pins-open="showPins" @jump-to="onSearchJump" @toggle-gallery="showGallery = !showGallery; showPins = false" @toggle-pins="showPins = !showPins; showGallery = false" />
         <div class="main-body">
           <VoiceView v-if="isVoice" />
           <ChatBody v-else ref="chatBodyRef" />
+          <PinnedMessages v-if="showPins && !isVoice" @close="showPins = false" @jump-to="(id: number) => { onSearchJump(id); showPins = false }" />
           <FileGallery v-if="showGallery && !isVoice" @close="showGallery = false" />
-          <UserList v-if="!isVoice && !showGallery" />
+          <UserList v-if="!isVoice && !showGallery && !showPins" />
         </div>
       </div>
       <div v-else class="main-area disconnected-state">
@@ -66,6 +67,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ChatHeader from "./components/ChatHeader.vue";
 import ChatBody from "./components/ChatBody.vue";
 import FileGallery from "./components/chat/FileGallery.vue";
+import PinnedMessages from "./components/chat/PinnedMessages.vue";
 import ToastContainer from "./components/ToastContainer.vue";
 import VoiceView from "./components/VoiceView.vue";
 import UserList from "./components/UserList.vue";
@@ -83,6 +85,7 @@ const isVoice = computed(() => isActiveChannelVoice());
 const isTauri = ref("__TAURI_INTERNALS__" in window);
 const chatBodyRef = ref<InstanceType<typeof ChatBody>>();
 const showGallery = ref(false);
+const showPins = ref(false);
 
 function onSearchJump(messageId: number) {
   chatBodyRef.value?.scrollToMessage(messageId);

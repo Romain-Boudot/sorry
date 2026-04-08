@@ -22,6 +22,7 @@ pub enum ServerEvent {
     ReactionAdded { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
     ReactionRemoved { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
     UserBanned { user_id: i64 },
+    UserTyping { user_id: i64, channel_id: i64 },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués
@@ -66,6 +67,7 @@ pub enum ClientEvent {
     ForceDeafen { user_id: i64, deafened: bool },
     KickVoice { user_id: i64 },
     ToggleReaction { message_id: i64, emoji: String },
+    Typing { channel_id: i64 },
     /// Demande de snapshot complet (reconnexion ou gap détecté)
     RequestSnapshot,
 }

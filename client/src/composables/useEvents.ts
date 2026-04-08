@@ -25,6 +25,15 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       } else {
         state.messages.set(msg.channel_id, [msg]);
       }
+      // Clear typing indicator for this user
+      const channelTyping = state.typingUsers.get(msg.channel_id);
+      if (channelTyping?.has(msg.author_id)) {
+        clearTimeout(channelTyping.get(msg.author_id)!);
+        channelTyping.delete(msg.author_id);
+        if (channelTyping.size === 0) state.typingUsers.delete(msg.channel_id);
+        state.typingUsers = new Map(state.typingUsers);
+      }
+
       const isViewingChannel = store.activeServerId === serverId && state.activeChannelId === msg.channel_id;
       if (!isViewingChannel && msg.author_id !== state.user?.id) {
         state.channelUnread.set(msg.channel_id, (state.channelUnread.get(msg.channel_id) ?? 0) + 1);
@@ -184,6 +193,31 @@ export function handleEvent(serverId: string, event: ServerEvent) {
           if (r.count <= 0) msg.reactions.splice(idx, 1);
         }
       }
+      break;
+    }
+    case "UserTyping": {
+      const { user_id, channel_id } = event.data as { user_id: number; channel_id: number };
+      // Ignore our own typing events
+      if (user_id === state.user?.id) break;
+
+      if (!state.typingUsers.has(channel_id)) {
+        state.typingUsers.set(channel_id, new Map());
+      }
+      const channelTyping = state.typingUsers.get(channel_id)!;
+
+      // Clear existing timeout for this user
+      const existing = channelTyping.get(user_id);
+      if (existing) clearTimeout(existing);
+
+      // Auto-remove after 3s
+      const timeout = setTimeout(() => {
+        channelTyping.delete(user_id);
+        if (channelTyping.size === 0) state.typingUsers.delete(channel_id);
+        // Force reactivity
+        state.typingUsers = new Map(state.typingUsers);
+      }, 3000);
+      channelTyping.set(user_id, timeout);
+      state.typingUsers = new Map(state.typingUsers);
       break;
     }
   }

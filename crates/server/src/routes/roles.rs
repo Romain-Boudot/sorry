@@ -29,7 +29,6 @@ pub struct CreateRolePayload {
     name: String,
     permissions: i64,
     color: Option<String>,
-    position: Option<i64>,
 }
 
 /// POST /api/roles

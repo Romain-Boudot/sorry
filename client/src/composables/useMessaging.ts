@@ -51,3 +51,16 @@ export function toggleReaction(state: ServerState, messageId: number, emoji: str
     data: { message_id: messageId, emoji },
   });
 }
+
+const TYPING_THROTTLE = 2500; // ms
+
+export function sendTyping(state: ServerState) {
+  if (!state.activeChannelId) return;
+  const now = Date.now();
+  if (now - state.lastTypingSent < TYPING_THROTTLE) return;
+  state.lastTypingSent = now;
+  wsSend(state, {
+    type: "Typing",
+    data: { channel_id: state.activeChannelId },
+  });
+}

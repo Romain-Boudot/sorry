@@ -181,7 +181,7 @@ async function createRole() {
       "Content-Type": "application/json",
       Authorization: `Bearer ${s.token}`,
     },
-    body: JSON.stringify({ name: newRoleName.value.trim(), permissions: 0, position: roles.value.length }),
+    body: JSON.stringify({ name: newRoleName.value.trim(), permissions: 0 }),
   });
   if (res.ok) {
     const role = await res.json();

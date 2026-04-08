@@ -8,6 +8,7 @@ pub struct MessageRow {
     pub content: String,
     pub created_at: String,
     pub reply_to_id: Option<i64>,
+    pub pinned: i64,
 }
 
 pub fn to_model(row: &MessageRow) -> Message {
@@ -22,6 +23,7 @@ pub fn to_model(row: &MessageRow) -> Message {
         reply_to: None,
         mentions,
         reactions: vec![],
+        pinned: row.pinned != 0,
     }
 }
 
@@ -90,7 +92,7 @@ pub async fn create(
 ) -> sqlx::Result<Message> {
     let row = sqlx::query_as!(
         MessageRow,
-        r#"INSERT INTO messages (channel_id, author_id, content, reply_to_id) VALUES (?, ?, ?, ?) RETURNING id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id"#,
+        r#"INSERT INTO messages (channel_id, author_id, content, reply_to_id) VALUES (?, ?, ?, ?) RETURNING id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned"#,
         channel_id,
         author_id,
         content,
@@ -112,11 +114,38 @@ pub async fn create(
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<MessageRow>> {
     sqlx::query_as!(
         MessageRow,
-        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages WHERE id = ?"#,
+        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
     .await
+}
+
+pub async fn set_pinned(db: &SqlitePool, id: i64, pinned: bool) -> sqlx::Result<()> {
+    let val = if pinned { 1 } else { 0 };
+    sqlx::query!("UPDATE messages SET pinned = ? WHERE id = ?", val, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_pinned(
+    db: &SqlitePool,
+    channel_id: i64,
+) -> sqlx::Result<Vec<Message>> {
+    let rows = sqlx::query_as!(
+        MessageRow,
+        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned
+           FROM messages WHERE channel_id = ? AND pinned = 1
+           ORDER BY id DESC"#,
+        channel_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut messages: Vec<Message> = rows.iter().map(to_model).collect();
+    enrich_with_replies(db, &mut messages, &rows).await?;
+    Ok(messages)
 }
 
 pub async fn delete(db: &SqlitePool, id: i64) -> sqlx::Result<()> {
@@ -150,7 +179,7 @@ pub async fn list_by_channel(
         Some(before) => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
                  WHERE channel_id = ? AND id < ?
                  ORDER BY id DESC LIMIT ?"#,
                 channel_id,
@@ -163,7 +192,7 @@ pub async fn list_by_channel(
         None => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
                  WHERE channel_id = ?
                  ORDER BY id DESC LIMIT ?"#,
                 channel_id,
@@ -191,7 +220,7 @@ pub async fn list_by_author(
         Some(before) => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
                  WHERE author_id = ? AND id < ?
                  ORDER BY id DESC LIMIT ?"#,
                 author_id,
@@ -204,7 +233,7 @@ pub async fn list_by_author(
         None => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
                  WHERE author_id = ?
                  ORDER BY id DESC LIMIT ?"#,
                 author_id,
@@ -228,8 +257,8 @@ pub async fn search(
     query: &str,
     limit: i64,
 ) -> sqlx::Result<Vec<Message>> {
-    let raw: Vec<(i64, i64, i64, String, String, Option<i64>)> = sqlx::query_as(
-        r#"SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.reply_to_id
+    let raw: Vec<(i64, i64, i64, String, String, Option<i64>, i64)> = sqlx::query_as(
+        r#"SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.reply_to_id, m.pinned
            FROM messages_fts f
            JOIN messages m ON m.id = f.rowid
            WHERE f.content MATCH ? AND m.channel_id = ?
@@ -244,13 +273,14 @@ pub async fn search(
 
     let rows: Vec<MessageRow> = raw
         .into_iter()
-        .map(|(id, channel_id, author_id, content, created_at, reply_to_id)| MessageRow {
+        .map(|(id, channel_id, author_id, content, created_at, reply_to_id, pinned)| MessageRow {
             id: Some(id),
             channel_id,
             author_id,
             content,
             created_at,
             reply_to_id,
+            pinned,
         })
         .collect();
 

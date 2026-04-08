@@ -183,7 +183,7 @@ export const api = {
     return request<void>(baseUrl, `/channels/${channelId}`, token, { method: "DELETE" });
   },
 
-  updateChannel(baseUrl: string, token: string, channelId: number, data: { name?: string }) {
+  updateChannel(baseUrl: string, token: string, channelId: number, data: { name?: string; description?: string }) {
     return request<Channel>(baseUrl, `/channels/${channelId}`, token, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -195,6 +195,16 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ group_id: groupId }),
     });
+  },
+
+  togglePin(baseUrl: string, token: string, channelId: number, messageId: number) {
+    return request<void>(baseUrl, `/channels/${channelId}/messages/${messageId}/pin`, token, {
+      method: "POST",
+    });
+  },
+
+  listPinned(baseUrl: string, token: string, channelId: number) {
+    return request<Message[]>(baseUrl, `/channels/${channelId}/pins`, token);
   },
 
   listMessages(baseUrl: string, token: string, channelId: number, limit = 50, before?: number) {
@@ -420,6 +430,7 @@ export interface Channel {
   kind: "text" | "voice";
   position: number;
   group_id: number | null;
+  description: string | null;
 }
 
 export interface Role {
@@ -494,6 +505,7 @@ export interface Message {
   reply_to?: ReplyPreview;
   mentions: Mention[];
   reactions: Reaction[];
+  pinned: boolean;
 }
 
 export interface NotificationPref {

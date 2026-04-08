@@ -250,6 +250,11 @@ async fn handle_client_event(
         ClientEvent::KickVoice { user_id: target_id } => {
             voice::handle_kick(state, user_id, target_id).await?;
         }
+
+        // ── Typing ──
+        ClientEvent::Typing { channel_id } => {
+            state.broadcast(ServerEvent::UserTyping { user_id, channel_id });
+        }
     }
 
     Ok(())

@@ -93,6 +93,7 @@ pub async fn set_participant_muted(
     struct GetParticipantReq { room: String, identity: String }
 
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct Track { sid: String, r#type: String, muted: bool }
 
     #[derive(serde::Deserialize)]

@@ -62,7 +62,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
 import { SendHorizonal, Paperclip, X, FileText, Reply } from "lucide-vue-next";
-import { activeState, activeServer, sendMessage, resolveUser } from "../../store";
+import { activeState, activeServer, sendMessage, sendTyping, resolveUser } from "../../store";
 import type { Message } from "../../api";
 
 const props = defineProps<{
@@ -171,6 +171,7 @@ function insertMention(item: MentionItem) {
 function onInputChange(e: Event) {
   autoResize(e);
   updateMentionState();
+  if (input.value.trim()) sendTyping();
 }
 
 function autoResize(e: Event) {

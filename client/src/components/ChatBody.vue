@@ -67,6 +67,10 @@
             <button class="msg-action-btn" title="Repondre" @click="startReply(msg)">
               <Reply :size="14" />
             </button>
+            <button v-if="canManage" class="msg-action-btn" :title="msg.pinned ? 'Desepingler' : 'Epingler'" @click="togglePin(msg)">
+              <PinOff v-if="msg.pinned" :size="14" />
+              <Pin v-else :size="14" />
+            </button>
             <button v-if="isOwnMessage(msg)" class="msg-action-btn" title="Modifier" @click="startEdit(msg)">
               <Pencil :size="14" />
             </button>
@@ -93,6 +97,7 @@
                 <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
                 <span v-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
                 <span class="message-time">{{ formatTime(msg.created_at) }}</span>
+                <Pin v-if="msg.pinned" :size="12" class="pin-icon" title="Message epingle" />
               </div>
               <template v-if="editingMessageId === msg.id">
                 <textarea
@@ -144,6 +149,11 @@
         </div>
       </template>
       </div>
+    </div>
+
+    <div v-if="typingText" class="typing-indicator">
+      <span class="typing-dots"><span></span><span></span><span></span></span>
+      {{ typingText }}
     </div>
 
     <ChatInput
@@ -198,7 +208,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus } from "lucide-vue-next";
+import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff } from "lucide-vue-next";
 import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
 import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
 import * as perms from "../permissions";
@@ -212,6 +222,19 @@ import AttachmentList from "./chat/AttachmentList.vue";
 import MessageReactions from "./chat/MessageReactions.vue";
 import EmojiPicker from "./chat/EmojiPicker.vue";
 import ChatInput from "./chat/ChatInput.vue";
+
+const typingText = computed(() => {
+  const st = state.value;
+  if (!st?.activeChannelId) return "";
+  const channelTyping = st.typingUsers.get(st.activeChannelId);
+  if (!channelTyping || channelTyping.size === 0) return "";
+  const names = Array.from(channelTyping.keys())
+    .map((uid) => st.users.get(uid)?.display_name ?? `User #${uid}`)
+    .slice(0, 3);
+  if (names.length === 1) return `${names[0]} est en train d'ecrire...`;
+  if (names.length === 2) return `${names[0]} et ${names[1]} sont en train d'ecrire...`;
+  return `${names[0]}, ${names[1]} et d'autres sont en train d'ecrire...`;
+});
 
 const messagesContainer = ref<HTMLElement>();
 const chatInputRef = ref<InstanceType<typeof ChatInput>>();
@@ -526,6 +549,14 @@ function confirmDelete() {
   }
 }
 
+async function togglePin(msg: Message) {
+  const server = activeServer();
+  if (!server) return;
+  try {
+    await api.togglePin(server.url, server.token, msg.channel_id, msg.id);
+  } catch {}
+}
+
 function onMessageContextMenu(msg: Message, e: MouseEvent) {
   const items: MenuItem[] = [];
 
@@ -533,6 +564,14 @@ function onMessageContextMenu(msg: Message, e: MouseEvent) {
 
   if (isOwnMessage(msg)) {
     items.push({ label: "Modifier", icon: Pencil, action: () => startEdit(msg) });
+  }
+
+  if (canManage.value) {
+    items.push({
+      label: msg.pinned ? "Desepingler" : "Epingler",
+      icon: msg.pinned ? PinOff : Pin,
+      action: () => togglePin(msg),
+    });
   }
 
   if (canActOnMessage(msg)) {
@@ -770,6 +809,11 @@ function formatTimeShort(ts: string): string {
   font-size: 0.6875rem;
   color: var(--text-muted);
   font-weight: 400;
+}
+
+.pin-icon {
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
 .message-content {
@@ -1084,5 +1128,38 @@ function formatTimeShort(ts: string): string {
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+/* ── Typing indicator ── */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 16px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  height: 20px;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.typing-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
 }
 </style>

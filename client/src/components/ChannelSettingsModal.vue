@@ -42,6 +42,14 @@
               <SaveButton :loading="savingName" :saved="nameSaved" :disabled="!channelName.trim() || channelName === channel?.name" @click="saveName" />
             </div>
           </div>
+          <div class="card">
+            <div class="card-title">Description / Topic</div>
+            <div class="input-row">
+              <textarea v-model="channelDescription" placeholder="Ajouter une description..." rows="3" class="desc-textarea" />
+              <SaveButton :loading="savingDesc" :saved="descSaved" :disabled="channelDescription === (channel?.description ?? '')" @click="saveDescription" />
+            </div>
+            <p class="card-hint" style="margin-top: 6px;">Visible dans l'en-tete du channel.</p>
+          </div>
         </div>
 
         <!-- Permissions -->
@@ -116,6 +124,9 @@ const permsList = [
 const channelName = ref("");
 const savingName = ref(false);
 const nameSaved = ref(false);
+const channelDescription = ref("");
+const savingDesc = ref(false);
+const descSaved = ref(false);
 
 async function saveName() {
   const s = activeServer();
@@ -132,6 +143,24 @@ async function saveName() {
     setTimeout(() => (nameSaved.value = false), 2500);
   } finally {
     savingName.value = false;
+  }
+}
+
+async function saveDescription() {
+  const s = activeServer();
+  const st = activeState();
+  const id = channelId.value;
+  if (!s || !st || !id) return;
+
+  savingDesc.value = true;
+  try {
+    await api.updateChannel(s.url, s.token, id, { description: channelDescription.value });
+    const ch = st.channels.find((c) => c.id === id);
+    if (ch) ch.description = channelDescription.value || null;
+    descSaved.value = true;
+    setTimeout(() => (descSaved.value = false), 2500);
+  } finally {
+    savingDesc.value = false;
   }
 }
 
@@ -197,6 +226,7 @@ onMounted(async () => {
   if (!s || !id) return;
 
   channelName.value = channel.value?.name ?? "";
+  channelDescription.value = channel.value?.description ?? "";
 
   try {
     const allRoles = await api.listRoles(s.url, s.token);
@@ -352,7 +382,21 @@ function close() {
   font-family: inherit;
   outline: none;
 }
-.input-row input::placeholder { color: var(--text-faint); }
+.input-row input::placeholder, .desc-textarea::placeholder { color: var(--text-faint); }
+
+.desc-textarea {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+}
 
 .btn-sm {
   width: auto;
