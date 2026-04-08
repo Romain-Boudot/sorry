@@ -166,6 +166,99 @@ pub async fn handle_force_deafen(
     Ok(())
 }
 
+pub async fn handle_move(
+    state: &AppState,
+    actor_id: i64,
+    target_id: i64,
+    to_channel_id: i64,
+) -> WsResult {
+    let perms = crate::db::roles::get_user_permissions(&state.db, actor_id).await?;
+    if !permissions::has(perms, permissions::MOVE_MEMBERS) {
+        return Ok(());
+    }
+
+    // Check target is in a voice channel
+    let from_channel = {
+        let voice = state.voice_state.read().unwrap();
+        let mut found = None;
+        for (cid, users) in voice.iter() {
+            if users.contains_key(&target_id) {
+                found = Some(*cid);
+                break;
+            }
+        }
+        found
+    };
+
+    let from_channel = match from_channel {
+        Some(cid) => cid,
+        None => return Ok(()),
+    };
+
+    if from_channel == to_channel_id {
+        return Ok(());
+    }
+
+    // Check destination is a voice channel
+    let dest = crate::db::channels::find_by_id(&state.db, to_channel_id)
+        .await?
+        .ok_or("channel not found")?;
+    if dest.kind != "voice" {
+        return Ok(());
+    }
+
+    // Remove from old, add to new
+    {
+        let mut voice = state.voice_state.write().unwrap();
+        if let Some(users) = voice.get_mut(&from_channel) {
+            users.remove(&target_id);
+        }
+        voice.entry(to_channel_id).or_default().insert(target_id, VoiceUserState::default());
+    }
+
+    state.broadcast(ServerEvent::UserLeftVoice {
+        user_id: target_id,
+        channel_id: from_channel,
+    });
+
+    let user = crate::db::users::find_by_id(&state.db, target_id)
+        .await?
+        .ok_or("user not found")?;
+
+    state.broadcast(ServerEvent::UserJoinedVoice {
+        user: user.clone(),
+        channel_id: to_channel_id,
+        voice_state: VoiceUserState::default(),
+    });
+
+    // Generate a LiveKit token for the moved user (bypass CONNECT check, grant SPEAK + STREAM)
+    // No need to remove from old room — the client disconnects itself via rejoinWithToken
+    if !state.livekit_url.is_empty() {
+        let room_name = state.room_name(to_channel_id);
+        let identity = format!("user-{}", target_id);
+
+        let token = crate::livekit::generate_token(
+            &state.livekit_api_key,
+            &state.livekit_api_secret,
+            &room_name,
+            &identity,
+            &user.display_name,
+            true,  // can_speak
+            true,  // can_stream
+        )
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+
+        state.broadcast(ServerEvent::VoiceMoved {
+            user_id: target_id,
+            channel_id: to_channel_id,
+            token,
+            url: state.livekit_url.clone(),
+        });
+    }
+
+    Ok(())
+}
+
 pub async fn handle_kick(state: &AppState, actor_id: i64, target_id: i64) -> WsResult {
     let perms = crate::db::roles::get_user_permissions(&state.db, actor_id).await?;
     if !permissions::has(perms, permissions::MOVE_MEMBERS) {

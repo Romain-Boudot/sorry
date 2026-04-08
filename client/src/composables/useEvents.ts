@@ -2,11 +2,12 @@
  * WS event handler — dispatches ServerEvents to the correct state mutations.
  * Extracted from store.ts — operates on the same reactive store object.
  */
-import { type ServerEvent, type Message, type User, type Role, type VoiceUserState } from "../api";
+import { type ServerEvent, type Message, type User, type Role, type VoiceUserState, type Channel, type ChannelGroup, type ChannelOverwrite } from "../api";
 import { store, persistServers, type ServerState } from "../store";
 import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../voice";
 import { fireNotification } from "./useNotifications";
 import { showToast } from "./useToast";
+import { rejoinWithToken } from "./useVoice";
 
 function defaultVoiceUserState(): VoiceUserState {
   return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
@@ -195,6 +196,15 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       }
       break;
     }
+    case "VoiceMoved": {
+      const { user_id, channel_id, token, url } = event.data as { user_id: number; channel_id: number; token: string; url: string };
+      if (user_id === state.user?.id) {
+        const channelName = state.channels.find(c => c.id === channel_id)?.name ?? `#${channel_id}`;
+        showToast(`Deplace vers ${channelName}`, "info", 3000);
+        rejoinWithToken(state, channel_id, token, url);
+      }
+      break;
+    }
     case "UserTyping": {
       const { user_id, channel_id } = event.data as { user_id: number; channel_id: number };
       // Ignore our own typing events
@@ -218,6 +228,70 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       }, 3000);
       channelTyping.set(user_id, timeout);
       state.typingUsers = new Map(state.typingUsers);
+      break;
+    }
+    case "ChannelCreate": {
+      const channel = event.data as Channel;
+      if (!state.channels.find(c => c.id === channel.id)) {
+        state.channels.push(channel);
+      }
+      break;
+    }
+    case "ChannelUpdate": {
+      const channel = event.data as Channel;
+      const idx = state.channels.findIndex(c => c.id === channel.id);
+      if (idx >= 0) state.channels[idx] = channel;
+      break;
+    }
+    case "ChannelDelete": {
+      const { id } = event.data as { id: number };
+      state.channels = state.channels.filter(c => c.id !== id);
+      state.messages.delete(id);
+      if (state.activeChannelId === id) state.activeChannelId = null;
+      break;
+    }
+    case "ChannelListUpdate": {
+      const { channels } = event.data as { channels: Channel[] };
+      state.channels = channels;
+      break;
+    }
+    case "GroupCreate": {
+      const group = event.data as ChannelGroup;
+      if (!state.groups.find(g => g.id === group.id)) {
+        state.groups.push(group);
+      }
+      break;
+    }
+    case "GroupUpdate": {
+      const group = event.data as ChannelGroup;
+      const idx = state.groups.findIndex(g => g.id === group.id);
+      if (idx >= 0) state.groups[idx] = group;
+      break;
+    }
+    case "GroupDelete": {
+      const { id } = event.data as { id: number };
+      state.groups = state.groups.filter(g => g.id !== id);
+      break;
+    }
+    case "GroupListUpdate": {
+      const { groups } = event.data as { groups: ChannelGroup[] };
+      state.groups = groups;
+      break;
+    }
+    case "OverwriteUpdate": {
+      const ow = event.data as ChannelOverwrite;
+      const idx = state.channelOverwrites.findIndex(
+        o => o.channel_id === ow.channel_id && o.role_id === ow.role_id
+      );
+      if (idx >= 0) state.channelOverwrites[idx] = ow;
+      else state.channelOverwrites.push(ow);
+      break;
+    }
+    case "OverwriteDelete": {
+      const { channel_id, role_id } = event.data as { channel_id: number; role_id: number };
+      state.channelOverwrites = state.channelOverwrites.filter(
+        o => !(o.channel_id === channel_id && o.role_id === role_id)
+      );
       break;
     }
   }

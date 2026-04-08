@@ -60,6 +60,7 @@ function applySnapshot(serverId: string, snapshot: Snapshot) {
   state.onlineUsers = new Set(snapshot.online_users);
   state.onlineUsers.add(snapshot.user.id);
   state.roles = snapshot.roles;
+  state.channelOverwrites = snapshot.channel_overwrites ?? [];
   state.maxFileSize = snapshot.max_file_size;
 
   state.users.clear();

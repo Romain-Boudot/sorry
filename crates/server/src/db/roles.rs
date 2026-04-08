@@ -183,6 +183,26 @@ pub async fn get_user_permissions(db: &SqlitePool, user_id: i64) -> sqlx::Result
 }
 
 /// List all overwrites for a channel
+pub async fn list_all_channel_overwrites(
+    db: &SqlitePool,
+) -> sqlx::Result<Vec<shared::models::ChannelOverwrite>> {
+    let rows = sqlx::query!(
+        "SELECT channel_id, role_id, allow, deny FROM channel_permission_overwrites"
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| shared::models::ChannelOverwrite {
+            channel_id: r.channel_id,
+            role_id: r.role_id,
+            allow: r.allow,
+            deny: r.deny,
+        })
+        .collect())
+}
+
 pub async fn list_channel_overwrites(
     db: &SqlitePool,
     channel_id: i64,

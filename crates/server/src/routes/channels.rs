@@ -76,7 +76,7 @@ async fn create_channel(
         crate::db::channels::update_description(&state.db, id, desc).await?;
     }
 
-    Ok(Json(shared::models::Channel {
+    let channel = shared::models::Channel {
         id,
         name: payload.name,
         kind: match kind {
@@ -86,7 +86,10 @@ async fn create_channel(
         position: 0,
         group_id: payload.group_id,
         description: payload.description.filter(|d| !d.trim().is_empty()),
-    }))
+    };
+
+    state.broadcast(shared::events::ServerEvent::ChannelCreate(channel.clone()));
+    Ok(Json(channel))
 }
 
 #[derive(Deserialize)]
@@ -123,7 +126,7 @@ async fn update_channel(
     } else {
         row.description
     };
-    Ok(Json(shared::models::Channel {
+    let channel = shared::models::Channel {
         id,
         name,
         kind: match row.kind.as_str() {
@@ -133,7 +136,10 @@ async fn update_channel(
         position: row.position,
         group_id: row.group_id,
         description,
-    }))
+    };
+
+    state.broadcast(shared::events::ServerEvent::ChannelUpdate(channel.clone()));
+    Ok(Json(channel))
 }
 
 /// DELETE /api/channels/:id
@@ -150,6 +156,8 @@ async fn delete_channel(
 
     let message_ids = crate::db::messages::list_ids_by_channel(&state.db, id).await?;
     crate::db::channels::delete(&state.db, id).await?;
+
+    state.broadcast(shared::events::ServerEvent::ChannelDelete { id });
 
     if !message_ids.is_empty() {
         let storage = state.storage.clone();
@@ -295,11 +303,9 @@ async fn create_group(
 ) -> Result<Json<shared::models::ChannelGroup>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     let id = crate::db::channel_groups::create(&state.db, &payload.name, 0).await?;
-    Ok(Json(shared::models::ChannelGroup {
-        id,
-        name: payload.name,
-        position: 0,
-    }))
+    let group = shared::models::ChannelGroup { id, name: payload.name, position: 0 };
+    state.broadcast(shared::events::ServerEvent::GroupCreate(group.clone()));
+    Ok(Json(group))
 }
 
 #[derive(Deserialize)]
@@ -316,6 +322,7 @@ async fn update_group(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::channel_groups::update(&state.db, id, &payload.name).await?;
+    state.broadcast(shared::events::ServerEvent::GroupUpdate(shared::models::ChannelGroup { id, name: payload.name, position: 0 }));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -327,6 +334,7 @@ async fn delete_group(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::channel_groups::delete(&state.db, id).await?;
+    state.broadcast(shared::events::ServerEvent::GroupDelete { id });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -343,6 +351,8 @@ async fn reorder_channels(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::channels::reorder(&state.db, &payload.ids).await?;
+    let channels = crate::db::channels::list_all(&state.db).await?;
+    state.broadcast(shared::events::ServerEvent::ChannelListUpdate { channels });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -354,6 +364,8 @@ async fn reorder_groups(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::channel_groups::reorder(&state.db, &payload.ids).await?;
+    let groups = crate::db::channel_groups::list_all(&state.db).await?;
+    state.broadcast(shared::events::ServerEvent::GroupListUpdate { groups });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -371,6 +383,8 @@ async fn move_channel(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::channels::update_group(&state.db, id, payload.group_id).await?;
+    let channels = crate::db::channels::list_all(&state.db).await?;
+    state.broadcast(shared::events::ServerEvent::ChannelListUpdate { channels });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -405,6 +419,12 @@ async fn set_overwrite(
     crate::db::roles::set_channel_overwrite(
         &state.db, channel_id, payload.role_id, payload.allow, payload.deny,
     ).await?;
+    state.broadcast(shared::events::ServerEvent::OverwriteUpdate(shared::models::ChannelOverwrite {
+        channel_id,
+        role_id: payload.role_id,
+        allow: payload.allow,
+        deny: payload.deny,
+    }));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -422,6 +442,7 @@ async fn delete_overwrite(
 ) -> Result<StatusCode, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::roles::delete_channel_overwrite(&state.db, channel_id, payload.role_id).await?;
+    state.broadcast(shared::events::ServerEvent::OverwriteDelete { channel_id, role_id: payload.role_id });
     Ok(StatusCode::NO_CONTENT)
 }
 

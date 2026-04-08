@@ -28,3 +28,41 @@ export const PRIORITY_SPEAKER   = 1 << 24;
 export function has(permissions: number, permission: number): boolean {
   return (permissions & ADMINISTRATOR) !== 0 || (permissions & permission) === permission;
 }
+
+/** Compute effective permissions for a user on a specific channel. */
+export function computeChannel(
+  userRoleIds: number[],
+  roles: { id: number; permissions: number }[],
+  overwrites: { role_id: number; allow: number; deny: number }[],
+): number {
+  // Base: OR all role permissions
+  let base = 0;
+  for (const rid of userRoleIds) {
+    const role = roles.find(r => r.id === rid);
+    if (role) base |= role.permissions;
+  }
+  // Also include everyone role (ID=2)
+  const everyone = roles.find(r => r.id === 2);
+  if (everyone) base |= everyone.permissions;
+
+  if (base & ADMINISTRATOR) return 0x7FFFFFFF; // ALL
+
+  // Apply overwrites: first everyone overwrite, then user's role overwrites
+  let allow = 0;
+  let deny = 0;
+
+  // Everyone overwrite first
+  const evOw = overwrites.find(o => o.role_id === 2);
+  if (evOw) { allow |= evOw.allow; deny |= evOw.deny; }
+
+  // Then user's role overwrites (higher priority)
+  for (const rid of userRoleIds) {
+    if (rid === 2) continue;
+    const ow = overwrites.find(o => o.role_id === rid);
+    if (ow) { allow |= ow.allow; deny |= ow.deny; }
+  }
+
+  base &= ~deny;
+  base |= allow;
+  return base;
+}

@@ -160,6 +160,7 @@ async fn send_snapshot(
         crate::db::servers::get_settings(&state.db),
     )?;
     let user = user_opt.ok_or("user not found")?;
+    let channel_overwrites = crate::db::roles::list_all_channel_overwrites(&state.db).await?;
 
     let online_users: Vec<i64> = {
         let online = state.online_users.read().unwrap();
@@ -184,6 +185,7 @@ async fn send_snapshot(
         roles,
         user_roles: all_user_roles,
         voice_state,
+        channel_overwrites,
         server_name: server_settings.0,
         server_description: server_settings.1,
         server_icon_url: server_settings.2,
@@ -249,6 +251,9 @@ async fn handle_client_event(
         }
         ClientEvent::KickVoice { user_id: target_id } => {
             voice::handle_kick(state, user_id, target_id).await?;
+        }
+        ClientEvent::MoveVoice { user_id: target_id, channel_id } => {
+            voice::handle_move(state, user_id, target_id, channel_id).await?;
         }
 
         // ── Typing ──

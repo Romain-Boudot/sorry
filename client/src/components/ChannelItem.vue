@@ -22,12 +22,18 @@
       :class="{
         active: channel.id === state?.activeChannelId,
         joined: state?.voiceChannelId === channel.id,
+        'drop-target': dropHighlight,
       }"
       :data-channel-id="channel.id"
       @click="handleVoiceClick(channel.id)"
       @contextmenu.prevent.stop="emit('contextmenu', $event)"
+      @dragenter.prevent="onDragEnter"
+      @dragleave.prevent="onDragLeave"
+      @dragover.prevent
+      @drop.prevent="dropCount = 0; onChannelDrop($event)"
     >
-      <Volume2 class="channel-icon" :size="20" />
+      <Lock v-if="isHiddenChannel" class="channel-icon" :size="20" />
+      <Volume2 v-else class="channel-icon" :size="20" />
       <span class="channel-name">{{ channel.name }}</span>
       <span class="channel-actions"><slot name="actions" /></span>
     </div>
@@ -36,6 +42,9 @@
         v-for="[uid, vs] in voiceUsers"
         :key="uid"
         class="voice-user"
+        :draggable="canMove"
+        @dragstart.stop="onUserDragStart(uid, $event)"
+        @dragend="onUserDragEnd"
         @click="openCard(uid, $event)"
         @contextmenu.prevent.stop="onVoiceUserContext(uid, vs, $event)"
       >
@@ -71,7 +80,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, BellMinus, Monitor, Video } from "lucide-vue-next";
+import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, BellMinus, Monitor, Video, Lock } from "lucide-vue-next";
 import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import type { Channel, User, VoiceUserState } from "../api";
@@ -83,6 +92,21 @@ const emit = defineEmits<{ contextmenu: [e: MouseEvent] }>();
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
+const canMove = computed(() => perms.has(state.value?.permissions ?? 0, perms.MOVE_MEMBERS));
+
+const isHiddenChannel = computed(() => {
+  const st = state.value;
+  if (!st?.user || props.channel.kind !== "voice") return false;
+  if (perms.has(st.permissions, perms.ADMINISTRATOR)) return false;
+  const userRoleIds = st.userRoles.get(st.user.id) ?? [];
+  const channelOws = st.channelOverwrites.filter(o => o.channel_id === props.channel.id);
+  if (channelOws.length === 0) return !perms.has(st.permissions, perms.VIEW_CHANNELS);
+  const channelPerms = perms.computeChannel(userRoleIds, st.roles, channelOws);
+  return !perms.has(channelPerms, perms.VIEW_CHANNELS);
+});
+
+const dropCount = ref(0);
+const dropHighlight = computed(() => dropCount.value > 0);
 
 const unreadCount = computed(() => state.value?.channelUnread.get(props.channel.id) ?? 0);
 const mentionCount = computed(() => state.value?.channelMentions.get(props.channel.id) ?? 0);
@@ -123,6 +147,38 @@ function openCard(uid: number, e: MouseEvent) {
   cardX.value = rect.right + 8;
   cardY.value = rect.top;
   cardUser.value = user;
+}
+
+function isVoiceUserDrag(e: DragEvent): boolean {
+  return e.dataTransfer?.types.includes("voice-user-id") ?? false;
+}
+
+function onDragEnter(e: DragEvent) {
+  if (isVoiceUserDrag(e)) dropCount.value++;
+}
+
+function onDragLeave(e: DragEvent) {
+  if (isVoiceUserDrag(e)) dropCount.value--;
+}
+
+function onUserDragStart(uid: number, e: DragEvent) {
+  e.dataTransfer!.setData("voice-user-id", String(uid));
+  e.dataTransfer!.setData("voice-from-channel", String(props.channel.id));
+  e.dataTransfer!.effectAllowed = "move";
+}
+
+function onUserDragEnd() {
+  // Reset all voice channel drop highlights via DOM (other channels won't get dragend)
+}
+
+function onChannelDrop(e: DragEvent) {
+  dropCount.value = 0;
+  const st = state.value;
+  if (!st) return;
+  const uid = Number(e.dataTransfer?.getData("voice-user-id"));
+  const fromChannel = Number(e.dataTransfer?.getData("voice-from-channel"));
+  if (!uid || !fromChannel || fromChannel === props.channel.id) return;
+  st.wsConnection?.ws?.send(JSON.stringify({ type: "MoveVoice", data: { user_id: uid, channel_id: props.channel.id } }));
 }
 
 const voiceCtx = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -233,7 +289,19 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 }
 
 .voice-users {
-  padding: 0 12px 2px 20px;
+  padding: 0 12px 0 20px;
+}
+
+.voice-users.has-users {
+  padding-bottom: 2px;
+}
+
+/* Drag & drop voice users */
+.channel-item.voice.drop-target {
+  background: var(--bg-modifier-hover);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 6px;
 }
 
 .voice-user {

@@ -575,6 +575,7 @@ export interface Snapshot {
   roles: Role[];
   user_roles: Record<number, number[]>;
   voice_state: Record<number, Record<number, VoiceUserState>>;
+  channel_overwrites: ChannelOverwrite[];
   server_name: string;
   server_description: string | null;
   server_icon_url: string | null;

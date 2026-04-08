@@ -12,7 +12,7 @@
  * the public API is re-exported here as thin wrappers.
  */
 import { reactive } from "vue";
-import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
+import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type ChannelOverwrite, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
 
 // ── Types ──
 
@@ -62,6 +62,7 @@ export interface ServerState {
   typingUsers: Map<number, Map<number, ReturnType<typeof setTimeout>>>;
   /** Timestamp of last typing event sent by us */
   lastTypingSent: number;
+  channelOverwrites: ChannelOverwrite[];
 }
 
 // ── Factory ──
@@ -100,6 +101,7 @@ export function createServerState(): ServerState {
     videoTrackVersion: 0,
     typingUsers: new Map(),
     lastTypingSent: 0,
+    channelOverwrites: [],
   };
 }
 

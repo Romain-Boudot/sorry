@@ -69,6 +69,70 @@ export async function joinVoiceChannel(
   }
 }
 
+/** Rejoin a voice channel with a pre-generated token (used for admin move). */
+export async function rejoinWithToken(
+  state: ServerState,
+  channelId: number,
+  token: string,
+  url: string,
+) {
+  // Leave current channel first
+  const prevChannel = state.voiceChannelId;
+  state.voiceChannelId = null;
+  state.voiceConnectingChannelId = null;
+  state.isScreenSharing = false;
+  state.isCameraOn = false;
+  await leaveVoice();
+  if (prevChannel) {
+    wsSend(state, { type: "LeaveVoice", data: { channel_id: prevChannel } });
+  }
+
+  state.voiceStatus = "connecting";
+  state.voiceConnectingChannelId = channelId;
+
+  try {
+    await joinVoice(url, token, {
+      onConnected: () => {
+        state.voiceChannelId = channelId;
+        state.voiceStatus = "connected";
+        if (state.isMuted) voiceToggleMute();
+        if (state.isDeafened) voiceToggleDeafen();
+        wsSend(state, { type: "JoinVoice", data: { channel_id: channelId } });
+        sendVoiceStateUpdate(state);
+      },
+      onDisconnected: () => {
+        const prev = state.voiceChannelId;
+        if (!prev) return;
+        state.voiceChannelId = null;
+        state.voiceConnectingChannelId = null;
+        state.voiceStatus = "idle";
+        wsSend(state, { type: "LeaveVoice", data: { channel_id: prev } });
+      },
+      onParticipantJoined: () => {},
+      onParticipantLeft: () => {},
+      onActiveSpeakersChanged: (identities) => {
+        state.speakingUsers = new Set(identities);
+      },
+      onTrackChanged: () => {
+        state.videoTrackVersion++;
+        const actualScreen = voiceIsScreenSharing();
+        const actualCamera = voiceIsCameraEnabled();
+        if (state.isScreenSharing !== actualScreen || state.isCameraOn !== actualCamera) {
+          state.isScreenSharing = actualScreen;
+          state.isCameraOn = actualCamera;
+          sendVoiceStateUpdate(state);
+        }
+      },
+      onError: (err) => {
+        state.voiceStatus = "error";
+        console.error("Voice move error:", err);
+      },
+    });
+  } catch {
+    state.voiceStatus = "error";
+  }
+}
+
 export async function leaveVoiceChannel(state: ServerState) {
   const prevChannel = state.voiceChannelId;
 

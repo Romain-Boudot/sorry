@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::models::{Channel, ChannelGroup, Message, Role, User, VoiceUserState};
+use crate::models::{Channel, ChannelGroup, ChannelOverwrite, Message, Role, User, VoiceUserState};
 
 /// Events envoyés du serveur → client via WebSocket
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +23,17 @@ pub enum ServerEvent {
     ReactionRemoved { message_id: i64, channel_id: i64, emoji: String, user_id: i64 },
     UserBanned { user_id: i64 },
     UserTyping { user_id: i64, channel_id: i64 },
+    VoiceMoved { user_id: i64, channel_id: i64, token: String, url: String },
+    ChannelCreate(Channel),
+    ChannelUpdate(Channel),
+    ChannelDelete { id: i64 },
+    ChannelListUpdate { channels: Vec<Channel> },
+    GroupCreate(ChannelGroup),
+    GroupUpdate(ChannelGroup),
+    GroupDelete { id: i64 },
+    GroupListUpdate { groups: Vec<ChannelGroup> },
+    OverwriteUpdate(ChannelOverwrite),
+    OverwriteDelete { channel_id: i64, role_id: i64 },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués
@@ -47,6 +58,7 @@ pub struct Snapshot {
     pub roles: Vec<Role>,
     pub user_roles: std::collections::HashMap<i64, Vec<i64>>,
     pub voice_state: std::collections::HashMap<i64, std::collections::HashMap<i64, VoiceUserState>>,
+    pub channel_overwrites: Vec<ChannelOverwrite>,
     pub server_name: String,
     pub server_description: Option<String>,
     pub server_icon_url: Option<String>,
@@ -68,6 +80,7 @@ pub enum ClientEvent {
     KickVoice { user_id: i64 },
     ToggleReaction { message_id: i64, emoji: String },
     Typing { channel_id: i64 },
+    MoveVoice { user_id: i64, channel_id: i64 },
     /// Demande de snapshot complet (reconnexion ou gap détecté)
     RequestSnapshot,
 }

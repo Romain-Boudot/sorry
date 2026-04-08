@@ -144,10 +144,24 @@ const ungrouped = ref<Channel[]>([]);
 const groupChannels = ref<Record<number, Channel[]>>({});
 const localGroups = ref<ChannelGroup[]>([]);
 
+function canViewChannel(channelId: number): boolean {
+  const st = state.value;
+  if (!st?.user) return true;
+  // Admins see everything
+  if (perms.has(st.permissions, perms.ADMINISTRATOR)) return true;
+  const userRoleIds = st.userRoles.get(st.user.id) ?? [];
+  const channelOws = st.channelOverwrites.filter(o => o.channel_id === channelId);
+  if (channelOws.length === 0) return perms.has(st.permissions, perms.VIEW_CHANNELS);
+  const computed = perms.computeChannel(userRoleIds, st.roles, channelOws);
+  return perms.has(computed, perms.VIEW_CHANNELS);
+}
+
 watch(
-  [() => state.value?.channels, () => state.value?.groups],
+  [() => state.value?.channels, () => state.value?.groups, () => state.value?.channelOverwrites, () => state.value?.userRoles, () => state.value?.roles, () => state.value?.voiceChannelId],
   () => {
-    const chs = state.value?.channels ?? [];
+    const chs = (state.value?.channels ?? []).filter(c =>
+      canManage.value || canViewChannel(c.id) || c.id === state.value?.voiceChannelId
+    );
     const grs = state.value?.groups ?? [];
     localGroups.value = [...grs];
     ungrouped.value = chs.filter((c) => !c.group_id);

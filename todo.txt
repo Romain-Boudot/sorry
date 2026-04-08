@@ -23,7 +23,7 @@ Nice to have
 ------------
 x Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
 x Screen sharing — LiveKit le supporte, pas cable
-- Move user entre channels voice (action admin)
+x Move user entre channels voice (action admin)
 - Limite d'utilisateurs par channel voice
 - Audit log pour les actions admin
 - Statut utilisateur (away/busy/DND) (maybe ... pas sur)
@@ -47,11 +47,13 @@ x indicateur pour qqn qui stream
 x indicateur pour qqn webcam ?
 x passé le state de navigation en session storage ?
 x "reply to" fonctionne pas en prod ?
+- soucis de notification, on recoit les notifs / le point reste meme si on est deja dans le channel
 
 Awesome Features
 ----------------
 - Stream depuis OBS
 - Threads — reponses groupees sous un message
+- Filtrage channels serveur-side (option A) — broadcasts cibles par user, per-user WS senders, recompute visibility sur changement de role/overwrite
 
 Done
 ----

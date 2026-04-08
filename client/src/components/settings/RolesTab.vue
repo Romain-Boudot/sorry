@@ -156,7 +156,7 @@ const permissionGroups = [
       { name: "Streamer", flag: perms.STREAM },
       { name: "Mute des membres", flag: perms.MUTE_MEMBERS },
       { name: "Deafen des membres", flag: perms.DEAFEN_MEMBERS },
-      { name: "Deplacer des membres", flag: perms.MOVE_MEMBERS },
+      { name: "Deplacer des membres (kick)", flag: perms.MOVE_MEMBERS },
       { name: "Activite vocale", flag: perms.USE_VOICE_ACTIVITY },
       { name: "Priorite vocale", flag: perms.PRIORITY_SPEAKER },
     ],
