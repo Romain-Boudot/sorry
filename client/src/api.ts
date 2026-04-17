@@ -183,7 +183,7 @@ export const api = {
     return request<void>(baseUrl, `/channels/${channelId}`, token, { method: "DELETE" });
   },
 
-  updateChannel(baseUrl: string, token: string, channelId: number, data: { name?: string; description?: string }) {
+  updateChannel(baseUrl: string, token: string, channelId: number, data: { name?: string; description?: string; user_limit?: number | null }) {
     return request<Channel>(baseUrl, `/channels/${channelId}`, token, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -431,6 +431,7 @@ export interface Channel {
   position: number;
   group_id: number | null;
   description: string | null;
+  user_limit: number | null;
 }
 
 export interface Role {

@@ -47,6 +47,19 @@ async fn get_token(
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    // Check user limit (ADMINISTRATOR and MOVE_MEMBERS bypass)
+    let bypass = permissions::has(perms, permissions::ADMINISTRATOR)
+        || permissions::has(perms, permissions::MOVE_MEMBERS);
+    if !bypass {
+        if let Some(limit) = channel.user_limit {
+            let voice = state.voice_state.read().unwrap();
+            let count = voice.get(&payload.channel_id).map(|u| u.len()).unwrap_or(0) as i64;
+            if count >= limit {
+                return Err(StatusCode::FORBIDDEN);
+            }
+        }
+    }
+
     // Récupérer le user pour le display name
     let user = crate::db::users::find_by_id(&state.db, auth.0)
         .await

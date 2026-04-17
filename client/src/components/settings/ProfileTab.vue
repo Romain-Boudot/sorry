@@ -23,7 +23,7 @@
       <div class="card-title">Display name</div>
       <p class="card-hint">Ton nom visible sur ce serveur.</p>
       <div class="input-row">
-        <input v-model="displayName" type="text" placeholder="Mon pseudo" maxlength="32" />
+        <BaseInput v-model="displayName" placeholder="Mon pseudo" :maxlength="32" />
         <SaveButton :loading="saving" :saved="saved" @click="saveDisplayName" />
       </div>
     </div>
@@ -32,9 +32,9 @@
       <div class="card-title">Mot de passe</div>
       <p class="card-hint">Change ton mot de passe de connexion.</p>
       <div class="password-fields">
-        <input v-model="currentPassword" type="password" placeholder="Mot de passe actuel" />
-        <input v-model="newPassword" type="password" placeholder="Nouveau mot de passe" />
-        <input v-model="confirmPassword" type="password" placeholder="Confirmer" @keydown.enter="changePassword" />
+        <BaseInput v-model="currentPassword" type="password" placeholder="Mot de passe actuel" />
+        <BaseInput v-model="newPassword" type="password" placeholder="Nouveau mot de passe" />
+        <BaseInput v-model="confirmPassword" type="password" placeholder="Confirmer" @keydown.enter="changePassword" />
       </div>
       <div class="password-actions">
         <SaveButton label="Changer" :loading="savingPassword" :saved="passwordSaved" :disabled="!currentPassword || !newPassword || newPassword !== confirmPassword" @click="changePassword" />
@@ -48,7 +48,8 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { Camera } from "lucide-vue-next";
-import SaveButton from "../SaveButton.vue";
+import SaveButton from "../ui/SaveButton.vue";
+import BaseInput from "../ui/BaseInput.vue";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
 
@@ -254,46 +255,11 @@ async function saveDisplayName() {
   gap: 8px;
 }
 
-.input-row input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-.input-row input[type="text"]::placeholder { color: var(--text-faint); }
-
-.toast-success {
-  font-size: 0.75rem;
-  color: var(--green);
-  margin-top: 6px;
-}
-
 .password-fields {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-bottom: 10px;
-}
-
-.password-fields input {
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-
-.password-fields input::placeholder {
-  color: var(--text-faint);
 }
 
 .password-actions {

@@ -8,6 +8,7 @@ pub struct ChannelRow {
     pub position: i64,
     pub group_id: Option<i64>,
     pub description: Option<String>,
+    pub user_limit: Option<i64>,
 }
 
 pub fn to_model(row: &ChannelRow) -> Channel {
@@ -21,6 +22,7 @@ pub fn to_model(row: &ChannelRow) -> Channel {
         position: row.position,
         group_id: row.group_id,
         description: row.description.clone(),
+        user_limit: row.user_limit,
     }
 }
 
@@ -39,7 +41,7 @@ pub async fn create(db: &SqlitePool, name: &str, kind: &str, group_id: Option<i6
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<Channel>> {
     let rows = sqlx::query_as!(
         ChannelRow,
-        "SELECT id, name, kind, position, group_id, description FROM channels ORDER BY position"
+        "SELECT id, name, kind, position, group_id, description, user_limit FROM channels ORDER BY position"
     )
     .fetch_all(db)
     .await?;
@@ -50,7 +52,7 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<Channel>> {
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<ChannelRow>> {
     sqlx::query_as!(
         ChannelRow,
-        "SELECT id, name, kind, position, group_id, description FROM channels WHERE id = ?",
+        "SELECT id, name, kind, position, group_id, description, user_limit FROM channels WHERE id = ?",
         id
     )
     .fetch_optional(db)
@@ -80,6 +82,13 @@ pub async fn update_name(db: &SqlitePool, id: i64, name: &str) -> sqlx::Result<(
 
 pub async fn update_description(db: &SqlitePool, id: i64, description: Option<&str>) -> sqlx::Result<()> {
     sqlx::query!("UPDATE channels SET description = ? WHERE id = ?", description, id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_user_limit(db: &SqlitePool, id: i64, user_limit: Option<i64>) -> sqlx::Result<()> {
+    sqlx::query!("UPDATE channels SET user_limit = ? WHERE id = ?", user_limit, id)
         .execute(db)
         .await?;
     Ok(())

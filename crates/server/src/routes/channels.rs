@@ -20,6 +20,7 @@ pub struct CreateChannelPayload {
     kind: String,
     group_id: Option<i64>,
     description: Option<String>,
+    user_limit: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +77,11 @@ async fn create_channel(
         crate::db::channels::update_description(&state.db, id, desc).await?;
     }
 
+    let user_limit = payload.user_limit.filter(|&l| l > 0);
+    if user_limit.is_some() {
+        crate::db::channels::update_user_limit(&state.db, id, user_limit).await?;
+    }
+
     let channel = shared::models::Channel {
         id,
         name: payload.name,
@@ -86,6 +92,7 @@ async fn create_channel(
         position: 0,
         group_id: payload.group_id,
         description: payload.description.filter(|d| !d.trim().is_empty()),
+        user_limit,
     };
 
     state.broadcast(shared::events::ServerEvent::ChannelCreate(channel.clone()));
@@ -96,6 +103,7 @@ async fn create_channel(
 pub struct UpdateChannelPayload {
     name: Option<String>,
     description: Option<String>,
+    user_limit: Option<Option<i64>>,
 }
 
 /// PATCH /api/channels/:id
@@ -120,11 +128,21 @@ async fn update_channel(
         crate::db::channels::update_description(&state.db, id, desc).await?;
     }
 
+    if let Some(ref limit) = payload.user_limit {
+        let limit = limit.filter(|&l| l > 0);
+        crate::db::channels::update_user_limit(&state.db, id, limit).await?;
+    }
+
     let name = payload.name.unwrap_or(row.name);
     let description = if payload.description.is_some() {
         payload.description.filter(|d| !d.trim().is_empty())
     } else {
         row.description
+    };
+    let user_limit = if let Some(ref limit) = payload.user_limit {
+        limit.filter(|&l| l > 0)
+    } else {
+        row.user_limit
     };
     let channel = shared::models::Channel {
         id,
@@ -136,6 +154,7 @@ async fn update_channel(
         position: row.position,
         group_id: row.group_id,
         description,
+        user_limit,
     };
 
     state.broadcast(shared::events::ServerEvent::ChannelUpdate(channel.clone()));

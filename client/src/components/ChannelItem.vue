@@ -34,7 +34,7 @@
     >
       <Lock v-if="isHiddenChannel" class="channel-icon" :size="20" />
       <Volume2 v-else class="channel-icon" :size="20" />
-      <span class="channel-name">{{ channel.name }}</span>
+      <span class="channel-name">{{ channel.name }}<span v-if="channel.user_limit" class="voice-count" :class="{ full: voiceUsers.length >= channel.user_limit }"> {{ voiceUsers.length }}/{{ channel.user_limit }}</span><span v-else-if="voiceUsers.length" class="voice-count"> {{ voiceUsers.length }}</span></span>
       <span class="channel-actions"><slot name="actions" /></span>
     </div>
     <div v-if="channel.kind === 'voice' && voiceUsers.length" class="voice-users">
@@ -84,7 +84,7 @@ import { Hash, Volume2, MicOff, Headphones, HeadphoneOff, PhoneOff, BellOff, Bel
 import { activeState, activeServer, selectChannel, resolveUser, joinVoiceChannel, isUserSpeaking, resolveAvatarUrl } from "../store";
 import * as perms from "../permissions";
 import type { Channel, User, VoiceUserState } from "../api";
-import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
+import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 
 const props = defineProps<{ channel: Channel }>();
@@ -398,5 +398,16 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
   border-radius: 50%;
   background: var(--danger);
   flex-shrink: 0;
+}
+
+.voice-count {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+
+.voice-count.full {
+  color: var(--danger);
 }
 </style>

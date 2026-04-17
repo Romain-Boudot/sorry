@@ -6,11 +6,11 @@
       <div class="invite-create-row">
         <div class="invite-field">
           <label>Utilisations max</label>
-          <input v-model.number="newInviteMaxUses" type="number" min="1" placeholder="Illimite" />
+          <NumberStepper :model-value="newInviteMaxUses ?? 0" @update:model-value="newInviteMaxUses = $event || null" :min="0" :max="999" />
         </div>
         <div class="invite-field">
           <label>Expiration (heures)</label>
-          <input v-model.number="newInviteExpireHours" type="number" min="1" placeholder="Jamais" />
+          <NumberStepper :model-value="newInviteExpireHours ?? 0" @update:model-value="newInviteExpireHours = $event || null" :min="0" :max="720" />
         </div>
         <button class="btn-sm invite-create-btn" @click="createInvite" :disabled="!canCreateInvite">
           <TicketPlus :size="14" />
@@ -98,6 +98,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { Trash2, TicketPlus, Copy, Check, Link2, Circle, ChevronDown } from "lucide-vue-next";
+import NumberStepper from "../ui/NumberStepper.vue";
 import { showToast } from "../../composables/useToast";
 import { activeState, activeServer, resolveUser } from "../../store";
 import { api, type Invite } from "../../api";
@@ -282,22 +283,6 @@ function formatExpiry(ts: number): string {
   margin-bottom: 4px;
 }
 
-.invite-field input {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-  -moz-appearance: textfield;
-}
-
-.invite-field input::placeholder { color: var(--text-faint); }
-.invite-field input::-webkit-inner-spin-button,
-.invite-field input::-webkit-outer-spin-button { -webkit-appearance: none; }
 
 .invite-options-row {
   display: flex;

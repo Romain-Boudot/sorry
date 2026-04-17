@@ -111,7 +111,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, UserRound, Volume2, Info, Mic, Camera } from "lucide-vue-next";
-import Dropdown from "./Dropdown.vue";
+import Dropdown from "./ui/Dropdown.vue";
 import { store } from "../store";
 import { onUnmounted } from "vue";
 import { switchMicrophone, switchSpeaker } from "../voice";

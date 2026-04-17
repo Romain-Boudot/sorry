@@ -66,7 +66,7 @@ import { ref } from "vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { Plus, Plug, Unplug, Trash2, ToggleLeft, ToggleRight, Phone, Bell, BellMinus, BellOff } from "lucide-vue-next";
 import { store, switchToServer, muteServer, unmuteServer, removeServer, persistServers, setNotificationPref, removeNotificationPref, activeState } from "../store";
-import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
+import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
 
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 

@@ -38,17 +38,25 @@
           <div class="card">
             <div class="card-title">Nom du channel</div>
             <div class="input-row">
-              <input v-model="channelName" type="text" placeholder="Nom" @keydown.enter="saveName" />
+              <BaseInput v-model="channelName" placeholder="Nom" @keydown.enter="saveName" />
               <SaveButton :loading="savingName" :saved="nameSaved" :disabled="!channelName.trim() || channelName === channel?.name" @click="saveName" />
             </div>
           </div>
           <div class="card">
             <div class="card-title">Description / Topic</div>
             <div class="input-row">
-              <textarea v-model="channelDescription" placeholder="Ajouter une description..." rows="3" class="desc-textarea" />
+              <BaseTextarea v-model="channelDescription" placeholder="Ajouter une description..." :rows="3" />
               <SaveButton :loading="savingDesc" :saved="descSaved" :disabled="channelDescription === (channel?.description ?? '')" @click="saveDescription" />
             </div>
             <p class="card-hint" style="margin-top: 6px;">Visible dans l'en-tete du channel.</p>
+          </div>
+          <div v-if="channel?.kind === 'voice'" class="card">
+            <div class="card-title">Limite d'utilisateurs</div>
+            <div class="input-row">
+              <NumberStepper v-model="userLimit" :min="0" :max="99" />
+              <SaveButton :loading="savingLimit" :saved="limitSaved" :disabled="userLimit === (channel?.user_limit ?? 0)" @click="saveUserLimit" />
+            </div>
+            <p class="card-hint" style="margin-top: 6px;">0 = pas de limite.</p>
           </div>
         </div>
 
@@ -66,16 +74,10 @@
             <div v-if="expandedRole === role.id" class="ow-body">
               <div v-for="p in permsList" :key="p.flag" class="ow-perm">
                 <span class="ow-perm-name">{{ p.name }}</span>
-                <div class="tristate">
-                  <button
-                    v-for="s in tristateOptions"
-                    :key="s.value"
-                    class="tri-btn"
-                    :class="[s.value, { active: getState(role.id, p.flag) === s.value }]"
-                    @click="setState(role.id, p.flag, s.value)"
-                    :title="s.label"
-                  >{{ s.icon }}</button>
-                </div>
+                <PermToggle
+                  :model-value="getState(role.id, p.flag)"
+                  @update:model-value="setState(role.id, p.flag, $event)"
+                />
               </div>
             </div>
           </div>
@@ -88,7 +90,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Hash, Volume2, Trash2, ChevronDown, Settings, Shield } from "lucide-vue-next";
-import SaveButton from "./SaveButton.vue";
+import SaveButton from "./ui/SaveButton.vue";
+import BaseInput from "./ui/BaseInput.vue";
+import BaseTextarea from "./ui/BaseTextarea.vue";
+import NumberStepper from "./ui/NumberStepper.vue";
+import PermToggle from "./ui/PermToggle.vue";
 import { store, activeState, activeServer } from "../store";
 import { api } from "../api";
 import * as perms from "../permissions";
@@ -102,12 +108,6 @@ const activeTab = ref("general");
 const tabs = [
   { id: "general", label: "General", icon: Settings },
   { id: "permissions", label: "Permissions", icon: Shield },
-];
-
-const tristateOptions = [
-  { value: "inherit" as const, label: "Heriter", icon: "/" },
-  { value: "allow" as const, label: "Autoriser", icon: "\u2713" },
-  { value: "deny" as const, label: "Refuser", icon: "\u2715" },
 ];
 
 const permsList = [
@@ -127,6 +127,9 @@ const nameSaved = ref(false);
 const channelDescription = ref("");
 const savingDesc = ref(false);
 const descSaved = ref(false);
+const userLimit = ref(0);
+const savingLimit = ref(false);
+const limitSaved = ref(false);
 
 async function saveName() {
   const s = activeServer();
@@ -161,6 +164,25 @@ async function saveDescription() {
     setTimeout(() => (descSaved.value = false), 2500);
   } finally {
     savingDesc.value = false;
+  }
+}
+
+async function saveUserLimit() {
+  const s = activeServer();
+  const st = activeState();
+  const id = channelId.value;
+  if (!s || !st || !id) return;
+
+  savingLimit.value = true;
+  try {
+    const limit = userLimit.value > 0 ? userLimit.value : null;
+    await api.updateChannel(s.url, s.token, id, { user_limit: limit });
+    const ch = st.channels.find((c) => c.id === id);
+    if (ch) ch.user_limit = limit;
+    limitSaved.value = true;
+    setTimeout(() => (limitSaved.value = false), 2500);
+  } finally {
+    savingLimit.value = false;
   }
 }
 
@@ -227,6 +249,7 @@ onMounted(async () => {
 
   channelName.value = channel.value?.name ?? "";
   channelDescription.value = channel.value?.description ?? "";
+  userLimit.value = channel.value?.user_limit ?? 0;
 
   try {
     const allRoles = await api.listRoles(s.url, s.token);
@@ -371,32 +394,6 @@ function close() {
   gap: 8px;
 }
 
-.input-row input[type="text"] {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-.input-row input::placeholder, .desc-textarea::placeholder { color: var(--text-faint); }
-
-.desc-textarea {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-  resize: vertical;
-  min-height: 60px;
-}
 
 .btn-sm {
   width: auto;
@@ -472,34 +469,4 @@ function close() {
   color: var(--text-normal);
 }
 
-/* ── Tristate ── */
-.tristate {
-  display: flex;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.tri-btn {
-  width: 28px;
-  height: 24px;
-  padding: 0;
-  margin: 0;
-  font-size: 0.75rem;
-  background: var(--bg-tertiary);
-  color: var(--text-faint);
-  cursor: pointer;
-  border: none;
-  border-radius: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.1s, color 0.1s;
-}
-.tri-btn:not(:last-child) { border-right: 1px solid var(--border); }
-.tri-btn:hover { background: var(--bg-modifier-hover); box-shadow: none; }
-
-.tri-btn.active.inherit { background: var(--bg-modifier-active); color: var(--text-normal); }
-.tri-btn.active.allow { background: var(--green-bg); color: var(--green); }
-.tri-btn.active.deny { background: var(--danger-bg-hover); color: var(--danger); }
 </style>

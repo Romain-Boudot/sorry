@@ -27,7 +27,7 @@
           <div class="card">
             <div class="card-title">Nom du groupe</div>
             <div class="input-row">
-              <input v-model="groupName" type="text" placeholder="Nom" @keydown.enter="saveName" />
+              <BaseInput v-model="groupName" placeholder="Nom" @keydown.enter="saveName" />
               <SaveButton :loading="savingName" :saved="nameSaved" :disabled="!groupName.trim() || groupName === group?.name" @click="saveName" />
             </div>
           </div>
@@ -40,7 +40,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Trash2, Settings } from "lucide-vue-next";
-import SaveButton from "./SaveButton.vue";
+import SaveButton from "./ui/SaveButton.vue";
+import BaseInput from "./ui/BaseInput.vue";
 import { store, activeState, activeServer } from "../store";
 import { api } from "../api";
 
@@ -204,31 +205,4 @@ function close() {
   gap: 8px;
 }
 
-.input-row input[type="text"] {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-.input-row input::placeholder { color: var(--text-faint); }
-
-.btn-sm {
-  width: auto;
-  padding: 8px 16px;
-  margin: 0;
-  font-size: 0.8125rem;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-.toast-success {
-  font-size: 0.75rem;
-  color: var(--green);
-  margin-top: 6px;
-}
 </style>

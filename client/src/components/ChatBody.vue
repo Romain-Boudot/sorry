@@ -215,7 +215,7 @@ import * as perms from "../permissions";
 import { api, type Message, type User } from "../api";
 import { renderMarkdown, extractUrls } from "../markdown";
 import LinkPreview from "./LinkPreview.vue";
-import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
+import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
 import UserCard from "./UserCard.vue";
 import ReplyPreview from "./chat/ReplyPreview.vue";
 import AttachmentList from "./chat/AttachmentList.vue";

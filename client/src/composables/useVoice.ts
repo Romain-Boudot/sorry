@@ -14,6 +14,7 @@ import {
 } from "../voice";
 import type { ServerState, SavedServer } from "../store";
 import { wsSend, sendVoiceStateUpdate } from "./helpers";
+import { showToast } from "./useToast";
 
 export async function joinVoiceChannel(
   server: SavedServer,
@@ -23,9 +24,24 @@ export async function joinVoiceChannel(
   state.voiceStatus = "connecting";
   state.voiceConnectingChannelId = channelId;
 
+  let token: string;
+  let url: string;
   try {
-    const { token, url } = await api.getLivekitToken(server.url, server.token, channelId);
+    const resp = await api.getLivekitToken(server.url, server.token, channelId);
+    token = resp.token;
+    url = resp.url;
+  } catch (e: any) {
+    state.voiceStatus = "idle";
+    state.voiceConnectingChannelId = null;
+    if (e?.message === "403") {
+      showToast("Channel plein", "error", 3000);
+    } else {
+      showToast("Erreur de connexion au vocal", "error", 3000);
+    }
+    return;
+  }
 
+  try {
     await joinVoice(url, token, {
       onConnected: () => {
         state.voiceChannelId = channelId;
@@ -65,7 +81,9 @@ export async function joinVoiceChannel(
       },
     });
   } catch {
-    state.voiceStatus = "error";
+    state.voiceStatus = "idle";
+    state.voiceConnectingChannelId = null;
+    showToast("Erreur de connexion au vocal", "error", 3000);
   }
 }
 

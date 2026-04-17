@@ -68,7 +68,7 @@ import ChatHeader from "./components/ChatHeader.vue";
 import ChatBody from "./components/ChatBody.vue";
 import FileGallery from "./components/chat/FileGallery.vue";
 import PinnedMessages from "./components/chat/PinnedMessages.vue";
-import ToastContainer from "./components/ToastContainer.vue";
+import ToastContainer from "./components/ui/ToastContainer.vue";
 import VoiceView from "./components/VoiceView.vue";
 import UserList from "./components/UserList.vue";
 

@@ -126,8 +126,8 @@ import {
 import { api } from "../api";
 import * as perms from "../permissions";
 import ChannelItem from "./ChannelItem.vue";
-import ContextMenu, { type MenuItem } from "./ContextMenu.vue";
-import ModalSmall from "./ModalSmall.vue";
+import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
+import ModalSmall from "./ui/ModalSmall.vue";
 import type { Channel, ChannelGroup } from "../api";
 
 const state = computed(() => activeState());

@@ -60,6 +60,22 @@ pub async fn handle_join(state: &AppState, user_id: i64, channel_id: i64) -> WsR
         return Ok(());
     }
 
+    // Check user limit (ADMINISTRATOR and MOVE_MEMBERS bypass)
+    let user_perms = crate::db::roles::get_user_permissions(&state.db, user_id).await.unwrap_or(0);
+    let bypass = permissions::has(user_perms, permissions::ADMINISTRATOR)
+        || permissions::has(user_perms, permissions::MOVE_MEMBERS);
+    if !bypass {
+        if let Some(row) = crate::db::channels::find_by_id(&state.db, channel_id).await? {
+            if let Some(limit) = row.user_limit {
+                let voice = state.voice_state.read().unwrap();
+                let count = voice.get(&channel_id).map(|u| u.len()).unwrap_or(0) as i64;
+                if count >= limit {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
     // Leave current voice channel if in one
     remove_from_all_channels(state, user_id);
 
@@ -206,6 +222,7 @@ pub async fn handle_move(
     if dest.kind != "voice" {
         return Ok(());
     }
+
 
     // Remove from old, add to new
     {

@@ -50,6 +50,8 @@ pub struct Channel {
     pub group_id: Option<i64>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub user_limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

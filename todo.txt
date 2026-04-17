@@ -24,7 +24,7 @@ Nice to have
 x Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
 x Screen sharing — LiveKit le supporte, pas cable
 x Move user entre channels voice (action admin)
-- Limite d'utilisateurs par channel voice
+x Limite d'utilisateurs par channel voice
 - Audit log pour les actions admin
 - Statut utilisateur (away/busy/DND) (maybe ... pas sur)
 - MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
@@ -53,7 +53,7 @@ Awesome Features
 ----------------
 - Stream depuis OBS
 - Threads — reponses groupees sous un message
-- Filtrage channels serveur-side (option A) — broadcasts cibles par user, per-user WS senders, recompute visibility sur changement de role/overwrite
+- Filtrage channels serveur-side — broadcasts cibles par user, per-user WS senders, recompute visibility sur changement de role/overwrite
 
 Done
 ----

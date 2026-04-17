@@ -20,7 +20,7 @@
 
 <script setup lang="ts">
 import { Check, AlertCircle, Info } from "lucide-vue-next";
-import { toasts } from "../composables/useToast";
+import { toasts } from "../../composables/useToast";
 </script>
 
 <style scoped>

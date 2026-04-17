@@ -3,7 +3,7 @@
     <div class="split-list">
       <div class="card-title">Roles</div>
       <div class="input-row" style="margin-top: 8px;">
-        <input v-model="newRoleName" type="text" placeholder="Nouveau role..." @keydown.enter="createRole" />
+        <BaseInput v-model="newRoleName" placeholder="Nouveau role..." @keydown.enter="createRole" />
         <button class="btn-sq" @click="createRole" :disabled="!newRoleName.trim()">+</button>
       </div>
 
@@ -53,7 +53,7 @@
 
       <!-- Custom roles: name + color editing -->
       <div v-if="editingRole.id > 2" class="input-row" style="margin-bottom: 16px;">
-        <input v-model="editingRole.name" type="text" placeholder="Nom" />
+        <BaseInput v-model="editingRole.name" placeholder="Nom" />
         <label class="color-picker">
           <input type="color" v-model="editingRole.color" />
           <div class="color-preview" :style="`background:${editingRole.color || 'var(--text-muted)'}`"></div>
@@ -72,13 +72,11 @@
         <div class="perm-section-title">{{ group.label }}</div>
         <div v-for="p in group.perms" :key="p.flag" class="perm-row">
           <span class="perm-label">{{ p.name }}</span>
-          <div
-            class="toggle"
-            :class="{ on: (editingRole.permissions & p.flag) !== 0 }"
-            @click="togglePerm(p.flag)"
-          >
-            <div class="toggle-knob"></div>
-          </div>
+          <PermToggle
+            :model-value="(editingRole.permissions & p.flag) !== 0 ? 'allow' : 'deny'"
+            mode="dual"
+            @update:model-value="togglePerm(p.flag)"
+          />
         </div>
       </div>
 
@@ -98,7 +96,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { X, Trash2, ShieldCheck, Lock, GripVertical } from "lucide-vue-next";
-import SaveButton from "../SaveButton.vue";
+import SaveButton from "../ui/SaveButton.vue";
+import BaseInput from "../ui/BaseInput.vue";
+import PermToggle from "../ui/PermToggle.vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
@@ -306,19 +306,6 @@ async function onRoleDragEnd() {
   gap: 8px;
 }
 
-.input-row input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-.input-row input[type="text"]::placeholder { color: var(--text-faint); }
 
 .btn-sm {
   width: auto;
@@ -451,30 +438,6 @@ async function onRoleDragEnd() {
 }
 .btn-color-reset:not(:disabled):hover { color: var(--text-normal); background: var(--bg-modifier-hover); box-shadow: none; }
 .btn-color-reset:disabled { opacity: 0.3; cursor: not-allowed; }
-
-.toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-  cursor: pointer;
-  position: relative;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-.toggle.on { background: var(--green); }
-
-.toggle-knob {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.2s;
-}
-.toggle.on .toggle-knob { transform: translateX(16px); }
 
 .perm-section { margin-bottom: 16px; }
 

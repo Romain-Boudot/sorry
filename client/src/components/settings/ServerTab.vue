@@ -24,7 +24,7 @@
     <div class="card">
       <div class="card-title">Nom du serveur</div>
       <div class="input-row">
-        <input v-model="serverName" type="text" placeholder="Mon serveur" maxlength="64" />
+        <BaseInput v-model="serverName" placeholder="Mon serveur" :maxlength="64" />
         <SaveButton :loading="savingServer" :saved="serverSaved" @click="saveServerInfo" />
       </div>
     </div>
@@ -32,7 +32,7 @@
     <div class="card">
       <div class="card-title">Description</div>
       <p class="card-hint">Une courte description de ton serveur (max 256 caracteres).</p>
-      <textarea v-model="serverDescription" class="server-desc-input" placeholder="Description du serveur..." maxlength="256" rows="3"></textarea>
+      <BaseTextarea v-model="serverDescription" placeholder="Description du serveur..." :maxlength="256" :rows="3" />
       <SaveButton style="margin-top: 8px;" :loading="savingServer" :saved="serverSaved" @click="saveServerInfo" />
     </div>
   </div>
@@ -41,7 +41,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { Server, Camera } from "lucide-vue-next";
-import SaveButton from "../SaveButton.vue";
+import SaveButton from "../ui/SaveButton.vue";
+import BaseInput from "../ui/BaseInput.vue";
+import BaseTextarea from "../ui/BaseTextarea.vue";
 import { store, activeServer, persistServers } from "../../store";
 import { api } from "../../api";
 
@@ -214,34 +216,4 @@ async function removeServerIcon() {
   gap: 8px;
 }
 
-.input-row input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-}
-.input-row input[type="text"]::placeholder { color: var(--text-faint); }
-
-.server-desc-input {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-  resize: vertical;
-}
-
-.server-desc-input::placeholder {
-  color: var(--text-faint);
-}
 </style>
