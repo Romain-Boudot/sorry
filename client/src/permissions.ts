@@ -29,6 +29,12 @@ export function has(permissions: number, permission: number): boolean {
   return (permissions & ADMINISTRATOR) !== 0 || (permissions & permission) === permission;
 }
 
+/** Display-friendly role name (rename "everyone" → "Permissions par defaut"). */
+export function displayRoleName(role: { id: number; name: string }): string {
+  if (role.id === 2) return "Permissions par defaut";
+  return role.name;
+}
+
 /** Compute effective permissions for a user on a specific channel. */
 export function computeChannel(
   userRoleIds: number[],

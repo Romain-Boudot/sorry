@@ -60,6 +60,7 @@ async fn update_server(
     }
 
     broadcast_server_update(&state).await;
+    let _ = crate::db::audit::log(&state.db, auth.0, "server.update", None, None, None, None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

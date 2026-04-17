@@ -152,6 +152,8 @@ pub async fn handle_force_mute(
             channel_id: cid,
             voice_state: vs,
         });
+        let action = if muted { "voice.force_mute" } else { "voice.force_unmute" };
+        let _ = crate::db::audit::log(&state.db, actor_id, action, Some(target_id), Some(cid), None, None).await;
     }
     Ok(())
 }
@@ -178,6 +180,8 @@ pub async fn handle_force_deafen(
             channel_id: cid,
             voice_state: vs,
         });
+        let action = if deafened { "voice.force_deafen" } else { "voice.force_undeafen" };
+        let _ = crate::db::audit::log(&state.db, actor_id, action, Some(target_id), Some(cid), None, None).await;
     }
     Ok(())
 }
@@ -273,6 +277,8 @@ pub async fn handle_move(
         });
     }
 
+    let _ = crate::db::audit::log(&state.db, actor_id, "voice.move", Some(target_id), Some(to_channel_id), None, None).await;
+
     Ok(())
 }
 
@@ -310,6 +316,8 @@ pub async fn handle_kick(state: &AppState, actor_id: i64, target_id: i64) -> WsR
                 tracing::error!("LiveKit kick failed: {}", e);
             }
         });
+
+        let _ = crate::db::audit::log(&state.db, actor_id, "voice.kick", Some(target_id), Some(cid), None, None).await;
     }
     Ok(())
 }

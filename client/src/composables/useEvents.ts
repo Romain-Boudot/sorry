@@ -13,6 +13,20 @@ function defaultVoiceUserState(): VoiceUserState {
   return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
 }
 
+const EVERYONE_ROLE_ID = 2;
+
+/** Recompute current user's global permissions from roles + user_roles. */
+function recomputeMyPermissions(state: ServerState) {
+  if (!state.user) return;
+  const myRoleIds = new Set(state.userRoles.get(state.user.id) ?? []);
+  myRoleIds.add(EVERYONE_ROLE_ID); // everyone always applies
+  let perms = 0;
+  for (const role of state.roles) {
+    if (myRoleIds.has(role.id)) perms |= role.permissions;
+  }
+  state.permissions = perms;
+}
+
 export function handleEvent(serverId: string, event: ServerEvent) {
   const state = store.serverStates.get(serverId);
   if (!state) return;
@@ -116,11 +130,23 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       const role = event.data as Role;
       const idx = state.roles.findIndex((r) => r.id === role.id);
       if (idx >= 0) state.roles[idx] = role;
+      else state.roles.push(role);
+      // Recompute my permissions if this role affects me
+      const myRoles = state.userRoles.get(state.user?.id ?? -1) ?? [];
+      if (role.id === EVERYONE_ROLE_ID || myRoles.includes(role.id)) {
+        recomputeMyPermissions(state);
+      }
       break;
     }
     case "RoleDelete": {
       const { id } = event.data as { id: number };
       state.roles = state.roles.filter((r) => r.id !== id);
+      // Remove the deleted role from all users' role lists
+      for (const [uid, rids] of state.userRoles) {
+        const filtered = rids.filter(r => r !== id);
+        if (filtered.length !== rids.length) state.userRoles.set(uid, filtered);
+      }
+      recomputeMyPermissions(state);
       break;
     }
     case "UserRoleUpdate": {

@@ -2,6 +2,7 @@ use axum::Router;
 use std::sync::Arc;
 use crate::state::AppState;
 
+mod audit;
 mod auth;
 mod channels;
 mod invites;
@@ -16,6 +17,7 @@ pub mod users;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .nest("/auth", auth::router())
+        .nest("/audit", audit::router())
         .nest("/channels", channels::router())
         .nest("/users", users::router())
         .nest("/roles", roles::router())

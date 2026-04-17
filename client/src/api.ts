@@ -219,6 +219,23 @@ export const api = {
     return request<Message[]>(baseUrl, `/users/${userId}/messages?${params}`, token);
   },
 
+  userAudit(baseUrl: string, token: string, userId: number, limit = 50, before?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", String(before));
+    return request<AuditLog[]>(baseUrl, `/users/${userId}/audit?${params}`, token);
+  },
+
+  listAudit(baseUrl: string, token: string, limit = 50, before?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", String(before));
+    return request<AuditLog[]>(baseUrl, `/audit?${params}`, token);
+  },
+
+  listServerLogs(baseUrl: string, token: string, limit = 200) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return request<ServerLogEntry[]>(baseUrl, `/audit/server?${params}`, token);
+  },
+
   channelAttachments(baseUrl: string, token: string, channelId: number, limit = 50, before?: number) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (before) params.set("before", String(before));
@@ -541,6 +558,24 @@ export interface ChannelOverwrite {
   role_id: number;
   allow: number;
   deny: number;
+}
+
+export interface AuditLog {
+  id: number;
+  actor_id: number;
+  action: string;
+  target_user_id: number | null;
+  target_channel_id: number | null;
+  target_role_id: number | null;
+  details: string | null;
+  created_at: string;
+}
+
+export interface ServerLogEntry {
+  timestamp: string;
+  level: string;
+  target: string;
+  message: string;
 }
 
 export interface MeResponse {

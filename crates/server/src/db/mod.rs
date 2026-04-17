@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod audit;
 pub mod channel_groups;
 pub mod channels;
 pub mod invites;

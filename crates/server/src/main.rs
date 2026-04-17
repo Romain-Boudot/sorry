@@ -2,6 +2,7 @@ mod auth;
 mod db;
 mod error;
 mod livekit;
+mod log_buffer;
 mod perms;
 mod routes;
 mod state;
@@ -28,11 +29,14 @@ use state::AppState;
 async fn main() {
     dotenvy::dotenv().ok();
 
+    let log_buffer = log_buffer::new_buffer();
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "server=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
+        .with(log_buffer::BufferLayer::new(log_buffer.clone()))
         .init();
 
     let database_url = std::env::var("DATABASE_URL")
@@ -88,7 +92,7 @@ async fn main() {
     let banned_set: std::collections::HashSet<i64> = banned_ids.into_iter().collect();
     tracing::info!("Loaded {} banned users into memory", banned_set.len());
 
-    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_internal_url, livekit_api_key, livekit_api_secret, file_storage, max_file_size, banned_set));
+    let state = Arc::new(AppState::new(db, server_name, jwt_secret, jwt_ttl_secs, livekit_url, livekit_internal_url, livekit_api_key, livekit_api_secret, file_storage, max_file_size, banned_set, log_buffer));
 
     let info_state = state.clone();
     let app = Router::new()

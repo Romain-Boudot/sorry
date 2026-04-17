@@ -96,6 +96,7 @@ async fn create_channel(
     };
 
     state.broadcast(shared::events::ServerEvent::ChannelCreate(channel.clone()));
+    let _ = crate::db::audit::log(&state.db, auth.0, "channel.create", None, Some(id), None, Some(&channel.name)).await;
     Ok(Json(channel))
 }
 
@@ -158,6 +159,7 @@ async fn update_channel(
     };
 
     state.broadcast(shared::events::ServerEvent::ChannelUpdate(channel.clone()));
+    let _ = crate::db::audit::log(&state.db, auth.0, "channel.update", None, Some(id), None, Some(&channel.name)).await;
     Ok(Json(channel))
 }
 
@@ -177,6 +179,7 @@ async fn delete_channel(
     crate::db::channels::delete(&state.db, id).await?;
 
     state.broadcast(shared::events::ServerEvent::ChannelDelete { id });
+    let _ = crate::db::audit::log(&state.db, auth.0, "channel.delete", None, Some(id), None, None).await;
 
     if !message_ids.is_empty() {
         let storage = state.storage.clone();
@@ -444,6 +447,7 @@ async fn set_overwrite(
         allow: payload.allow,
         deny: payload.deny,
     }));
+    let _ = crate::db::audit::log(&state.db, auth.0, "channel.overwrite.set", None, Some(channel_id), Some(payload.role_id), None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -462,6 +466,7 @@ async fn delete_overwrite(
     require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
     crate::db::roles::delete_channel_overwrite(&state.db, channel_id, payload.role_id).await?;
     state.broadcast(shared::events::ServerEvent::OverwriteDelete { channel_id, role_id: payload.role_id });
+    let _ = crate::db::audit::log(&state.db, auth.0, "channel.overwrite.delete", None, Some(channel_id), Some(payload.role_id), None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -558,6 +563,8 @@ async fn pin_message(
     let _ = crate::db::messages::enrich_with_attachments(&state.db, std::slice::from_mut(&mut updated)).await;
     let _ = crate::db::messages::enrich_with_reactions(&state.db, std::slice::from_mut(&mut updated)).await;
     state.broadcast(shared::events::ServerEvent::MessageUpdate(updated));
+    let action = if new_pinned { "message.pin" } else { "message.unpin" };
+    let _ = crate::db::audit::log(&state.db, auth.0, action, None, Some(channel_id), None, None).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

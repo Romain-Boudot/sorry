@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body split-view">
+  <SettingsBody class="split-view">
     <div class="split-list">
       <div class="card-title">Roles</div>
       <div class="input-row" style="margin-top: 8px;">
@@ -7,28 +7,48 @@
         <button class="btn-sq" @click="createRole" :disabled="!newRoleName.trim()">+</button>
       </div>
 
+      <!-- Protected roles (above my hierarchy) — not editable/draggable -->
+      <div v-if="protectedRoles.length" class="role-list">
+        <div
+          v-for="role in protectedRoles"
+          :key="role.id"
+          class="item-row protected"
+          :class="{ active: editingRole?.id === role.id }"
+          @click="editRole(role)"
+        >
+          <span class="role-handle-slot"></span>
+          <div class="dot" :style="`background:${role.color || 'var(--text-muted)'}`"></div>
+          <span class="item-name">{{ role.name }}</span>
+          <span class="role-action-slot"><Lock :size="12" class="lock-icon" /></span>
+        </div>
+      </div>
+
+      <!-- Editable custom roles — draggable -->
       <VueDraggable
-        v-model="customRoles"
+        v-model="editableRoles"
         class="role-list"
         :animation="150"
+        handle=".role-drag-handle"
         @end="onRoleDragEnd"
       >
-        <div v-for="role in customRoles" :key="role.id">
+        <div v-for="role in editableRoles" :key="role.id">
           <div
             class="item-row"
             :class="{ active: editingRole?.id === role.id }"
             @click="editRole(role)"
           >
-            <GripVertical :size="12" class="role-drag-handle" />
+            <span class="role-handle-slot"><GripVertical :size="12" class="role-drag-handle" /></span>
             <div class="dot" :style="`background:${role.color || 'var(--text-muted)'}`"></div>
             <span class="item-name">{{ role.name }}</span>
-            <button
-              class="btn-icon-danger"
-              @click.stop="deleteRole(role.id)"
-              title="Supprimer"
-            >
-              <Trash2 :size="14" />
-            </button>
+            <span class="role-action-slot">
+              <button
+                class="btn-icon-danger"
+                @click.stop="deleteRole(role.id)"
+                title="Supprimer"
+              >
+                <Trash2 :size="14" />
+              </button>
+            </span>
           </div>
         </div>
       </VueDraggable>
@@ -41,24 +61,32 @@
         :class="{ active: editingRole?.id === 2 }"
         @click="editRole({ ...membreRole })"
       >
+        <span class="role-handle-slot"></span>
         <div class="dot" :style="`background: var(--text-faint)`"></div>
-        <span class="item-name">Permissions par defaut</span>
-        <Lock :size="12" class="lock-icon" />
+        <span class="item-name">Everyone</span>
+        <span class="role-action-slot"></span>
       </div>
     </div>
 
     <!-- Role editor panel -->
     <div class="split-detail" v-if="editingRole">
-      <div class="card-title">{{ editingRole.id === 2 ? 'Permissions par defaut' : editingRole.name }}</div>
+      <div class="card-title">
+        {{ editingRole.id === 2 ? 'Permissions par defaut' : editingRole.name }}
+        <Lock v-if="!canEditEditingRole" :size="12" class="lock-icon" style="margin-left: 6px;" />
+      </div>
+
+      <p v-if="!canEditEditingRole && editingRole.id !== 2" class="card-hint" style="margin-bottom: 12px;">
+        Ce role est au-dessus ou au meme niveau que les tiens — lecture seule.
+      </p>
 
       <!-- Custom roles: name + color editing -->
       <div v-if="editingRole.id > 2" class="input-row" style="margin-bottom: 16px;">
-        <BaseInput v-model="editingRole.name" placeholder="Nom" />
-        <label class="color-picker">
-          <input type="color" v-model="editingRole.color" />
+        <BaseInput v-model="editingRole.name" placeholder="Nom" :disabled="!canEditEditingRole" />
+        <label class="color-picker" :class="{ disabled: !canEditEditingRole }">
+          <input type="color" v-model="editingRole.color" :disabled="!canEditEditingRole" />
           <div class="color-preview" :style="`background:${editingRole.color || 'var(--text-muted)'}`"></div>
         </label>
-        <button class="btn-color-reset" :disabled="!editingRole.color" @click="editingRole.color = null" title="Retirer la couleur">
+        <button class="btn-color-reset" :disabled="!editingRole.color || !canEditEditingRole" @click="editingRole.color = null" title="Retirer la couleur">
           <X :size="12" />
         </button>
       </div>
@@ -75,12 +103,13 @@
           <PermToggle
             :model-value="(editingRole.permissions & p.flag) !== 0 ? 'allow' : 'deny'"
             mode="dual"
+            :disabled="!canEditEditingRole"
             @update:model-value="togglePerm(p.flag)"
           />
         </div>
       </div>
 
-      <div class="detail-actions">
+      <div v-if="canEditEditingRole" class="detail-actions">
         <SaveButton :loading="savingRole" :saved="roleSaved" @click="saveRole" />
       </div>
     </div>
@@ -90,7 +119,7 @@
         <p>Selectionne un role</p>
       </div>
     </div>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
@@ -99,6 +128,7 @@ import { X, Trash2, ShieldCheck, Lock, GripVertical } from "lucide-vue-next";
 import SaveButton from "../ui/SaveButton.vue";
 import BaseInput from "../ui/BaseInput.vue";
 import PermToggle from "../ui/PermToggle.vue";
+import SettingsBody from "../ui/SettingsBody.vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
@@ -110,15 +140,46 @@ const editingRole = ref<{ id: number; name: string; permissions: number; color: 
 const savingRole = ref(false);
 const roleSaved = ref(false);
 
-const customRoles = computed({
-  get: () => roles.value.filter(r => r.id > 2),
+const OWNER_USER_ID = 1;
+
+/** Lowest position number among my roles (owner bypasses → -Infinity). */
+const myMaxPosition = computed(() => {
+  const st = activeState();
+  if (!st?.user) return Infinity; // no user → everything protected
+  if (st.user.id === OWNER_USER_ID) return -Infinity; // owner bypass
+  const myRoleIds = st.userRoles.get(st.user.id) ?? [];
+  const myPositions = roles.value
+    .filter(r => myRoleIds.includes(r.id))
+    .map(r => r.position);
+  return myPositions.length ? Math.min(...myPositions) : Infinity;
+});
+
+function canActOnRole(role: { id: number; position: number }): boolean {
+  if (role.id === 1) return false; // Owner role: immutable
+  return role.position > myMaxPosition.value;
+}
+
+const customRoles = computed(() => roles.value.filter(r => r.id > 2).sort((a, b) => a.position - b.position));
+
+const protectedRoles = computed(() => customRoles.value.filter(r => !canActOnRole(r)));
+
+const editableRoles = computed({
+  get: () => customRoles.value.filter(r => canActOnRole(r)),
   set: (val) => {
-    const fixed = roles.value.filter(r => r.id <= 2);
+    // Merge back: protected roles keep their order, editable roles get new order
+    const protectedIds = new Set(protectedRoles.value.map(r => r.id));
+    const fixed = roles.value.filter(r => r.id <= 2 || protectedIds.has(r.id));
     roles.value = [...fixed, ...val];
   },
 });
 
 const membreRole = computed(() => roles.value.find(r => r.id === 2) ?? null);
+const canEditEditingRole = computed(() => {
+  if (!editingRole.value) return false;
+  const full = roles.value.find(r => r.id === editingRole.value!.id);
+  if (!full) return false;
+  return canActOnRole(full);
+});
 
 const permissionGroups = [
   {
@@ -239,20 +300,14 @@ async function onRoleDragEnd() {
   const s = activeServer();
   const st = activeState();
   if (!s || !st) return;
-  const custom = customRoles.value;
-  custom.forEach((r, i) => r.position = i);
+  // Full order: protected first (unchanged), then editable in new order
+  const ids = [...protectedRoles.value.map(r => r.id), ...editableRoles.value.map(r => r.id)];
   st.roles = [...roles.value];
-  await api.reorderRoles(s.url, s.token, custom.map((r) => r.id));
+  await api.reorderRoles(s.url, s.token, ids);
 }
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .split-view {
   display: flex;
   gap: 16px;
@@ -376,15 +431,27 @@ async function onRoleDragEnd() {
   margin-top: 12px;
 }
 
-.role-list .item-row {
+.role-list + .role-list { margin-top: 3px; }
+
+.role-list .item-row,
+.split-list > .item-row {
   padding: 5px 8px;
+}
+
+.role-handle-slot,
+.role-action-slot {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .role-drag-handle {
   color: var(--text-faint);
   opacity: 0.3;
   cursor: grab;
-  flex-shrink: 0;
   transition: opacity 0.1s;
 }
 .item-row:hover .role-drag-handle { opacity: 0.7; }
@@ -393,6 +460,20 @@ async function onRoleDragEnd() {
 .lock-icon {
   color: var(--text-faint);
   opacity: 0.5;
+}
+
+.item-row.protected {
+  opacity: 0.65;
+}
+
+.role-list .btn-icon-danger {
+  width: 16px;
+  height: 16px;
+}
+
+.color-picker.disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .role-separator {

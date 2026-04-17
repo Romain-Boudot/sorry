@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body">
+  <SettingsBody>
     <div class="card">
       <div class="card-title">Authentification a deux facteurs (TOTP)</div>
       <p class="card-hint">Ajoute une couche de securite a ton compte sur ce serveur. Compatible Google Authenticator, Authy, etc.</p>
@@ -26,12 +26,13 @@
         <button class="btn-sm" @click="setupTotp">Activer le TOTP</button>
       </template>
     </div>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { activeServer } from "../../store";
+import SettingsBody from "../ui/SettingsBody.vue";
 import { api } from "../../api";
 
 const totpEnabled = ref(false);
@@ -95,12 +96,6 @@ async function disableTotp() {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .card {
   background: var(--bg-secondary);
   border-radius: 8px;

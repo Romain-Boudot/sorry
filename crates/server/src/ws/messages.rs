@@ -94,7 +94,12 @@ pub async fn handle_delete(state: &AppState, user_id: i64, message_id: i64) -> W
         return Ok(());
     }
 
+    let was_moderation = row.author_id != user_id;
     crate::db::messages::delete(&state.db, message_id).await?;
+
+    if was_moderation {
+        let _ = crate::db::audit::log(&state.db, user_id, "message.delete", Some(row.author_id), Some(row.channel_id), None, None).await;
+    }
 
     let storage = state.storage.clone();
     tokio::spawn(async move {

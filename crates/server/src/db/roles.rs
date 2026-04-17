@@ -85,8 +85,9 @@ pub async fn delete(db: &SqlitePool, id: i64) -> sqlx::Result<()> {
 }
 
 pub async fn reorder(db: &SqlitePool, ids: &[i64]) -> sqlx::Result<()> {
+    // Custom roles start at position 1 (position 0 is reserved for Owner role)
     for (i, id) in ids.iter().enumerate() {
-        let pos = i as i64;
+        let pos = (i + 1) as i64;
         sqlx::query!("UPDATE roles SET position = ? WHERE id = ?", pos, id)
             .execute(&*db)
             .await?;

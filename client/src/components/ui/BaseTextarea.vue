@@ -41,8 +41,11 @@ defineExpose({ focus, el: textareaEl });
 
 <style scoped>
 .base-textarea {
+  display: block;
+  width: 100%;
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid transparent;

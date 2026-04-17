@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body">
+  <SettingsBody>
     <div class="card">
       <div class="card-title">Icone du serveur</div>
       <p class="card-hint">L'icone affichee dans la liste des serveurs.</p>
@@ -35,13 +35,14 @@
       <BaseTextarea v-model="serverDescription" placeholder="Description du serveur..." :maxlength="256" :rows="3" />
       <SaveButton style="margin-top: 8px;" :loading="savingServer" :saved="serverSaved" @click="saveServerInfo" />
     </div>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { Server, Camera } from "lucide-vue-next";
 import SaveButton from "../ui/SaveButton.vue";
+import SettingsBody from "../ui/SettingsBody.vue";
 import BaseInput from "../ui/BaseInput.vue";
 import BaseTextarea from "../ui/BaseTextarea.vue";
 import { store, activeServer, persistServers } from "../../store";
@@ -110,11 +111,6 @@ async function removeServerIcon() {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
 
 .card {
   background: var(--bg-secondary);

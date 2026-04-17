@@ -33,6 +33,7 @@ pub struct AppState {
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
     pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
     pub invite_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
+    pub server_logs: crate::log_buffer::LogBuffer,
 }
 
 impl AppState {
@@ -48,6 +49,7 @@ impl AppState {
         storage: crate::storage::Storage,
         max_file_size: usize,
         banned_users: std::collections::HashSet<UserId>,
+        server_logs: crate::log_buffer::LogBuffer,
     ) -> Self {
         // Derive a short unique prefix from jwt_secret
         use sha2::{Sha256, Digest};
@@ -76,6 +78,7 @@ impl AppState {
             login_attempts: RwLock::new(HashMap::new()),
             og_cache: RwLock::new(HashMap::new()),
             invite_attempts: RwLock::new(HashMap::new()),
+            server_logs,
         }
     }
 

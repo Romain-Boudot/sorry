@@ -1,12 +1,13 @@
 <template>
-  <div class="perm-toggle" :class="{ dual: mode === 'dual' }">
+  <div class="perm-toggle" :class="{ dual: mode === 'dual', disabled }">
     <button
       v-for="opt in options"
       :key="opt.value"
       class="toggle-btn"
       :class="[opt.value, { active: modelValue === opt.value }]"
       :title="opt.label"
-      @click="$emit('update:modelValue', opt.value)"
+      :disabled="disabled"
+      @click="!disabled && $emit('update:modelValue', opt.value)"
     >{{ opt.icon }}</button>
   </div>
 </template>
@@ -20,8 +21,10 @@ export type DualState = "allow" | "deny";
 const props = withDefaults(defineProps<{
   modelValue: TriState | DualState;
   mode?: "tri" | "dual";
+  disabled?: boolean;
 }>(), {
   mode: "tri",
+  disabled: false,
 });
 
 defineEmits<{

@@ -162,6 +162,7 @@ async fn ban_user(
     state.banned_users.write().unwrap().insert(user_id);
     // UserBanned will trigger WS disconnect for the banned user + notify others
     state.broadcast(shared::events::ServerEvent::UserBanned { user_id });
+    let _ = crate::db::audit::log(&state.db, auth.0, "user.ban", Some(user_id), None, None, None).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -185,6 +186,7 @@ async fn unban_user(
     crate::perms::require_permission(&state.db, auth.0, shared::permissions::BAN_MEMBERS).await?;
     crate::db::users::unban(&state.db, user_id).await?;
     state.banned_users.write().unwrap().remove(&user_id);
+    let _ = crate::db::audit::log(&state.db, auth.0, "user.unban", Some(user_id), None, None, None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -293,6 +295,28 @@ async fn user_messages(
     Ok(Json(messages))
 }
 
+/// GET /api/users/:id/audit?limit=50&before=123 — actions log for a specific user (BAN_MEMBERS)
+async fn user_audit(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(target_id): Path<i64>,
+    Query(query): Query<UserMessagesQuery>,
+) -> Result<Json<Vec<shared::models::AuditLog>>, AppError> {
+    let perms = crate::db::roles::get_user_permissions(&state.db, auth.0).await?;
+    if auth.0 != target_id && !shared::permissions::has(perms, shared::permissions::BAN_MEMBERS) {
+        return Err(AppError::Forbidden);
+    }
+
+    let logs = crate::db::audit::list_by_actor(
+        &state.db,
+        target_id,
+        query.limit.unwrap_or(50).min(200),
+        query.before,
+    )
+    .await?;
+    Ok(Json(logs))
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/me", get(me).patch(update_me))
@@ -302,4 +326,5 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/ban", post(ban_user).delete(unban_user))
         .route("/:id/roles", get(user_roles))
         .route("/:id/messages", get(user_messages))
+        .route("/:id/audit", get(user_audit))
 }

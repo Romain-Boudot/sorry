@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body">
+  <SettingsBody>
     <div class="card">
       <div class="card-title">Avatar</div>
       <p class="card-hint">Ta photo de profil sur ce serveur.</p>
@@ -42,7 +42,7 @@
         <span v-if="passwordError" class="password-error">{{ passwordError }}</span>
       </div>
     </div>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
@@ -50,6 +50,7 @@ import { ref, computed } from "vue";
 import { Camera } from "lucide-vue-next";
 import SaveButton from "../ui/SaveButton.vue";
 import BaseInput from "../ui/BaseInput.vue";
+import SettingsBody from "../ui/SettingsBody.vue";
 import { activeState, activeServer } from "../../store";
 import { api } from "../../api";
 
@@ -149,12 +150,6 @@ async function saveDisplayName() {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .card {
   background: var(--bg-secondary);
   border-radius: 8px;

@@ -1,25 +1,13 @@
 <template>
-  <div class="settings-body split-view">
+  <SettingsBody class="split-view">
     <div class="split-list">
-      <!-- Sub-tabs: Members / Banned -->
-      <div class="mod-tabs">
-        <button
-          class="mod-tab"
-          :class="{ active: modSubTab === 'members' }"
-          @click="modSubTab = 'members'"
-        >
-          Membres
-          <span class="mod-tab-count">{{ filteredUsers.length }}</span>
-        </button>
-        <button
-          class="mod-tab"
-          :class="{ active: modSubTab === 'banned' }"
-          @click="modSubTab = 'banned'; loadBannedUsers()"
-        >
-          Bannis
-          <span class="mod-tab-count" v-if="bannedUsers.length">{{ bannedUsers.length }}</span>
-        </button>
-      </div>
+      <BaseTabs
+        :model-value="modSubTab"
+        :items="modSubTabItems"
+        variant="stretched"
+        class="mod-sub-tabs"
+        @update:model-value="onSubTabChange"
+      />
 
       <!-- Search -->
       <div class="mod-search" v-if="modSubTab === 'members'">
@@ -162,19 +150,12 @@
         <span v-if="!userRoleBadges(selectedUserId).length && !availableRoles.length" class="mod-no-roles">Aucun role</span>
       </div>
 
-      <!-- Activity tabs -->
-      <div class="mod-activity-tabs" style="margin-top: 16px;">
-        <button
-          class="mod-activity-tab"
-          :class="{ active: activityTab === 'messages' }"
-          @click="activityTab = 'messages'"
-        >Messages</button>
-        <button
-          class="mod-activity-tab"
-          :class="{ active: activityTab === 'actions' }"
-          @click="activityTab = 'actions'"
-        >Actions</button>
-      </div>
+      <BaseTabs
+        v-model="activityTab"
+        :items="activityTabItems"
+        variant="stretched"
+        class="mod-activity-tabs"
+      />
 
       <!-- Messages tab -->
       <div v-if="activityTab === 'messages'" class="mod-messages" ref="messagesContainer" @scroll="onMessagesScroll">
@@ -201,12 +182,35 @@
         </template>
       </div>
 
-      <!-- Actions tab (placeholder) -->
+      <!-- Actions tab -->
       <div v-if="activityTab === 'actions'" class="mod-messages">
-        <div class="mod-messages-status" style="flex-direction: column; padding: 24px;">
-          <ScrollText :size="20" />
-          <span>Les logs d'actions seront disponibles prochainement</span>
+        <div v-if="loadingAudit && !userAudit.length" class="mod-messages-status">
+          <Loader2 :size="14" class="spinner" /> Chargement...
         </div>
+        <div v-else-if="!userAudit.length" class="mod-messages-status" style="flex-direction: column; padding: 24px;">
+          <ScrollText :size="20" />
+          <span>Aucune action enregistree</span>
+        </div>
+        <template v-else>
+          <div v-for="entry in userAudit" :key="entry.id" class="mod-audit-entry">
+            <div class="mod-audit-header">
+              <span class="mod-audit-action">{{ actionLabel(entry.action) }}</span>
+              <span class="mod-audit-time">{{ formatMsgDate(entry.created_at) }}</span>
+            </div>
+            <div class="mod-audit-targets">
+              <span v-if="entry.target_user_id" class="mod-audit-target">
+                <UserRound :size="12" /> {{ targetUserName(entry.target_user_id) }}
+              </span>
+              <span v-if="entry.target_channel_id" class="mod-audit-target">
+                <Hash :size="12" /> {{ channelName(entry.target_channel_id) }}
+              </span>
+              <span v-if="entry.target_role_id" class="mod-audit-target">
+                <ShieldCheck :size="12" /> {{ roleName(entry.target_role_id) }}
+              </span>
+              <span v-if="entry.details" class="mod-audit-details">"{{ entry.details }}"</span>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Ban action -->
@@ -255,7 +259,7 @@
         <p>Selectionne un membre</p>
       </div>
     </div>
-  </div>
+  </SettingsBody>
 
   <!-- Ban confirmation dialog -->
   <Teleport to="body">
@@ -276,15 +280,34 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { X, ShieldCheck, Ban, UserRound, Search, Calendar, Plus, Loader2, ScrollText } from "lucide-vue-next";
+import { ref, computed, onMounted, watch } from "vue";
+import { X, ShieldCheck, Ban, UserRound, Search, Calendar, Plus, Loader2, ScrollText, Hash } from "lucide-vue-next";
 import { showToast } from "../../composables/useToast";
 import { activeState, activeServer } from "../../store";
-import { api, type BannedUser, type Message } from "../../api";
+import { api, type BannedUser, type Message, type AuditLog } from "../../api";
+import SettingsBody from "../ui/SettingsBody.vue";
+import BaseTabs from "../ui/BaseTabs.vue";
 
 const state = computed(() => activeState());
 
 const modSubTab = ref<"members" | "banned">("members");
+const activityTab = ref<"messages" | "actions">("messages");
+
+const modSubTabItems = computed(() => [
+  { id: "members", label: "Membres", count: filteredUsers.value.length },
+  { id: "banned", label: "Bannis", count: bannedUsers.value.length },
+]);
+
+const activityTabItems = computed(() => [
+  { id: "messages", label: "Messages" },
+  { id: "actions", label: "Actions" },
+]);
+
+function onSubTabChange(id: string) {
+  modSubTab.value = id as "members" | "banned";
+  if (id === "banned") loadBannedUsers();
+}
+
 const modSearch = ref("");
 const modFilter = ref<"all" | "online" | "offline">("all");
 const showBanConfirm = ref(false);
@@ -405,13 +428,72 @@ function selectedUserRoleIds(): number[] {
 const userMessages = ref<Message[]>([]);
 const loadingMessages = ref(false);
 const hasMoreMessages = ref(false);
-const activityTab = ref<"messages" | "actions">("messages");
 const messagesContainer = ref<HTMLElement>();
+
+const userAudit = ref<AuditLog[]>([]);
+const loadingAudit = ref(false);
+
+async function loadUserAudit(userId: number) {
+  const s = activeServer();
+  if (!s) return;
+  loadingAudit.value = true;
+  try {
+    userAudit.value = await api.userAudit(s.url, s.token, userId, 50);
+  } catch {
+    userAudit.value = [];
+  } finally {
+    loadingAudit.value = false;
+  }
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  "user.ban": "Ban",
+  "user.unban": "Unban",
+  "role.create": "Creation role",
+  "role.update": "Modification role",
+  "role.delete": "Suppression role",
+  "role.assign": "Role attribue",
+  "role.remove": "Role retire",
+  "channel.create": "Creation channel",
+  "channel.update": "Modification channel",
+  "channel.delete": "Suppression channel",
+  "channel.overwrite.set": "Modification permissions",
+  "channel.overwrite.delete": "Suppression overwrite",
+  "voice.force_mute": "Force mute",
+  "voice.force_unmute": "Retrait force mute",
+  "voice.force_deafen": "Force deafen",
+  "voice.force_undeafen": "Retrait force deafen",
+  "voice.kick": "Deconnexion vocal",
+  "voice.move": "Deplacement vocal",
+  "message.delete": "Suppression message",
+  "message.pin": "Epinglage message",
+  "message.unpin": "Desepinglage",
+  "server.update": "Modification serveur",
+};
+
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action;
+}
+
+function targetUserName(id: number): string {
+  return state.value?.users.get(id)?.display_name ?? `User #${id}`;
+}
+
+watch([activityTab, selectedUserId], ([tab, uid]) => {
+  if (tab === "actions" && uid && !userAudit.value.length) {
+    loadUserAudit(uid);
+  }
+});
+
+function roleName(id: number): string {
+  return state.value?.roles.find(r => r.id === id)?.name ?? `role #${id}`;
+}
 
 function selectUser(userId: number) {
   selectedUserId.value = userId;
   selectedBannedId.value = null;
   activityTab.value = "messages";
+  userAudit.value = [];
   loadUserMessages(userId);
 }
 
@@ -521,12 +603,6 @@ async function unbanUser(userId: number) {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .split-view {
   display: flex;
   gap: 16px;
@@ -604,48 +680,7 @@ async function unbanUser(userId: number) {
 .item-row.active { background: var(--bg-modifier-active); }
 
 /* Moderation styles */
-.mod-tabs {
-  display: flex;
-  gap: 0;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 3px;
-  margin-bottom: 10px;
-}
-
-.mod-tab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 8px;
-  margin: 0;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: transparent;
-  cursor: pointer;
-  border: none;
-  transition: background 0.15s, color 0.15s;
-}
-
-.mod-tab:hover { color: var(--text-normal); }
-.mod-tab.active { background: var(--bg-primary); color: var(--text-normal); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-
-.mod-tab-count {
-  font-size: 0.625rem;
-  background: var(--bg-modifier-hover);
-  padding: 1px 5px;
-  border-radius: 8px;
-  color: var(--text-faint);
-}
-
-.mod-tab.active .mod-tab-count {
-  background: var(--accent);
-  color: var(--text-bright);
-}
+.mod-sub-tabs { margin-bottom: 10px; }
 
 .mod-search {
   position: relative;
@@ -988,30 +1023,8 @@ async function unbanUser(userId: number) {
 }
 
 .mod-activity-tabs {
-  display: flex;
-  gap: 0;
-  background: var(--bg-tertiary);
-  border-radius: 8px 8px 0 0;
-  padding: 3px;
+  margin-top: 16px;
 }
-
-.mod-activity-tab {
-  flex: 1;
-  padding: 5px 8px;
-  margin: 0;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: transparent;
-  cursor: pointer;
-  border: none;
-  transition: background 0.15s, color 0.15s;
-  text-align: center;
-}
-
-.mod-activity-tab:hover { color: var(--text-normal); }
-.mod-activity-tab.active { background: var(--bg-primary); color: var(--text-normal); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
 
 .mod-messages {
   background: var(--bg-tertiary);
@@ -1045,6 +1058,58 @@ async function unbanUser(userId: number) {
 
 .mod-msg:last-child {
   border-bottom: none;
+}
+
+.mod-audit-entry {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mod-audit-entry:last-child {
+  border-bottom: none;
+}
+
+.mod-audit-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.mod-audit-action {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--header-primary);
+}
+
+.mod-audit-time {
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+.mod-audit-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.mod-audit-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--text-normal);
+  font-size: 0.75rem;
+}
+
+.mod-audit-details {
+  color: var(--text-faint);
+  font-style: italic;
+  font-size: 0.75rem;
 }
 
 .mod-msg-header {

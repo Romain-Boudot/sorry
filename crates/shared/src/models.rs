@@ -137,6 +137,26 @@ pub struct Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLog {
+    pub id: i64,
+    pub actor_id: i64,
+    pub action: String,
+    pub target_user_id: Option<i64>,
+    pub target_channel_id: Option<i64>,
+    pub target_role_id: Option<i64>,
+    pub details: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerLogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelOverwrite {
     pub channel_id: i64,
     pub role_id: i64,

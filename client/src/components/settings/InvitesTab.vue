@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body">
+  <SettingsBody>
     <div class="card">
       <div class="card-title">Creer une invitation</div>
       <p class="card-hint">Genere un code pour inviter quelqu'un sur le serveur.</p>
@@ -92,7 +92,7 @@
         <p>Aucune invitation</p>
       </div>
     </div>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
@@ -103,6 +103,7 @@ import { showToast } from "../../composables/useToast";
 import { activeState, activeServer, resolveUser } from "../../store";
 import { api, type Invite } from "../../api";
 import * as perms from "../../permissions";
+import SettingsBody from "../ui/SettingsBody.vue";
 
 const invites = ref<Invite[]>([]);
 const newInviteMaxUses = ref<number | null>(null);
@@ -225,12 +226,6 @@ function formatExpiry(ts: number): string {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .card {
   background: var(--bg-secondary);
   border-radius: 8px;

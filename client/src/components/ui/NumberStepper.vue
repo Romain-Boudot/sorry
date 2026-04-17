@@ -71,6 +71,7 @@ function decrement() {
   height: 32px;
   padding: 0;
   margin: 0;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,6 +93,8 @@ function decrement() {
 }
 
 .step-input {
+  flex: 1;
+  min-width: 44px;
   width: 44px;
   height: 32px;
   padding: 0;

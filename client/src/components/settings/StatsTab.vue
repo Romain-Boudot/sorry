@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-body">
+  <SettingsBody>
     <div v-if="loading" class="stats-loading">
       <Loader2 :size="20" class="spinner" /> Chargement...
     </div>
@@ -90,13 +90,14 @@
         </div>
       </div>
     </template>
-  </div>
+  </SettingsBody>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { Loader2, RefreshCw, Users, MessageSquare, Hash, FileIcon, Shield, HardDrive } from "lucide-vue-next";
 import { activeServer } from "../../store";
+import SettingsBody from "../ui/SettingsBody.vue";
 import { api, type ServerStats } from "../../api";
 
 const stats = ref<ServerStats | null>(null);
@@ -146,12 +147,6 @@ function formatNumber(n: number): string {
 </script>
 
 <style scoped>
-.settings-body {
-  padding: 0 24px 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-
 .stats-loading {
   display: flex;
   align-items: center;

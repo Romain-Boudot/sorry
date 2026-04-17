@@ -39,13 +39,14 @@ async fn create_role(
 ) -> Result<Json<shared::models::Role>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
 
-    // Auto-assign position: after all existing custom roles
+    // Auto-assign position: after all existing custom roles.
+    // Reserve position 0 for Owner role, so first custom role starts at 1.
     let all_roles = crate::db::roles::list_all(&state.db).await?;
     let max_custom_pos = all_roles.iter()
-        .filter(|r| r.id >= shared::MIN_CUSTOM_ROLE_ID)
+        .filter(|r| r.id >= shared::MIN_CUSTOM_ROLE_ID && r.id != shared::EVERYONE_ROLE_ID)
         .map(|r| r.position)
         .max()
-        .unwrap_or(-1);
+        .unwrap_or(0);
     let position = max_custom_pos + 1;
 
     let id = crate::db::roles::create(
@@ -66,6 +67,7 @@ async fn create_role(
     };
 
     state.broadcast(ServerEvent::RoleCreate(role.clone()));
+    let _ = crate::db::audit::log(&state.db, auth.0, "role.create", None, None, Some(id), Some(&role.name)).await;
 
     Ok(Json(role))
 }
@@ -105,11 +107,12 @@ async fn update_role(
 
     state.broadcast(ServerEvent::RoleUpdate(shared::models::Role {
         id,
-        name: final_name,
+        name: final_name.clone(),
         permissions: payload.permissions,
         color: final_color,
         position: target.position,
     }));
+    let _ = crate::db::audit::log(&state.db, auth.0, "role.update", None, None, Some(id), Some(&final_name)).await;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -135,6 +138,7 @@ async fn delete_role(
     crate::db::roles::delete(&state.db, id).await?;
 
     state.broadcast(ServerEvent::RoleDelete { id });
+    let _ = crate::db::audit::log(&state.db, auth.0, "role.delete", None, None, Some(id), Some(&target.name)).await;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -173,6 +177,7 @@ async fn assign_role(
         role_ids: roles.iter().map(|r| r.id).collect(),
         permissions: user_perms,
     });
+    let _ = crate::db::audit::log(&state.db, auth.0, "role.assign", Some(payload.user_id), None, Some(role_id), None).await;
 
     Ok(axum::http::StatusCode::OK)
 }
@@ -206,6 +211,7 @@ async fn remove_role(
         role_ids: roles.iter().map(|r| r.id).collect(),
         permissions: user_perms,
     });
+    let _ = crate::db::audit::log(&state.db, auth.0, "role.remove", Some(payload.user_id), None, Some(role_id), None).await;
 
     Ok(axum::http::StatusCode::OK)
 }
