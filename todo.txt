@@ -19,6 +19,12 @@ x Detection des urls et preview (OG tags)
 x Typing indicator — "X is typing..." via WebSocket
 x Message pinning — epingler des messages importants
 
+DMs — suite
+-----------
+- Attachments chiffres dans les DMs (cote client, meme modele que les messages)
+- Rate limiting sur SendDm (anti-spam, serveur + client)
+- Toast DM : reglage "masquer l'apercu du plaintext" dans les notifs
+
 Nice to have
 ------------
 x Markdown/formatage dans les messages (titre avec #, separator, text decoration, tableau, )
@@ -29,7 +35,7 @@ x Audit log pour les actions admin
 - Statut utilisateur (away/busy/DND) (maybe ... pas sur)
 - MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
 - Notifications desktop — notif push/desktop
-- DMs / messages prives — communication directe entre users
+x DMs / messages prives — E2EE NaCl box, TOFU fingerprint, keypair per-server
 - Themes — dark/light ou custom CSS
 x Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
 - Webhooks — integrations (bots, CI notifications)

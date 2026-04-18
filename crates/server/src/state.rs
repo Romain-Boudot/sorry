@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use shared::events::{SequencedEvent, ServerEvent};
 use shared::models::VoiceUserState;
 
@@ -29,6 +29,11 @@ pub struct AppState {
     pub voice_state: RwLock<HashMap<ChannelId, HashMap<UserId, VoiceUserState>>>,
     pub event_tx: broadcast::Sender<SequencedEvent>,
     pub seq_counter: AtomicU64,
+    /// Livraison ciblée des events DM (par user_id). Chaque WS connectée s'enregistre à
+    /// l'arrivée et se retire à la déconnexion. Permet d'envoyer un DmCreate / DmUpdate / DmDelete
+    /// / DmReaction uniquement au sender + recipient, sans passer par le broadcast global
+    /// (qui fuiterait le métadonnée "qui parle à qui" à tous les clients connectés).
+    pub direct_senders: RwLock<HashMap<UserId, Vec<mpsc::UnboundedSender<ServerEvent>>>>,
     pub banned_users: RwLock<std::collections::HashSet<UserId>>,
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
     pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
@@ -74,6 +79,7 @@ impl AppState {
             voice_state: RwLock::new(HashMap::new()),
             event_tx,
             seq_counter: AtomicU64::new(0),
+            direct_senders: RwLock::new(HashMap::new()),
             banned_users: RwLock::new(banned_users),
             login_attempts: RwLock::new(HashMap::new()),
             og_cache: RwLock::new(HashMap::new()),
@@ -98,6 +104,42 @@ impl AppState {
     /// Retourne le numéro de séquence courant (dernier event émis).
     pub fn current_seq(&self) -> u64 {
         self.seq_counter.load(Ordering::SeqCst)
+    }
+
+    /// Enregistre un sender pour recevoir les events ciblés d'un user. Appelé à la connexion WS.
+    pub fn register_direct_sender(&self, user_id: UserId, sender: mpsc::UnboundedSender<ServerEvent>) {
+        self.direct_senders
+            .write()
+            .unwrap()
+            .entry(user_id)
+            .or_default()
+            .push(sender);
+    }
+
+    /// Retire un sender (identifié par pointeur de sameness via `same_channel`) — appelé à la déconnexion WS.
+    pub fn unregister_direct_sender(&self, user_id: UserId, sender: &mpsc::UnboundedSender<ServerEvent>) {
+        let mut map = self.direct_senders.write().unwrap();
+        if let Some(list) = map.get_mut(&user_id) {
+            list.retain(|s| !s.same_channel(sender));
+            if list.is_empty() {
+                map.remove(&user_id);
+            }
+        }
+    }
+
+    /// Envoie un event uniquement aux users listés (via leurs WS enregistrés). Duplicats dédoublonnés.
+    /// Utilisé pour les DMs — évite la fuite métadonnée qu'aurait un broadcast global.
+    pub fn deliver_direct(&self, user_ids: &[UserId], event: ServerEvent) {
+        let map = self.direct_senders.read().unwrap();
+        let mut seen: std::collections::HashSet<UserId> = std::collections::HashSet::new();
+        for &uid in user_ids {
+            if !seen.insert(uid) { continue; }
+            if let Some(list) = map.get(&uid) {
+                for s in list {
+                    let _ = s.send(event.clone());
+                }
+            }
+        }
     }
 
     /// Generic rate limiter: returns `true` if the request is allowed, `false` if rate-limited.

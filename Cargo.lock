@@ -4265,6 +4265,8 @@ dependencies = [
  "axum",
  "axum-server",
  "base32",
+ "base64 0.22.1",
+ "blake2",
  "chrono",
  "dotenvy",
  "hex",

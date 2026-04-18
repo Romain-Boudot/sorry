@@ -53,10 +53,15 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
     tracing::info!("User {} connected via WebSocket", user_id);
 
     let mut rx = state.event_tx.subscribe();
+    // Channel direct pour les events ciblés (DMs). Enregistré dans l'AppState pour
+    // que `deliver_direct` puisse router ici sans broadcast global.
+    let (direct_tx, mut direct_rx) = tokio::sync::mpsc::unbounded_channel::<ServerEvent>();
+    state.register_direct_sender(user_id, direct_tx.clone());
     let mut last_snapshot_request = Instant::now();
 
     if let Err(e) = send_snapshot(&state, &mut socket, user_id).await {
         tracing::warn!("Failed to send snapshot to user {}: {}", user_id, e);
+        state.unregister_direct_sender(user_id, &direct_tx);
         return;
     }
 
@@ -114,10 +119,53 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, user_id: i64
                     Err(_) => break,
                 }
             }
+            // Events ciblés (DMs) : pas de seq, livraison directe au sender/recipient.
+            direct_evt = direct_rx.recv() => {
+                match direct_evt {
+                    Some(evt) => {
+                        let payload = serde_json::json!({
+                            "type": match &evt {
+                                ServerEvent::DmCreate(_) => "DmCreate",
+                                ServerEvent::DmUpdate(_) => "DmUpdate",
+                                ServerEvent::DmDelete { .. } => "DmDelete",
+                                ServerEvent::DmReactionAdded { .. } => "DmReactionAdded",
+                                ServerEvent::DmReactionRemoved { .. } => "DmReactionRemoved",
+                                _ => continue,
+                            },
+                            "data": extract_event_data(&evt),
+                        });
+                        if let Ok(json) = serde_json::to_string(&payload) {
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    None => break,
+                }
+            }
         }
     }
 
+    state.unregister_direct_sender(user_id, &direct_tx);
     cleanup_user(&state, user_id).await;
+}
+
+/// Extrait le payload "data" des variants qu'on route en direct (DMs).
+fn extract_event_data(evt: &ServerEvent) -> serde_json::Value {
+    match evt {
+        ServerEvent::DmCreate(dm) => serde_json::to_value(dm).unwrap_or(serde_json::Value::Null),
+        ServerEvent::DmUpdate(dm) => serde_json::to_value(dm).unwrap_or(serde_json::Value::Null),
+        ServerEvent::DmDelete { id, sender_id, recipient_id } => serde_json::json!({
+            "id": id, "sender_id": sender_id, "recipient_id": recipient_id,
+        }),
+        ServerEvent::DmReactionAdded { dm_id, peer_a, peer_b, user_id, emoji } => serde_json::json!({
+            "dm_id": dm_id, "peer_a": peer_a, "peer_b": peer_b, "user_id": user_id, "emoji": emoji,
+        }),
+        ServerEvent::DmReactionRemoved { dm_id, peer_a, peer_b, user_id, emoji } => serde_json::json!({
+            "dm_id": dm_id, "peer_a": peer_a, "peer_b": peer_b, "user_id": user_id, "emoji": emoji,
+        }),
+        _ => serde_json::Value::Null,
+    }
 }
 
 async fn cleanup_user(state: &AppState, user_id: i64) {
@@ -259,6 +307,20 @@ async fn handle_client_event(
         // ── Typing ──
         ClientEvent::Typing { channel_id } => {
             state.broadcast(ServerEvent::UserTyping { user_id, channel_id });
+        }
+
+        // ── Direct messages (E2EE) ──
+        ClientEvent::SendDm { recipient_id, ciphertext, nonce, sender_key_fingerprint, reply_to_id } => {
+            messages::handle_send_dm(state, user_id, recipient_id, ciphertext, nonce, sender_key_fingerprint, reply_to_id).await?;
+        }
+        ClientEvent::EditDm { message_id, ciphertext, nonce } => {
+            messages::handle_edit_dm(state, user_id, message_id, ciphertext, nonce).await?;
+        }
+        ClientEvent::DeleteDm { message_id } => {
+            messages::handle_delete_dm(state, user_id, message_id).await?;
+        }
+        ClientEvent::ToggleDmReaction { message_id, emoji } => {
+            messages::handle_toggle_dm_reaction(state, user_id, message_id, emoji).await?;
         }
     }
 

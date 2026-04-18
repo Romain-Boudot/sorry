@@ -20,77 +20,121 @@
       </div>
     </div>
 
-    <div v-else class="channel-list" @contextmenu.prevent="onContextMenu">
-      <!-- Header channels sans groupe -->
-      <div v-if="ungrouped.length || canManage" class="channel-group-title ungrouped-header">
-        <span>Channels</span>
-        <button v-if="canManage" class="group-add-btn" @click.stop="onAddClick($event)" title="Creer un channel">
-          <Plus :size="14" />
-        </button>
+    <div v-else class="sidebar-body">
+      <div class="sidebar-tabs-wrap">
+        <BaseTabs
+          v-model="activeTab"
+          :items="tabItems"
+          variant="stretched"
+        />
       </div>
 
-      <!-- Channels sans groupe -->
-      <VueDraggable
-        v-model="ungrouped"
-        group="channels"
-        :disabled="!canManage"
-        data-group-id="ungrouped"
-        @start="onChannelDragStart"
-        @end="onChannelEnd"
+      <!-- Onglet Channels -->
+      <div
+        v-if="activeTab === 'channels'"
+        class="channel-list"
+        @contextmenu.prevent="onContextMenu"
       >
-        <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id">
-          <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
-            <template #actions v-if="canManage">
-              <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
-                <Settings :size="14" />
-              </button>
-            </template>
-          </ChannelItem>
+        <div v-if="ungrouped.length || canManage" class="channel-group-title ungrouped-header">
+          <span>Channels</span>
+          <button v-if="canManage" class="group-add-btn" @click.stop="onAddClick($event)" title="Creer un channel">
+            <Plus :size="14" />
+          </button>
         </div>
-      </VueDraggable>
 
-      <!-- Groupes -->
-      <VueDraggable
-        v-model="localGroups"
-        group="groups"
-        :disabled="!canManage"
-        handle=".channel-group-title"
-        @end="onGroupEnd"
-      >
-        <div v-for="group in localGroups" :key="group.id" class="channel-group">
-          <div
-            class="channel-group-title"
-            :class="{ 'can-drag': canManage }"
-            @click="toggleGroup(group.id)"
-            @contextmenu.prevent.stop="onGroupContextMenu(group, $event)"
-          >
-            <ChevronRight :size="12" class="group-arrow" :class="{ expanded: !collapsed.has(group.id) }" />
-            <span>{{ group.name }}</span>
-            <button v-if="canManage" class="group-add-btn" @click.stop="onAddChannelClick($event)" title="Creer un channel">
-              <Plus :size="14" />
-            </button>
+        <VueDraggable
+          v-model="ungrouped"
+          group="channels"
+          :disabled="!canManage"
+          data-group-id="ungrouped"
+          @start="onChannelDragStart"
+          @end="onChannelEnd"
+        >
+          <div v-for="ch in ungrouped" :key="ch.id" :data-channel-id="ch.id">
+            <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
+              <template #actions v-if="canManage">
+                <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+                  <Settings :size="14" />
+                </button>
+              </template>
+            </ChannelItem>
           </div>
-          <VueDraggable
-            v-if="!collapsed.has(group.id)"
-            v-model="groupChannels[group.id]"
-            group="channels"
-            :disabled="!canManage"
-            :data-group-id="group.id"
-            @start="onChannelDragStart"
-            @end="onChannelEnd"
-          >
-            <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id">
-              <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
-                <template #actions v-if="canManage">
-                  <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
-                    <Settings :size="14" />
-                  </button>
-                </template>
-              </ChannelItem>
+        </VueDraggable>
+
+        <VueDraggable
+          v-model="localGroups"
+          group="groups"
+          :disabled="!canManage"
+          handle=".channel-group-title"
+          @end="onGroupEnd"
+        >
+          <div v-for="group in localGroups" :key="group.id" class="channel-group">
+            <div
+              class="channel-group-title"
+              :class="{ 'can-drag': canManage }"
+              @click="toggleGroup(group.id)"
+              @contextmenu.prevent.stop="onGroupContextMenu(group, $event)"
+            >
+              <ChevronRight :size="12" class="group-arrow" :class="{ expanded: !collapsed.has(group.id) }" />
+              <span>{{ group.name }}</span>
+              <button v-if="canManage" class="group-add-btn" @click.stop="onAddChannelClick($event)" title="Creer un channel">
+                <Plus :size="14" />
+              </button>
             </div>
-          </VueDraggable>
+            <VueDraggable
+              v-if="!collapsed.has(group.id)"
+              v-model="groupChannels[group.id]"
+              group="channels"
+              :disabled="!canManage"
+              :data-group-id="group.id"
+              @start="onChannelDragStart"
+              @end="onChannelEnd"
+            >
+              <div v-for="ch in groupChannels[group.id]" :key="ch.id" :data-channel-id="ch.id">
+                <ChannelItem :channel="ch" @contextmenu="onChannelContextMenu(ch, $event)">
+                  <template #actions v-if="canManage">
+                    <button class="channel-gear" @click.stop="openChannelSettings(ch.id)" title="Modifier">
+                      <Settings :size="14" />
+                    </button>
+                  </template>
+                </ChannelItem>
+              </div>
+            </VueDraggable>
+          </div>
+        </VueDraggable>
+      </div>
+
+      <!-- Onglet Messages privés -->
+      <div v-else class="channel-list dm-tab">
+        <div class="channel-group-title ungrouped-header">
+          <span>Conversations</span>
+          <button class="group-add-btn" @click.stop="openNewDmModal" title="Nouveau message prive">
+            <Plus :size="14" />
+          </button>
         </div>
-      </VueDraggable>
+        <div class="dm-list">
+          <div v-if="!dmPeers.length" class="dm-empty-hint">
+            Aucune conversation pour l'instant.
+            <button class="dm-empty-cta" @click="openNewDmModal">Commencer un DM</button>
+          </div>
+          <div
+            v-for="peerId in dmPeers"
+            :key="peerId"
+            class="dm-item"
+            :class="{ active: state?.activeDmUserId === peerId }"
+            @click="onOpenDm(peerId)"
+          >
+            <div class="dm-item-avatar">
+              <img v-if="dmAvatar(peerId)" :src="dmAvatar(peerId)!" />
+              <span v-else>{{ dmInitial(peerId) }}</span>
+            </div>
+            <span class="dm-item-name">{{ dmName(peerId) }}</span>
+            <span v-if="(state?.dmUnread.get(peerId) ?? 0) > 0" class="dm-item-badge">
+              {{ state?.dmUnread.get(peerId) }}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <ContextMenu
@@ -109,12 +153,13 @@
       </div>
     </ModalSmall>
 
+    <NewDmModal v-if="showNewDmModal" @close="showNewDmModal = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Plus, Settings, Hash, Volume2, FolderPlus, Pencil, Trash2, BellOff, Bell, BellMinus } from "lucide-vue-next";
+import { ChevronDown, ChevronRight, Plus, Settings, Hash, Volume2, FolderPlus, Pencil, Trash2, BellOff, Bell, BellMinus, MessageCircle } from "lucide-vue-next";
 import { VueDraggable } from "vue-draggable-plus";
 import {
   store,
@@ -122,16 +167,58 @@ import {
   activeServer,
   setNotificationPref,
   removeNotificationPref,
+  openDmWith,
+  resolveAvatarUrl,
 } from "../store";
 import { api } from "../api";
 import * as perms from "../permissions";
 import ChannelItem from "./ChannelItem.vue";
 import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
 import ModalSmall from "./ui/ModalSmall.vue";
+import BaseTabs, { type TabItem } from "./ui/BaseTabs.vue";
+import NewDmModal from "./NewDmModal.vue";
 import type { Channel, ChannelGroup } from "../api";
 
 const state = computed(() => activeState());
 const server = computed(() => activeServer());
+
+// ── Tabs ──
+const activeTab = ref<"channels" | "dms">("channels");
+
+const totalDmUnread = computed(() => {
+  let sum = 0;
+  for (const n of state.value?.dmUnread.values() ?? []) sum += n;
+  return sum;
+});
+
+const tabItems = computed<TabItem[]>(() => [
+  { id: "channels", label: "Channels", icon: Hash },
+  { id: "dms", label: "DMs", icon: MessageCircle, count: totalDmUnread.value },
+]);
+
+// Bascule automatiquement sur l'onglet DMs quand un DM devient actif (ex: clic "Message prive" sur UserCard).
+watch(() => state.value?.activeDmUserId, (peerId) => {
+  if (peerId != null) activeTab.value = "dms";
+});
+
+// ── DMs ──
+const dmPeers = computed(() => state.value?.dmConversations ?? []);
+function dmName(peerId: number): string {
+  return state.value?.users.get(peerId)?.display_name ?? `User #${peerId}`;
+}
+function dmInitial(peerId: number): string {
+  return (state.value?.users.get(peerId)?.display_name ?? "?")[0]?.toUpperCase() ?? "?";
+}
+function dmAvatar(peerId: number): string | null {
+  return resolveAvatarUrl(peerId);
+}
+async function onOpenDm(peerId: number) {
+  await openDmWith(peerId);
+}
+const showNewDmModal = ref(false);
+function openNewDmModal() {
+  showNewDmModal.value = true;
+}
 
 const collapsed = reactive(new Set<number>());
 
@@ -450,11 +537,24 @@ function toggleGroup(groupId: number) {
   color: var(--text-faint);
 }
 
+.sidebar-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar-tabs-wrap {
+  padding: 8px 10px 4px;
+  flex-shrink: 0;
+}
+
 .channel-list {
   padding: 8px 0;
   overflow-y: auto;
   flex: 1;
 }
+.channel-list.dm-tab { padding: 4px 0; }
 
 .channel-group {
   margin-top: 8px;
@@ -518,6 +618,83 @@ function toggleGroup(groupId: number) {
 
 .group-arrow.expanded {
   transform: rotate(90deg);
+}
+
+/* ── DM list ── */
+.dm-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px;
+  margin-bottom: 12px;
+}
+.dm-empty-hint {
+  padding: 20px 14px;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.dm-empty-cta {
+  width: auto;
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  background: var(--accent);
+  color: var(--text-bright);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dm-empty-cta:hover { filter: brightness(1.08); box-shadow: none; }
+.dm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.dm-item:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+}
+.dm-item.active {
+  background: var(--bg-modifier-selected);
+  color: var(--text-normal);
+}
+.dm-item-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.dm-item-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.dm-item-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-item-badge {
+  background: var(--danger, #ed4245);
+  color: var(--text-bright);
+  font-size: 0.6875rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
 }
 
 .channel-gear {

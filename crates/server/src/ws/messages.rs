@@ -85,6 +85,140 @@ pub async fn handle_toggle_reaction(
     Ok(())
 }
 
+/// Save an end-to-end encrypted DM and deliver it only to sender + recipient.
+/// Server sees ciphertext+nonce only — never plaintext.
+pub async fn handle_send_dm(
+    state: &AppState,
+    sender_id: i64,
+    recipient_id: i64,
+    ciphertext: String,
+    nonce: String,
+    sender_key_fingerprint: String,
+    reply_to_id: Option<i64>,
+) -> WsResult {
+    if recipient_id == sender_id {
+        return Ok(());
+    }
+    if ciphertext.is_empty() || ciphertext.len() > 16_384 {
+        return Ok(());
+    }
+    if nonce.is_empty() || nonce.len() > 64 {
+        return Ok(());
+    }
+    if crate::db::users::find_by_id(&state.db, recipient_id).await?.is_none() {
+        return Ok(());
+    }
+
+    // reply_to_id doit pointer sur un DM de la même conversation (sinon ignoré).
+    let validated_reply = match reply_to_id {
+        Some(rid) => match crate::db::dms::find_by_id(&state.db, rid).await? {
+            Some(orig) => {
+                let same_pair = (orig.sender_id == sender_id && orig.recipient_id == recipient_id)
+                    || (orig.sender_id == recipient_id && orig.recipient_id == sender_id);
+                if same_pair { Some(rid) } else { None }
+            }
+            None => None,
+        },
+        None => None,
+    };
+
+    let dm = crate::db::dms::create(
+        &state.db,
+        sender_id,
+        recipient_id,
+        &ciphertext,
+        &nonce,
+        &sender_key_fingerprint,
+        validated_reply,
+    )
+    .await?;
+
+    state.deliver_direct(&[sender_id, recipient_id], ServerEvent::DmCreate(dm));
+    Ok(())
+}
+
+pub async fn handle_edit_dm(
+    state: &AppState,
+    user_id: i64,
+    message_id: i64,
+    ciphertext: String,
+    nonce: String,
+) -> WsResult {
+    if ciphertext.is_empty() || ciphertext.len() > 16_384 { return Ok(()); }
+    if nonce.is_empty() || nonce.len() > 64 { return Ok(()); }
+
+    let Some(dm) = crate::db::dms::find_by_id(&state.db, message_id).await? else {
+        return Ok(());
+    };
+    if dm.sender_id != user_id {
+        return Ok(()); // seul l'auteur peut éditer
+    }
+
+    crate::db::dms::update_ciphertext(&state.db, message_id, &ciphertext, &nonce).await?;
+
+    let updated = crate::db::dms::find_by_id(&state.db, message_id).await?.ok_or("dm gone")?;
+    state.deliver_direct(&[dm.sender_id, dm.recipient_id], ServerEvent::DmUpdate(updated));
+    Ok(())
+}
+
+pub async fn handle_delete_dm(state: &AppState, user_id: i64, message_id: i64) -> WsResult {
+    let Some(dm) = crate::db::dms::find_by_id(&state.db, message_id).await? else {
+        return Ok(());
+    };
+    if dm.sender_id != user_id {
+        return Ok(()); // seul l'auteur peut supprimer
+    }
+
+    crate::db::dms::delete(&state.db, message_id).await?;
+    state.deliver_direct(
+        &[dm.sender_id, dm.recipient_id],
+        ServerEvent::DmDelete {
+            id: message_id,
+            sender_id: dm.sender_id,
+            recipient_id: dm.recipient_id,
+        },
+    );
+    Ok(())
+}
+
+pub async fn handle_toggle_dm_reaction(
+    state: &AppState,
+    user_id: i64,
+    message_id: i64,
+    emoji: String,
+) -> WsResult {
+    if emoji.is_empty() || emoji.chars().count() > 32 { return Ok(()); }
+
+    let Some(dm) = crate::db::dms::find_by_id(&state.db, message_id).await? else {
+        return Ok(());
+    };
+    // Seuls les participants à la conversation peuvent réagir.
+    if user_id != dm.sender_id && user_id != dm.recipient_id {
+        return Ok(());
+    }
+
+    let added = crate::db::dms::toggle_reaction(&state.db, message_id, user_id, &emoji).await?;
+    let evt = if added {
+        ServerEvent::DmReactionAdded {
+            dm_id: message_id,
+            peer_a: dm.sender_id,
+            peer_b: dm.recipient_id,
+            user_id,
+            emoji,
+        }
+    } else {
+        ServerEvent::DmReactionRemoved {
+            dm_id: message_id,
+            peer_a: dm.sender_id,
+            peer_b: dm.recipient_id,
+            user_id,
+            emoji,
+        }
+    };
+    state.deliver_direct(&[dm.sender_id, dm.recipient_id], evt);
+    Ok(())
+}
+
 pub async fn handle_delete(state: &AppState, user_id: i64, message_id: i64) -> WsResult {
     let row = crate::db::messages::find_by_id(&state.db, message_id)
         .await?

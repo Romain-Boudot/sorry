@@ -2,13 +2,14 @@
  * WS event handler — dispatches ServerEvents to the correct state mutations.
  * Extracted from store.ts — operates on the same reactive store object.
  */
-import { type ServerEvent, type Message, type User, type Role, type VoiceUserState, type Channel, type ChannelGroup, type ChannelOverwrite } from "../api";
+import { type ServerEvent, type Message, type User, type Role, type VoiceUserState, type Channel, type ChannelGroup, type ChannelOverwrite, type DmMessage } from "../api";
 import { store, persistServers, type ServerState } from "../store";
 import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../voice";
 import { fireNotification } from "./useNotifications";
 import { showToast } from "./useToast";
 import { rejoinWithToken } from "./useVoice";
 import { consumeOptimistic, revokeOptimisticBlobs, revokeAllOptimisticBlobs } from "./useMessaging";
+import { handleIncomingDm, handleUserKeyUpdate, handleDmUpdate, handleDmDelete, handleDmReaction } from "./useDms";
 
 function defaultVoiceUserState(): VoiceUserState {
   return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
@@ -328,6 +329,41 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       state.channelOverwrites = state.channelOverwrites.filter(
         o => !(o.channel_id === channel_id && o.role_id === role_id)
       );
+      break;
+    }
+    case "DmCreate": {
+      const dm = event.data as DmMessage;
+      handleIncomingDm(state, serverId, dm).catch(() => {});
+      break;
+    }
+    case "DmUpdate": {
+      const dm = event.data as DmMessage;
+      handleDmUpdate(state, dm).catch(() => {});
+      break;
+    }
+    case "DmDelete": {
+      const data = event.data as { id: number; sender_id: number; recipient_id: number };
+      handleDmDelete(state, data);
+      break;
+    }
+    case "DmReactionAdded": {
+      const data = event.data as { dm_id: number; peer_a: number; peer_b: number; user_id: number; emoji: string };
+      handleDmReaction(state, data, true);
+      break;
+    }
+    case "DmReactionRemoved": {
+      const data = event.data as { dm_id: number; peer_a: number; peer_b: number; user_id: number; emoji: string };
+      handleDmReaction(state, data, false);
+      break;
+    }
+    case "UserKeyUpdate": {
+      const { user_id, public_key, fingerprint } = event.data as { user_id: number; public_key: string; fingerprint: string };
+      const existing = state.users.get(user_id);
+      if (existing) {
+        existing.public_key = public_key;
+        existing.key_fingerprint = fingerprint;
+        handleUserKeyUpdate(state, serverId, existing);
+      }
       break;
     }
   }

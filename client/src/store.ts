@@ -12,7 +12,8 @@
  * the public API is re-exported here as thin wrappers.
  */
 import { reactive } from "vue";
-import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type ChannelOverwrite, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState } from "./api";
+import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type ChannelOverwrite, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState, type DmMessage } from "./api";
+import type { Keypair } from "./crypto";
 
 // ── Types ──
 
@@ -63,6 +64,19 @@ export interface ServerState {
   /** Timestamp of last typing event sent by us */
   lastTypingSent: number;
   channelOverwrites: ChannelOverwrite[];
+  // ── DMs (E2EE) ──
+  /** Keypair locale pour ce serveur. Null tant qu'on ne l'a pas générée. */
+  dmKeypair: Keypair | null;
+  /** Map<userId, DmMessage[]> — historique chiffré déchiffré côté client. */
+  dms: Map<number, DmMessage[]>;
+  /** Liste des conversations actives (peers avec qui on a échangé). */
+  dmConversations: number[];
+  /** ID du peer actuellement ouvert dans le panneau DM. null si aucun. */
+  activeDmUserId: number | null;
+  /** Nombre de DMs non lus par peer. */
+  dmUnread: Map<number, number>;
+  /** Empreintes connues (TOFU). On compare à la clé courante du peer pour détecter une rotation. */
+  knownFingerprints: Map<number, string>;
 }
 
 // ── Factory ──
@@ -102,6 +116,12 @@ export function createServerState(): ServerState {
     typingUsers: new Map(),
     lastTypingSent: 0,
     channelOverwrites: [],
+    dmKeypair: null,
+    dms: new Map(),
+    dmConversations: [],
+    activeDmUserId: null,
+    dmUnread: new Map(),
+    knownFingerprints: new Map(),
   };
 }
 
@@ -252,8 +272,53 @@ import { connectToServer, connectAll, muteServer, unmuteServer, removeServer } f
 import * as _messaging from "./composables/useMessaging";
 import * as _voice from "./composables/useVoice";
 import * as _notifs from "./composables/useNotifications";
+import * as _dms from "./composables/useDms";
 
 export { connectToServer, connectAll, muteServer, unmuteServer, removeServer };
+export { closeDm } from "./composables/useDms";
+
+export async function sendDm(peerId: number, content: string, replyToId?: number | null) {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return;
+  await _dms.sendDm(server, state, peerId, content, replyToId);
+}
+
+export async function editDm(messageId: number, newContent: string) {
+  const state = activeState();
+  if (!state) return;
+  await _dms.editDm(state, messageId, newContent);
+}
+
+export function deleteDm(messageId: number) {
+  const state = activeState();
+  if (!state) return;
+  _dms.deleteDm(state, messageId);
+}
+
+export function toggleDmReaction(messageId: number, emoji: string) {
+  const state = activeState();
+  if (!state) return;
+  _dms.toggleDmReaction(state, messageId, emoji);
+}
+
+export async function loadOlderDms(peerId: number): Promise<number> {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return 0;
+  return _dms.loadOlderDms(server, state, peerId);
+}
+
+export async function openDmWith(peerId: number) {
+  const server = activeServer();
+  const state = activeState();
+  if (!server || !state) return;
+  state.activeDmUserId = peerId;
+  state.dmUnread.delete(peerId);
+  if (!state.dms.has(peerId)) {
+    await _dms.loadConversation(server, state, peerId);
+  }
+}
 
 export async function addServer(
   name: string,
@@ -359,6 +424,7 @@ export async function selectChannel(channelId: number) {
   if (!server || !state) return;
 
   state.activeChannelId = channelId;
+  state.activeDmUserId = null; // revient à la vue channel
   state.channelUnread.delete(channelId);
   state.channelMentions.delete(channelId);
   persistNav();

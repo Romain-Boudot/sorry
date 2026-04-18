@@ -16,6 +16,11 @@
           {{ isOnline ? 'En ligne' : 'Hors ligne' }}
         </div>
 
+        <button v-if="canDm" class="user-card-dm-btn" @click="onStartDm">
+          <MessageCircle :size="14" />
+          Message prive
+        </button>
+
         <div class="user-card-separator" />
 
         <div class="user-card-section">
@@ -64,8 +69,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Circle, Plus } from "lucide-vue-next";
-import { activeState, activeServer, resolveAvatarUrl } from "../store";
+import { Circle, Plus, MessageCircle } from "lucide-vue-next";
+import { activeState, activeServer, resolveAvatarUrl, openDmWith } from "../store";
 import { api, type User, type Role } from "../api";
 import * as perms from "../permissions";
 
@@ -96,6 +101,16 @@ const isOnline = computed(() =>
 const canManageRoles = computed(() =>
   perms.has(state.value?.permissions ?? 0, perms.MANAGE_ROLES)
 );
+
+const canDm = computed(() => {
+  const me = state.value?.user;
+  return !!me && me.id !== props.user.id;
+});
+
+async function onStartDm() {
+  await openDmWith(props.user.id);
+  emit("close");
+}
 
 const availableRoles = computed(() =>
   visibleRoles.value.filter(
@@ -228,6 +243,29 @@ function close() {
   height: 1px;
   background: var(--border);
   margin: 12px 0;
+}
+
+.user-card-dm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-normal);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.user-card-dm-btn:hover {
+  background: var(--accent);
+  color: var(--text-bright);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 .user-card-section-title {

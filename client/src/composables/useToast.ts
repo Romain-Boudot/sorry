@@ -3,7 +3,7 @@ import { reactive } from "vue";
 export interface Toast {
   id: number;
   message: string;
-  type: "success" | "error" | "info";
+  type: "success" | "error" | "info" | "warning";
 }
 
 let nextId = 0;

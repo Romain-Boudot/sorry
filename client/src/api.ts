@@ -416,6 +416,24 @@ export const api = {
       body: JSON.stringify({ user_id: userId }),
     });
   },
+
+  // ── DMs (E2EE) ──
+  uploadPublicKey(baseUrl: string, token: string, publicKey: string) {
+    return request<void>(baseUrl, "/users/me/key", token, {
+      method: "POST",
+      body: JSON.stringify({ public_key: publicKey }),
+    });
+  },
+
+  listDmConversations(baseUrl: string, token: string) {
+    return request<DmConversation[]>(baseUrl, "/dms", token);
+  },
+
+  listDmMessages(baseUrl: string, token: string, userId: number, limit = 50, before?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", String(before));
+    return request<DmMessage[]>(baseUrl, `/dms/${userId}?${params}`, token);
+  },
 };
 
 // Types
@@ -426,6 +444,35 @@ export interface User {
   username?: string;
   created_at?: string;
   guest?: boolean;
+  /** Public key (base64 X25519) — present once user has provisioned a DM keypair. */
+  public_key?: string | null;
+  key_fingerprint?: string | null;
+}
+
+export interface DmMessage {
+  id: number;
+  sender_id: number;
+  recipient_id: number;
+  ciphertext: string;
+  nonce: string;
+  sender_key_fingerprint: string;
+  created_at: string;
+  reply_to_id?: number | null;
+  edited?: boolean;
+  reactions?: Reaction[];
+  // Client-only — populated after decryption.
+  plaintext?: string;
+  /** True if decryption failed (e.g. recipient's key has rotated since). */
+  undecryptable?: boolean;
+  // Optimistic send state.
+  pending?: boolean;
+  failed?: boolean;
+}
+
+export interface DmConversation {
+  user_id: number;
+  last_message_id: number;
+  last_message_at: string;
 }
 
 export interface BannedUser {

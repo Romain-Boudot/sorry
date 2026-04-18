@@ -23,6 +23,8 @@ pub fn to_model(row: &UserRow) -> User {
         username: None,
         created_at: None,
         guest: row.guest != 0,
+        public_key: None,
+        key_fingerprint: None,
     }
 }
 
@@ -43,6 +45,8 @@ pub struct UserPublicRow {
     pub avatar_url: Option<String>,
     pub created_at: Option<String>,
     pub guest: i64,
+    pub public_key: Option<String>,
+    pub key_fingerprint: Option<String>,
 }
 
 pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Option<UserRow>> {
@@ -58,7 +62,7 @@ pub async fn find_by_id_internal(db: &SqlitePool, id: i64) -> sqlx::Result<Optio
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> {
     let row: Option<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest FROM users WHERE id = ?"#,
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest, public_key as "public_key?", key_fingerprint as "key_fingerprint?" FROM users WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -71,13 +75,15 @@ pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<User>> 
         username: Some(r.username),
         created_at: r.created_at,
         guest: r.guest != 0,
+        public_key: r.public_key,
+        key_fingerprint: r.key_fingerprint,
     }))
 }
 
 pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
     let rows: Vec<UserPublicRow> = sqlx::query_as!(
         UserPublicRow,
-        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest FROM users WHERE banned_at IS NULL"#
+        r#"SELECT id, username, display_name, avatar_url as "avatar_url?", CAST(created_at AS TEXT) as "created_at?", guest, public_key as "public_key?", key_fingerprint as "key_fingerprint?" FROM users WHERE banned_at IS NULL"#
     )
     .fetch_all(db)
     .await?;
@@ -91,6 +97,8 @@ pub async fn list_all(db: &SqlitePool) -> sqlx::Result<Vec<User>> {
             username: Some(r.username.clone()),
             created_at: r.created_at.clone(),
             guest: r.guest != 0,
+            public_key: r.public_key.clone(),
+            key_fingerprint: r.key_fingerprint.clone(),
         })
         .collect())
 }
@@ -121,6 +129,25 @@ pub async fn update_password(db: &SqlitePool, id: i64, password_hash: &str) -> s
     sqlx::query!(
         "UPDATE users SET password_hash = ? WHERE id = ?",
         password_hash,
+        id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_public_key(
+    db: &SqlitePool,
+    id: i64,
+    public_key: &str,
+    fingerprint: &str,
+) -> sqlx::Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query!(
+        "UPDATE users SET public_key = ?, key_fingerprint = ?, key_updated_at = ? WHERE id = ?",
+        public_key,
+        fingerprint,
+        now,
         id
     )
     .execute(db)

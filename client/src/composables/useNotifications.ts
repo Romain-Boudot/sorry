@@ -57,6 +57,43 @@ function isMentioned(state: ServerState, msg: Message): boolean {
 // ── Public API ──
 
 /**
+ * Fire a notification for an incoming direct message.
+ * Skipped when the user is already viewing this DM (focused).
+ * Content is passed in clear (already decrypted by the caller) — never touches the server.
+ */
+export function fireDmNotification(
+  store: { activeServerId: string | null; savedServers: SavedServer[] },
+  state: ServerState,
+  serverId: string,
+  peerId: number,
+  plaintextOrFallback: string,
+) {
+  if (state.user && peerId === state.user.id) return;
+
+  const isViewing =
+    store.activeServerId === serverId &&
+    state.activeDmUserId === peerId &&
+    document.hasFocus();
+  if (isViewing) return;
+
+  try { getNotifAudio().play(); } catch {}
+
+  if (Notification.permission === "granted") {
+    const server = store.savedServers.find((s) => s.id === serverId);
+    const authorName = state.users.get(peerId)?.display_name ?? "Someone";
+    const title = `${authorName} (message prive)`;
+    const body = plaintextOrFallback.length > 100
+      ? plaintextOrFallback.slice(0, 100) + "..."
+      : plaintextOrFallback;
+    new Notification(title, {
+      body,
+      tag: `sorry-dm-${serverId}-${peerId}`,
+      icon: server?.iconUrl ? `${server.url}${server.iconUrl}` : undefined,
+    });
+  }
+}
+
+/**
  * Fire a notification (sound + browser) for a new message.
  * Called from the event handler, not from components directly.
  */

@@ -25,6 +25,8 @@ argon2 = { version = "0.5", features = ["std"] }
 
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 sha2 = "0.10"
+blake2 = "0.10"
+base64 = "0.22"
 hex = "0.4"
 
 tracing = "0.1"

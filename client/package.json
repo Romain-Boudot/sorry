@@ -12,6 +12,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-deep-link": "^2.4.7",
+    "libsodium-wrappers": "^0.8.3",
     "livekit-client": "^2.18.0",
     "lucide-vue-next": "^1.0.0",
     "markdown-it": "^14.1.1",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@types/libsodium-wrappers": "^0.8.2",
     "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^5.0.0",
     "typescript": "^5.5.0",

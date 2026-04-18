@@ -6,6 +6,9 @@ import { api, resolveBaseUrl, createWsConnection, type Snapshot, type VoiceUserS
 import { store, persistServers, persistNav, pendingChannels, createServerState, type SavedServer, type ServerState } from "../store";
 import { handleEvent } from "./useEvents";
 import { revokeAllOptimisticBlobs } from "./useMessaging";
+import { ensureKeypair, loadConversations } from "./useDms";
+import { loadFingerprints, saveFingerprints, deleteKeypair, deleteFingerprints } from "../crypto";
+import { showToast } from "./useToast";
 
 // ── Token refresh ──
 
@@ -98,6 +101,35 @@ function applySnapshot(serverId: string, snapshot: Snapshot) {
         if (s) s.notificationPrefs = prefs;
       })
       .catch(() => {});
+  }
+
+  // Hydrate les fingerprints persistées (TOFU baseline), puis confronte au snapshot :
+  // si la fingerprint serveur diffère de ce qu'on connaissait, on alerte (rotation/MITM potentiel).
+  // Pour les peers jamais vus, on trust-on-first-use.
+  state.knownFingerprints = loadFingerprints(serverId);
+  const myId = snapshot.user.id;
+  for (const u of snapshot.users) {
+    if (!u.key_fingerprint) continue;
+    if (u.id === myId) continue; // on ne TOFU-check pas soi-même
+    const known = state.knownFingerprints.get(u.id);
+    if (known && known !== u.key_fingerprint) {
+      showToast(
+        `La cle DM de ${u.display_name} a change. Verifiez son empreinte avant de lui ecrire.`,
+        "warning",
+        8000,
+      );
+    }
+    state.knownFingerprints.set(u.id, u.key_fingerprint);
+  }
+  saveFingerprints(serverId, state.knownFingerprints);
+
+  // Init DM keypair + chargement des conversations (non bloquant).
+  if (server) {
+    ensureKeypair(server, state)
+      .then(() => loadConversations(server, state))
+      .catch((err) => {
+        console.warn("[DM] Keypair init failed", err);
+      });
   }
 
   // Restore pending channel from nav, or select first text channel
@@ -234,6 +266,9 @@ export function removeServer(serverId: string) {
   }
   store.serverStates.delete(serverId);
   store.savedServers = store.savedServers.filter((s) => s.id !== serverId);
+  // Cleanup du matériel cryptographique DM (keypair locale + TOFU fingerprints).
+  deleteKeypair(serverId);
+  deleteFingerprints(serverId);
   persistServers();
 
   if (store.activeServerId === serverId) {

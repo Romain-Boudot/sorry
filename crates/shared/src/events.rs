@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::models::{Channel, ChannelGroup, ChannelOverwrite, Message, Role, User, VoiceUserState};
+use crate::models::{Channel, ChannelGroup, ChannelOverwrite, DmMessage, Message, Role, User, VoiceUserState};
 
 /// Events envoyés du serveur → client via WebSocket
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,17 @@ pub enum ServerEvent {
     GroupListUpdate { groups: Vec<ChannelGroup> },
     OverwriteUpdate(ChannelOverwrite),
     OverwriteDelete { channel_id: i64, role_id: i64 },
+    /// DMs : livrés uniquement au sender et au recipient via `deliver_direct` (pas de broadcast).
+    /// Évite la fuite de métadonnées "qui DM qui" à tous les users connectés.
+    DmCreate(DmMessage),
+    DmUpdate(DmMessage),
+    DmDelete { id: i64, sender_id: i64, recipient_id: i64 },
+    /// peer_a/peer_b = les deux bouts de la conversation DM (ordre indifférent).
+    /// Permet au client de savoir quelle liste de DMs mettre à jour.
+    DmReactionAdded { dm_id: i64, peer_a: i64, peer_b: i64, user_id: i64, emoji: String },
+    DmReactionRemoved { dm_id: i64, peer_a: i64, peer_b: i64, user_id: i64, emoji: String },
+    /// Un utilisateur a publié/rotationné sa clé publique.
+    UserKeyUpdate { user_id: i64, public_key: String, fingerprint: String },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués
@@ -91,6 +102,21 @@ pub enum ClientEvent {
     ToggleReaction { message_id: i64, emoji: String },
     Typing { channel_id: i64 },
     MoveVoice { user_id: i64, channel_id: i64 },
+    /// Envoyer un DM chiffré (le serveur ne déchiffre rien — il route + persiste).
+    SendDm {
+        recipient_id: i64,
+        ciphertext: String,
+        nonce: String,
+        sender_key_fingerprint: String,
+        #[serde(default)]
+        reply_to_id: Option<i64>,
+    },
+    /// Éditer un DM existant. Le client ré-encrypte le nouveau plaintext et l'envoie.
+    EditDm { message_id: i64, ciphertext: String, nonce: String },
+    /// Supprimer un DM (seulement l'auteur).
+    DeleteDm { message_id: i64 },
+    /// Toggle une réaction emoji sur un DM (non chiffré — emoji + user_id stockés en clair).
+    ToggleDmReaction { message_id: i64, emoji: String },
     /// Demande de snapshot complet (reconnexion ou gap détecté)
     RequestSnapshot,
 }

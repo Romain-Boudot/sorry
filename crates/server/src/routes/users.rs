@@ -2,6 +2,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
+use base64::Engine;
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
@@ -295,6 +296,54 @@ async fn user_messages(
     Ok(Json(messages))
 }
 
+#[derive(Deserialize)]
+pub struct UploadKeyPayload {
+    public_key: String,
+}
+
+/// POST /api/users/me/key — publier ou renouveler sa clé publique X25519 pour les DMs E2EE.
+/// La fingerprint est dérivée serveur-side à partir de la clé (BLAKE2b, 8 octets, formatés `xxxx:xxxx:xxxx:xxxx`).
+/// Ça garantit que la fingerprint stockée/affichée correspond bien à la clé — un client malveillant
+/// ne peut pas uploader une fingerprint mismatch qui casserait le TOFU.
+async fn upload_key(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<UploadKeyPayload>,
+) -> Result<StatusCode, AppError> {
+    // X25519 public key in base64 (sans padding ça peut varier, 43-44 chars typiques).
+    let key_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&payload.public_key)
+        .map_err(|_| AppError::BadRequest("Invalid base64 public key".into()))?;
+    if key_bytes.len() != 32 {
+        return Err(AppError::BadRequest("Public key must be 32 bytes (X25519)".into()));
+    }
+
+    let fingerprint = derive_fingerprint(&key_bytes);
+
+    crate::db::users::update_public_key(&state.db, auth.0, &payload.public_key, &fingerprint).await?;
+
+    state.broadcast(shared::events::ServerEvent::UserKeyUpdate {
+        user_id: auth.0,
+        public_key: payload.public_key,
+        fingerprint,
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// BLAKE2b-256 tronqué à 8 octets → 16 hex chars groupés `xxxx:xxxx:xxxx:xxxx`.
+/// Doit matcher exactement l'algo du client (`crypto_generichash` dans crypto.ts).
+fn derive_fingerprint(pubkey_bytes: &[u8]) -> String {
+    use blake2::{Blake2b, Digest};
+    use blake2::digest::consts::U32;
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(pubkey_bytes);
+    let hash = hasher.finalize();
+    let hex = hex::encode(&hash[..8]);
+    // hex = 16 chars → groupes de 4 séparés par `:`
+    format!("{}:{}:{}:{}", &hex[0..4], &hex[4..8], &hex[8..12], &hex[12..16])
+}
+
 /// GET /api/users/:id/audit?limit=50&before=123 — actions log for a specific user (BAN_MEMBERS)
 async fn user_audit(
     State(state): State<Arc<AppState>>,
@@ -322,6 +371,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me).patch(update_me))
         .route("/me/avatar", post(upload_avatar).delete(delete_avatar))
         .route("/me/password", post(change_password))
+        .route("/me/key", post(upload_key))
         .route("/banned", get(list_banned))
         .route("/:id/ban", post(ban_user).delete(unban_user))
         .route("/:id/roles", get(user_roles))

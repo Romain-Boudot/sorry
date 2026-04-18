@@ -2,6 +2,7 @@ pub mod attachments;
 pub mod audit;
 pub mod channel_groups;
 pub mod channels;
+pub mod dms;
 pub mod invites;
 pub mod messages;
 pub mod notification_prefs;

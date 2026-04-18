@@ -6,13 +6,23 @@
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
       <div v-if="store.activeServerId" class="main-area has-sidebar">
-        <ChatHeader :gallery-open="showGallery" :pins-open="showPins" @jump-to="onSearchJump" @toggle-gallery="showGallery = !showGallery; showPins = false" @toggle-pins="showPins = !showPins; showGallery = false" />
+        <ChatHeader
+          v-if="!activeDm"
+          :gallery-open="showGallery"
+          :pins-open="showPins"
+          @jump-to="onSearchJump"
+          @toggle-gallery="showGallery = !showGallery; showPins = false"
+          @toggle-pins="showPins = !showPins; showGallery = false"
+        />
         <div class="main-body">
-          <VoiceView v-if="isVoice" />
-          <ChatBody v-else ref="chatBodyRef" />
-          <PinnedMessages v-if="showPins && !isVoice" @close="showPins = false" @jump-to="(id: number) => { onSearchJump(id); showPins = false }" />
-          <FileGallery v-if="showGallery && !isVoice" @close="showGallery = false" />
-          <UserList v-if="!isVoice && !showGallery && !showPins" />
+          <DmView v-if="activeDm" />
+          <template v-else>
+            <VoiceView v-if="isVoice" />
+            <ChatBody v-else ref="chatBodyRef" />
+            <PinnedMessages v-if="showPins && !isVoice" @close="showPins = false" @jump-to="(id: number) => { onSearchJump(id); showPins = false }" />
+            <FileGallery v-if="showGallery && !isVoice" @close="showGallery = false" />
+            <UserList v-if="!isVoice && !showGallery && !showPins" />
+          </template>
         </div>
       </div>
       <div v-else class="main-area disconnected-state">
@@ -66,6 +76,7 @@ import ServerList from "./components/ServerList.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ChatHeader from "./components/ChatHeader.vue";
 import ChatBody from "./components/ChatBody.vue";
+import DmView from "./components/DmView.vue";
 import FileGallery from "./components/chat/FileGallery.vue";
 import PinnedMessages from "./components/chat/PinnedMessages.vue";
 import ToastContainer from "./components/ui/ToastContainer.vue";
@@ -82,6 +93,7 @@ import AudioControls from "./components/AudioControls.vue";
 
 const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
+const activeDm = computed(() => state.value?.activeDmUserId != null);
 const isTauri = ref("__TAURI_INTERNALS__" in window);
 const chatBodyRef = ref<InstanceType<typeof ChatBody>>();
 const showGallery = ref(false);

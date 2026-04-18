@@ -23,6 +23,12 @@ pub struct User {
     pub created_at: Option<String>,
     #[serde(default)]
     pub guest: bool,
+    /// Public key (base64 X25519) used for DM E2EE. None if user hasn't generated a keypair yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    /// Short hex fingerprint of `public_key` — TOFU display value, also bumps on rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +160,36 @@ pub struct ServerLogEntry {
     pub level: String,
     pub target: String,
     pub message: String,
+}
+
+/// E2EE direct message between two users. Server only stores ciphertext + nonce.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmMessage {
+    pub id: i64,
+    pub sender_id: i64,
+    pub recipient_id: i64,
+    pub ciphertext: String,
+    pub nonce: String,
+    /// Fingerprint of the sender's public key at send time. Lets the recipient detect a key rotation.
+    pub sender_key_fingerprint: String,
+    pub created_at: String,
+    /// ID du DM auquel celui-ci répond (ou None). Le client décrypte localement l'original.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_id: Option<i64>,
+    /// Si ce DM a été édité — l'UI affiche un indicateur "(modifié)".
+    #[serde(default)]
+    pub edited: bool,
+    /// Réactions non chiffrées (juste emoji + user_ids). Assumé : moins sensible que le contenu.
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
+}
+
+/// Compact summary of a DM conversation — used to render the "private messages" list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmConversation {
+    pub user_id: i64,
+    pub last_message_id: i64,
+    pub last_message_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

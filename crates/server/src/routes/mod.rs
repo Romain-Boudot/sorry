@@ -5,6 +5,7 @@ use crate::state::AppState;
 mod audit;
 mod auth;
 mod channels;
+mod dms;
 mod invites;
 mod livekit;
 mod notifications;
@@ -25,5 +26,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .nest("/server", servers::router())
         .nest("/invites", invites::router())
         .nest("/notifications", notifications::router())
+        .nest("/dms", dms::router())
         .route("/og", axum::routing::post(og::fetch_og))
 }
