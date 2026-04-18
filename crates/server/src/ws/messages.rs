@@ -12,6 +12,7 @@ pub async fn handle_send(
     channel_id: i64,
     content: String,
     reply_to_id: Option<i64>,
+    nonce: Option<String>,
 ) -> WsResult {
     if !crate::perms::check_channel_permission(&state.db, user_id, channel_id, permissions::SEND_MESSAGES)
         .await
@@ -20,7 +21,7 @@ pub async fn handle_send(
         return Ok(());
     }
     let message = crate::db::messages::create(&state.db, channel_id, user_id, &content, reply_to_id).await?;
-    state.broadcast(ServerEvent::MessageCreate(message));
+    state.broadcast(ServerEvent::MessageCreate { message, nonce });
     Ok(())
 }
 

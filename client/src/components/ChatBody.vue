@@ -48,12 +48,12 @@
         <!-- Message -->
         <div
           class="message"
-          :class="{ grouped: isGrouped(i), editing: editingMessageId === msg.id }"
+          :class="{ grouped: isGrouped(i), editing: editingMessageId === msg.id, pending: msg.pending, failed: msg.failed }"
           :data-msg-id="msg.id"
           @contextmenu.prevent="onMessageContextMenu(msg, $event)"
         >
-          <!-- Hover actions -->
-          <div v-if="editingMessageId !== msg.id" class="message-actions">
+          <!-- Hover actions (hidden for pending/failed) -->
+          <div v-if="editingMessageId !== msg.id && !msg.pending && !msg.failed" class="message-actions">
             <button
               v-for="emoji in quickEmojis"
               :key="emoji"
@@ -114,6 +114,13 @@
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <AttachmentList :attachments="msg.attachments" />
               <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
+              <div v-if="msg.failed && msg.nonce" class="message-failed-bar">
+                <AlertCircle :size="12" />
+                <span class="message-failed-label">Echec d'envoi</span>
+                <button type="button" class="message-failed-btn" @click="onRetry(msg.nonce!)">Reessayer</button>
+                <span class="message-failed-sep">·</span>
+                <button type="button" class="message-failed-btn" @click="onDiscard(msg.nonce!)">Supprimer</button>
+              </div>
             </div>
           </template>
           <template v-else>
@@ -144,6 +151,13 @@
               <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
               <AttachmentList :attachments="msg.attachments" />
               <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
+              <div v-if="msg.failed && msg.nonce" class="message-failed-bar">
+                <AlertCircle :size="12" />
+                <span class="message-failed-label">Echec d'envoi</span>
+                <button type="button" class="message-failed-btn" @click="onRetry(msg.nonce!)">Reessayer</button>
+                <span class="message-failed-sep">·</span>
+                <button type="button" class="message-failed-btn" @click="onDiscard(msg.nonce!)">Supprimer</button>
+              </div>
             </div>
           </template>
         </div>
@@ -208,8 +222,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff } from "lucide-vue-next";
-import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest } from "../store";
+import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff, AlertCircle } from "lucide-vue-next";
+import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest, retryMessage, discardFailedMessage } from "../store";
 import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
 import * as perms from "../permissions";
 import { api, type Message, type User } from "../api";
@@ -518,6 +532,14 @@ function onToggleReaction(messageId: number, emoji: string) {
   quickEmojis.value = topEmojis();
 }
 
+function onRetry(nonce: string) {
+  retryMessage(nonce);
+}
+
+function onDiscard(nonce: string) {
+  discardFailedMessage(nonce);
+}
+
 // ── Message actions ──
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 const confirmDeleteId = ref<number | null>(null);
@@ -558,6 +580,7 @@ async function togglePin(msg: Message) {
 }
 
 function onMessageContextMenu(msg: Message, e: MouseEvent) {
+  if (msg.pending || msg.failed) return;
   const items: MenuItem[] = [];
 
   items.push({ label: "Repondre", icon: Reply, action: () => startReply(msg) });
@@ -909,6 +932,50 @@ function formatTimeShort(ts: string): string {
 
 .message.editing {
   background: var(--bg-modifier-active);
+}
+
+.message.pending {
+  opacity: 0.55;
+}
+
+.message.failed {
+  opacity: 0.9;
+}
+
+.message-failed-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.message-failed-label {
+  font-weight: 500;
+}
+
+.message-failed-sep {
+  color: var(--text-faint);
+}
+
+.message-failed-btn {
+  width: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-failed-btn:hover {
+  color: var(--text-bright);
+  background: none;
 }
 
 .message-edit-input {

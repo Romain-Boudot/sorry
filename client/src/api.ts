@@ -247,17 +247,18 @@ export const api = {
     return request<Message[]>(baseUrl, `/channels/${channelId}/search?${params}`, token);
   },
 
-  sendMessage(baseUrl: string, token: string, channelId: number, content: string, replyToId?: number) {
+  sendMessage(baseUrl: string, token: string, channelId: number, content: string, replyToId?: number, nonce?: string) {
     return request<Message>(baseUrl, `/channels/${channelId}/messages`, token, {
       method: "POST",
-      body: JSON.stringify({ content, reply_to_id: replyToId }),
+      body: JSON.stringify({ content, reply_to_id: replyToId, nonce }),
     });
   },
 
-  async sendMessageWithFiles(baseUrl: string, token: string, channelId: number, content: string, files: File[], replyToId?: number) {
+  async sendMessageWithFiles(baseUrl: string, token: string, channelId: number, content: string, files: File[], replyToId?: number, nonce?: string) {
     const formData = new FormData();
     formData.append("content", content);
     if (replyToId) formData.append("reply_to_id", String(replyToId));
+    if (nonce) formData.append("nonce", nonce);
     for (const file of files) {
       formData.append("file", file);
     }
@@ -524,6 +525,12 @@ export interface Message {
   mentions: Mention[];
   reactions: Reaction[];
   pinned: boolean;
+  // Client-only: optimistic send state (never sent from server)
+  nonce?: string;
+  pending?: boolean;
+  failed?: boolean;
+  pendingFiles?: File[];
+  pendingReplyToId?: number;
 }
 
 export interface NotificationPref {

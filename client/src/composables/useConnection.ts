@@ -5,6 +5,7 @@
 import { api, resolveBaseUrl, createWsConnection, type Snapshot, type VoiceUserState } from "../api";
 import { store, persistServers, persistNav, pendingChannels, createServerState, type SavedServer, type ServerState } from "../store";
 import { handleEvent } from "./useEvents";
+import { revokeAllOptimisticBlobs } from "./useMessaging";
 
 // ── Token refresh ──
 
@@ -228,6 +229,9 @@ export function unmuteServer(serverId: string) {
 export function removeServer(serverId: string) {
   const state = store.serverStates.get(serverId);
   state?.wsConnection?.destroy();
+  if (state) {
+    for (const msgs of state.messages.values()) revokeAllOptimisticBlobs(msgs);
+  }
   store.serverStates.delete(serverId);
   store.savedServers = store.savedServers.filter((s) => s.id !== serverId);
   persistServers();

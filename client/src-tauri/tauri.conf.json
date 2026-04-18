@@ -20,8 +20,9 @@
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
+        "visible": false,
         "dragDropEnabled": false,
-      "additionalBrowserArgs": "--ignore-certificate-errors"
+        "additionalBrowserArgs": "--ignore-certificate-errors"
       }
     ],
     "security": {

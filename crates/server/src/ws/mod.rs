@@ -220,8 +220,8 @@ async fn handle_client_event(
         }
 
         // ── Messages ──
-        ClientEvent::SendMessage { channel_id, content, reply_to_id } => {
-            messages::handle_send(state, user_id, channel_id, content, reply_to_id).await?;
+        ClientEvent::SendMessage { channel_id, content, reply_to_id, nonce } => {
+            messages::handle_send(state, user_id, channel_id, content, reply_to_id, nonce).await?;
         }
         ClientEvent::EditMessage { message_id, content } => {
             messages::handle_edit(state, user_id, message_id, content).await?;

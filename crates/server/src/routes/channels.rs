@@ -45,6 +45,8 @@ pub struct ListAttachmentsQuery {
 pub struct SendMessagePayload {
     content: String,
     reply_to_id: Option<i64>,
+    #[serde(default)]
+    nonce: Option<String>,
 }
 
 /// GET /api/channels
@@ -241,7 +243,10 @@ async fn send_message_json(
     let message = crate::db::messages::create(&state.db, channel_id, auth.0, &payload.content, payload.reply_to_id)
         .await?;
 
-    state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
+    state.broadcast(shared::events::ServerEvent::MessageCreate {
+        message: message.clone(),
+        nonce: payload.nonce,
+    });
     Ok(Json(message))
 }
 
@@ -297,7 +302,10 @@ async fn send_message_upload(
         }
     }
 
-    state.broadcast(shared::events::ServerEvent::MessageCreate(message.clone()));
+    state.broadcast(shared::events::ServerEvent::MessageCreate {
+        message: message.clone(),
+        nonce: parsed.nonce,
+    });
     Ok(Json(message))
 }
 

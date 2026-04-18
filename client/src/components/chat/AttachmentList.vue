@@ -61,6 +61,8 @@ function formatSize(bytes: number): string {
 }
 
 function attachmentUrl(att: Attachment): string {
+  // Absolute URLs (incl. blob: from optimistic uploads) are used as-is.
+  if (/^(blob:|https?:|data:)/.test(att.url)) return att.url;
   const server = activeServer();
   if (!server) return att.url;
   return `${server.url}${att.url}`;

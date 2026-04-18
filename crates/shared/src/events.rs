@@ -5,7 +5,11 @@ use crate::models::{Channel, ChannelGroup, ChannelOverwrite, Message, Role, User
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
-    MessageCreate(Message),
+    MessageCreate {
+        message: Message,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nonce: Option<String>,
+    },
     MessageUpdate(Message),
     MessageDelete { id: i64 },
     UserJoinedVoice { user: User, channel_id: i64, voice_state: VoiceUserState },
@@ -69,7 +73,13 @@ pub struct Snapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientEvent {
-    SendMessage { channel_id: i64, content: String, reply_to_id: Option<i64> },
+    SendMessage {
+        channel_id: i64,
+        content: String,
+        reply_to_id: Option<i64>,
+        #[serde(default)]
+        nonce: Option<String>,
+    },
     EditMessage { message_id: i64, content: String },
     DeleteMessage { message_id: i64 },
     JoinVoice { channel_id: i64 },

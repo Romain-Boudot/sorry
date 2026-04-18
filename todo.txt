@@ -25,7 +25,7 @@ x Markdown/formatage dans les messages (titre avec #, separator, text decoration
 x Screen sharing — LiveKit le supporte, pas cable
 x Move user entre channels voice (action admin)
 x Limite d'utilisateurs par channel voice
-- Audit log pour les actions admin
+x Audit log pour les actions admin
 - Statut utilisateur (away/busy/DND) (maybe ... pas sur)
 - MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
 - Notifications desktop — notif push/desktop

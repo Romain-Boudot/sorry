@@ -8,6 +8,7 @@ import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../v
 import { fireNotification } from "./useNotifications";
 import { showToast } from "./useToast";
 import { rejoinWithToken } from "./useVoice";
+import { consumeOptimistic, revokeOptimisticBlobs, revokeAllOptimisticBlobs } from "./useMessaging";
 
 function defaultVoiceUserState(): VoiceUserState {
   return { muted: false, deafened: false, force_muted: false, force_deafened: false, screen_sharing: false, camera_on: false };
@@ -33,12 +34,12 @@ export function handleEvent(serverId: string, event: ServerEvent) {
 
   switch (event.type) {
     case "MessageCreate": {
-      const msg = event.data as Message;
-      const msgs = state.messages.get(msg.channel_id);
-      if (msgs) {
-        msgs.push(msg);
-      } else {
-        state.messages.set(msg.channel_id, [msg]);
+      const { message: msg, nonce } = event.data as { message: Message; nonce?: string };
+      const swapped = nonce ? consumeOptimistic(state, nonce, msg) : false;
+      if (!swapped) {
+        const msgs = state.messages.get(msg.channel_id);
+        if (msgs) msgs.push(msg);
+        else state.messages.set(msg.channel_id, [msg]);
       }
       // Clear typing indicator for this user
       const channelTyping = state.typingUsers.get(msg.channel_id);
@@ -48,6 +49,9 @@ export function handleEvent(serverId: string, event: ServerEvent) {
         if (channelTyping.size === 0) state.typingUsers.delete(msg.channel_id);
         state.typingUsers = new Map(state.typingUsers);
       }
+
+      // Own echo (optimistic swap) doesn't trigger unread/notification.
+      if (swapped) break;
 
       const isViewingChannel = store.activeServerId === serverId && state.activeChannelId === msg.channel_id;
       if (!isViewingChannel && msg.author_id !== state.user?.id) {
@@ -63,7 +67,11 @@ export function handleEvent(serverId: string, event: ServerEvent) {
       const { id } = event.data as { id: number };
       for (const [, msgs] of state.messages) {
         const idx = msgs.findIndex((m) => m.id === id);
-        if (idx >= 0) { msgs.splice(idx, 1); break; }
+        if (idx >= 0) {
+          revokeOptimisticBlobs(msgs[idx]);
+          msgs.splice(idx, 1);
+          break;
+        }
       }
       break;
     }
@@ -272,6 +280,8 @@ export function handleEvent(serverId: string, event: ServerEvent) {
     case "ChannelDelete": {
       const { id } = event.data as { id: number };
       state.channels = state.channels.filter(c => c.id !== id);
+      const channelMsgs = state.messages.get(id);
+      if (channelMsgs) revokeAllOptimisticBlobs(channelMsgs);
       state.messages.delete(id);
       if (state.activeChannelId === id) state.activeChannelId = null;
       break;

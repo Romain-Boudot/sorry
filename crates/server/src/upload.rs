@@ -95,6 +95,7 @@ pub async fn parse_single_image(
 pub struct ParsedMessageUpload {
     pub content: String,
     pub reply_to_id: Option<i64>,
+    pub nonce: Option<String>,
     pub files: Vec<ParsedFile>,
 }
 
@@ -104,6 +105,7 @@ pub async fn parse_message_upload(
 ) -> Result<ParsedMessageUpload, AppError> {
     let mut content = String::new();
     let mut reply_to_id: Option<i64> = None;
+    let mut nonce: Option<String> = None;
     let mut files: Vec<ParsedFile> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
@@ -115,6 +117,12 @@ pub async fn parse_message_upload(
             "reply_to_id" => {
                 let val = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
                 reply_to_id = val.parse().ok();
+            }
+            "nonce" => {
+                let val = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+                if !val.is_empty() {
+                    nonce = Some(val);
+                }
             }
             "file" => {
                 if files.len() >= MAX_FILES_PER_MESSAGE {
@@ -149,7 +157,7 @@ pub async fn parse_message_upload(
         return Err(AppError::BadRequest("Empty message".into()));
     }
 
-    Ok(ParsedMessageUpload { content, reply_to_id, files })
+    Ok(ParsedMessageUpload { content, reply_to_id, nonce, files })
 }
 
 /// Determine content-type from file extension (for serving).
