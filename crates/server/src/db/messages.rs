@@ -9,6 +9,9 @@ pub struct MessageRow {
     pub created_at: String,
     pub reply_to_id: Option<i64>,
     pub pinned: i64,
+    pub webhook_id: Option<i64>,
+    pub webhook_username: Option<String>,
+    pub webhook_avatar_url: Option<String>,
 }
 
 pub fn to_model(row: &MessageRow) -> Message {
@@ -24,6 +27,9 @@ pub fn to_model(row: &MessageRow) -> Message {
         mentions,
         reactions: vec![],
         pinned: row.pinned != 0,
+        webhook_id: row.webhook_id,
+        webhook_username: row.webhook_username.clone(),
+        webhook_avatar_url: row.webhook_avatar_url.clone(),
     }
 }
 
@@ -92,7 +98,7 @@ pub async fn create(
 ) -> sqlx::Result<Message> {
     let row = sqlx::query_as!(
         MessageRow,
-        r#"INSERT INTO messages (channel_id, author_id, content, reply_to_id) VALUES (?, ?, ?, ?) RETURNING id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned"#,
+        r#"INSERT INTO messages (channel_id, author_id, content, reply_to_id) VALUES (?, ?, ?, ?) RETURNING id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url"#,
         channel_id,
         author_id,
         content,
@@ -111,10 +117,38 @@ pub async fn create(
     Ok(msg)
 }
 
+/// Insert a message authored by a webhook. `author_id` = the user who created the webhook
+/// (kept for audit). `webhook_username` / `webhook_avatar_url` are per-message overrides.
+pub async fn create_from_webhook(
+    db: &SqlitePool,
+    channel_id: i64,
+    author_id: i64,
+    webhook_id: i64,
+    content: &str,
+    username_override: Option<&str>,
+    avatar_override: Option<&str>,
+) -> sqlx::Result<Message> {
+    let row = sqlx::query_as!(
+        MessageRow,
+        r#"INSERT INTO messages (channel_id, author_id, content, webhook_id, webhook_username, webhook_avatar_url)
+           VALUES (?, ?, ?, ?, ?, ?)
+           RETURNING id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url"#,
+        channel_id,
+        author_id,
+        content,
+        webhook_id,
+        username_override,
+        avatar_override,
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(to_model(&row))
+}
+
 pub async fn find_by_id(db: &SqlitePool, id: i64) -> sqlx::Result<Option<MessageRow>> {
     sqlx::query_as!(
         MessageRow,
-        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages WHERE id = ?"#,
+        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url FROM messages WHERE id = ?"#,
         id
     )
     .fetch_optional(db)
@@ -135,7 +169,7 @@ pub async fn list_pinned(
 ) -> sqlx::Result<Vec<Message>> {
     let rows = sqlx::query_as!(
         MessageRow,
-        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned
+        r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url
            FROM messages WHERE channel_id = ? AND pinned = 1
            ORDER BY id DESC"#,
         channel_id
@@ -179,7 +213,7 @@ pub async fn list_by_channel(
         Some(before) => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url FROM messages
                  WHERE channel_id = ? AND id < ?
                  ORDER BY id DESC LIMIT ?"#,
                 channel_id,
@@ -192,7 +226,7 @@ pub async fn list_by_channel(
         None => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url FROM messages
                  WHERE channel_id = ?
                  ORDER BY id DESC LIMIT ?"#,
                 channel_id,
@@ -220,7 +254,7 @@ pub async fn list_by_author(
         Some(before) => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url FROM messages
                  WHERE author_id = ? AND id < ?
                  ORDER BY id DESC LIMIT ?"#,
                 author_id,
@@ -233,7 +267,7 @@ pub async fn list_by_author(
         None => {
             sqlx::query_as!(
                 MessageRow,
-                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned FROM messages
+                r#"SELECT id, channel_id, author_id, content, created_at as "created_at: String", reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url FROM messages
                  WHERE author_id = ?
                  ORDER BY id DESC LIMIT ?"#,
                 author_id,
@@ -257,8 +291,8 @@ pub async fn search(
     query: &str,
     limit: i64,
 ) -> sqlx::Result<Vec<Message>> {
-    let raw: Vec<(i64, i64, i64, String, String, Option<i64>, i64)> = sqlx::query_as(
-        r#"SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.reply_to_id, m.pinned
+    let raw: Vec<(i64, i64, i64, String, String, Option<i64>, i64, Option<i64>, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"SELECT m.id, m.channel_id, m.author_id, m.content, m.created_at, m.reply_to_id, m.pinned, m.webhook_id, m.webhook_username, m.webhook_avatar_url
            FROM messages_fts f
            JOIN messages m ON m.id = f.rowid
            WHERE f.content MATCH ? AND m.channel_id = ?
@@ -273,7 +307,7 @@ pub async fn search(
 
     let rows: Vec<MessageRow> = raw
         .into_iter()
-        .map(|(id, channel_id, author_id, content, created_at, reply_to_id, pinned)| MessageRow {
+        .map(|(id, channel_id, author_id, content, created_at, reply_to_id, pinned, webhook_id, webhook_username, webhook_avatar_url)| MessageRow {
             id: Some(id),
             channel_id,
             author_id,
@@ -281,6 +315,9 @@ pub async fn search(
             created_at,
             reply_to_id,
             pinned,
+            webhook_id,
+            webhook_username,
+            webhook_avatar_url,
         })
         .collect();
 

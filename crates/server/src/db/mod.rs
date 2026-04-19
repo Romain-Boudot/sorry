@@ -10,3 +10,4 @@ pub mod roles;
 pub mod servers;
 pub mod totp;
 pub mod users;
+pub mod webhooks;

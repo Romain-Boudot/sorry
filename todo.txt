@@ -32,13 +32,13 @@ x Screen sharing — LiveKit le supporte, pas cable
 x Move user entre channels voice (action admin)
 x Limite d'utilisateurs par channel voice
 x Audit log pour les actions admin
+x Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
+x DMs / messages prives — E2EE NaCl box, TOFU fingerprint, keypair per-server
+x Webhooks — integrations (bots, CI notifications)
 - Statut utilisateur (away/busy/DND) (maybe ... pas sur)
 - MANAGE_NICKNAMES — permettre aux admins de changer le pseudo des autres
 - Notifications desktop — notif push/desktop
-x DMs / messages prives — E2EE NaCl box, TOFU fingerprint, keypair per-server
 - Themes — dark/light ou custom CSS
-x Connexion rapide "TeamSpeak mode" — ip + mot de passe serveur, one shot, pas de compte
-- Webhooks — integrations (bots, CI notifications)
 - Export de donnees — backup des messages pour l'admin
 - pouvoir supprimé un guest user et donc tout ses messages aussi
 - suppression automatique des guest users tout les X (parametrable)
@@ -58,6 +58,10 @@ x "reply to" fonctionne pas en prod ?
 Awesome Features
 ----------------
 - Stream depuis OBS
+- custom emojis
+- polls
+- voice channel text chat
+- forum channels
 - Threads — reponses groupees sous un message
 - Filtrage channels serveur-side — broadcasts cibles par user, per-user WS senders, recompute visibility sur changement de role/overwrite
 

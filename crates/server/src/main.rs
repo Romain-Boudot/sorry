@@ -118,6 +118,7 @@ async fn main() {
         .nest("/api", routes::router())
         .route("/uploads/:msg_id/:filename", get(routes::uploads::serve_upload))
         .route("/avatars/:user_id/:filename", get(routes::users::serve_avatar))
+        .route("/webhook-avatars/:wh_id/:filename", get(routes::webhooks::serve_avatar))
         .route("/server-icon/:filename", get(routes::servers::serve_icon))
         .fallback_service(ServeDir::new("/app/static").append_index_html_on_directories(true))
         .layer(CorsLayer::permissive())

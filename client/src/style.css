@@ -104,6 +104,19 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   vertical-align: middle;
 }
 
+/* Webhook bot tag */
+.bot-tag {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-bright);
+  background: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
 /* Mention spans in messages */
 .mention {
   background: rgba(212, 145, 74, 0.15);

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::models::{Channel, ChannelGroup, ChannelOverwrite, DmMessage, Message, Role, User, VoiceUserState};
+use crate::models::{Channel, ChannelGroup, ChannelOverwrite, DmMessage, Message, Role, User, VoiceUserState, WebhookInfo};
 
 /// Events envoyés du serveur → client via WebSocket
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +49,11 @@ pub enum ServerEvent {
     DmReactionRemoved { dm_id: i64, peer_a: i64, peer_b: i64, user_id: i64, emoji: String },
     /// Un utilisateur a publié/rotationné sa clé publique.
     UserKeyUpdate { user_id: i64, public_key: String, fingerprint: String },
+    /// Webhook créé/modifié/supprimé. Public (pas de token) — visible par tous pour
+    /// que l'UI puisse rendre les messages d'un webhook avec le bon nom/avatar.
+    WebhookCreate(WebhookInfo),
+    WebhookUpdate(WebhookInfo),
+    WebhookDelete { id: i64, channel_id: i64 },
 }
 
 /// Wrapper avec numéro de séquence global pour détecter les events manqués
@@ -74,6 +79,8 @@ pub struct Snapshot {
     pub user_roles: std::collections::HashMap<i64, Vec<i64>>,
     pub voice_state: std::collections::HashMap<i64, std::collections::HashMap<i64, VoiceUserState>>,
     pub channel_overwrites: Vec<ChannelOverwrite>,
+    #[serde(default)]
+    pub webhooks: Vec<WebhookInfo>,
     pub server_name: String,
     pub server_description: Option<String>,
     pub server_icon_url: Option<String>,

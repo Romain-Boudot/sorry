@@ -82,22 +82,106 @@
             </div>
           </div>
         </div>
+
+        <!-- Webhooks -->
+        <div v-if="activeTab === 'webhooks'" class="settings-body">
+          <p class="card-hint">
+            Les webhooks entrants permettent a des services externes (CI, bots, alertes) de poster des messages.
+            Compatible avec les payloads <strong>Discord</strong> (URL principale) et <strong>Slack</strong> (suffixe <code>/slack</code>).
+          </p>
+
+          <div class="card">
+            <div class="card-title">Nouveau webhook</div>
+            <div class="input-row">
+              <BaseInput v-model="newWebhookName" placeholder="Nom (ex: GitHub Actions)" :maxlength="80" />
+              <SaveButton :loading="creatingWebhook" :disabled="!newWebhookName.trim()" @click="createWebhook">Creer</SaveButton>
+            </div>
+            <p class="card-hint" style="margin-top: 6px;">L'URL d'avatar peut etre definie ensuite via l'edition.</p>
+          </div>
+
+          <div v-if="loadingWebhooks" class="webhook-empty">Chargement...</div>
+          <div v-else-if="webhooks.length === 0" class="webhook-empty">Aucun webhook pour ce channel.</div>
+
+          <div v-for="wh in webhooks" :key="wh.id" class="webhook-item">
+            <div class="webhook-header">
+              <div class="webhook-avatar clickable" @click="triggerAvatarUpload(wh.id)" :title="wh.avatar_url ? 'Changer' : 'Uploader un avatar'">
+                <img v-if="webhookAvatarSrc(wh)" :src="webhookAvatarSrc(wh)!" :alt="wh.name" />
+                <span v-else>{{ wh.name[0]?.toUpperCase() }}</span>
+                <div class="avatar-overlay"><Camera :size="14" /></div>
+              </div>
+              <div class="webhook-meta">
+                <div class="webhook-name">{{ wh.name }}</div>
+                <div class="webhook-sub">
+                  <button v-if="wh.avatar_url" class="link-btn" @click="removeAvatar(wh.id)">Supprimer l'avatar</button>
+                  <span v-else>Clique sur l'avatar pour uploader une image</span>
+                </div>
+              </div>
+              <button class="webhook-action danger" @click="confirmDeleteId = wh.id" title="Supprimer le webhook">
+                <Trash2 :size="14" />
+              </button>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                hidden
+                :ref="(el) => { if (el) avatarInputs[wh.id] = el as HTMLInputElement }"
+                @change="(e) => onAvatarSelect(wh.id, e)"
+              />
+            </div>
+
+            <div class="webhook-row">
+              <label class="webhook-label">Nom</label>
+              <BaseInput v-model="wh.name" :maxlength="80" />
+            </div>
+            <div class="webhook-row webhook-actions-row">
+              <button class="btn-secondary" @click="saveWebhook(wh)" :disabled="savingWebhookId === wh.id">
+                {{ savingWebhookId === wh.id ? "Sauvegarde..." : "Enregistrer" }}
+              </button>
+            </div>
+
+            <div class="webhook-url">
+              <label class="webhook-label">URL (a garder secrete)</label>
+              <div class="webhook-url-row">
+                <code class="webhook-url-code">{{ webhookUrl(wh) }}</code>
+                <button class="btn-secondary btn-copy" @click="copyUrl(webhookUrl(wh))" :title="copiedId === wh.id ? 'Copie !' : 'Copier'">
+                  <Check v-if="copiedId === wh.id" :size="14" />
+                  <Copy v-else :size="14" />
+                </button>
+              </div>
+              <div class="webhook-aliases">
+                <span class="webhook-alias-label">Alias Slack :</span>
+                <code class="webhook-alias-code">{{ webhookUrl(wh) }}/slack</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="confirmDeleteId !== null" class="modal-overlay" @click.self="confirmDeleteId = null">
+      <div class="modal-small">
+        <h3>Supprimer le webhook</h3>
+        <p class="confirm-text">L'URL deviendra immediatement invalide. Cette action est irreversible.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" @click="confirmDeleteId = null">Annuler</button>
+          <button class="btn-danger" @click="deleteWebhook(confirmDeleteId)">Supprimer</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { X, Hash, Volume2, Trash2, ChevronDown, Settings, Shield } from "lucide-vue-next";
+import { ref, computed, onMounted, watch } from "vue";
+import { X, Hash, Volume2, Trash2, ChevronDown, Settings, Shield, Webhook as WebhookIcon, Copy, Check, Camera } from "lucide-vue-next";
 import SaveButton from "./ui/SaveButton.vue";
 import BaseInput from "./ui/BaseInput.vue";
 import BaseTextarea from "./ui/BaseTextarea.vue";
 import NumberStepper from "./ui/NumberStepper.vue";
 import PermToggle from "./ui/PermToggle.vue";
 import { store, activeState, activeServer } from "../store";
-import { api } from "../api";
+import { api, type Webhook } from "../api";
 import * as perms from "../permissions";
+import { showToast } from "../composables/useToast";
 
 const state = computed(() => activeState());
 const channelId = computed(() => store.channelSettingsId);
@@ -105,10 +189,16 @@ const channel = computed(() => state.value?.channels.find((c) => c.id === channe
 
 const activeTab = ref("general");
 
-const tabs = [
-  { id: "general", label: "General", icon: Settings },
-  { id: "permissions", label: "Permissions", icon: Shield },
-];
+const tabs = computed(() => {
+  const list = [
+    { id: "general", label: "General", icon: Settings },
+    { id: "permissions", label: "Permissions", icon: Shield },
+  ];
+  if (channel.value?.kind === "text") {
+    list.push({ id: "webhooks", label: "Webhooks", icon: WebhookIcon });
+  }
+  return list;
+});
 
 const permsList = [
   { name: "Voir le channel", flag: perms.VIEW_CHANNELS },
@@ -228,6 +318,146 @@ async function setState(roleId: number, flag: number, newState: "inherit" | "all
   }
   overwrites.value = new Map(overwrites.value);
 }
+
+// Webhooks
+const webhooks = ref<Webhook[]>([]);
+const loadingWebhooks = ref(false);
+const newWebhookName = ref("");
+const creatingWebhook = ref(false);
+const savingWebhookId = ref<number | null>(null);
+const confirmDeleteId = ref<number | null>(null);
+const copiedId = ref<number | null>(null);
+const avatarInputs: Record<number, HTMLInputElement> = {};
+
+function webhookUrl(wh: Webhook): string {
+  const s = activeServer();
+  return `${s?.url ?? ""}/api/webhooks/${wh.id}/${wh.token}`;
+}
+
+/** Resolve a webhook avatar to a fully-qualified URL (server prefix for relative paths). */
+function webhookAvatarSrc(wh: Webhook): string | null {
+  const raw = wh.avatar_url;
+  if (!raw) return null;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  const s = activeServer();
+  return s ? `${s.url}${raw}` : raw;
+}
+
+function triggerAvatarUpload(id: number) {
+  avatarInputs[id]?.click();
+}
+
+async function onAvatarSelect(id: number, e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const s = activeServer();
+  const cid = channelId.value;
+  if (!s || !cid) return;
+  try {
+    const updated = await api.uploadWebhookAvatar(s.url, s.token, cid, id, file);
+    const wh = webhooks.value.find((w) => w.id === id);
+    if (wh) Object.assign(wh, updated);
+  } catch {
+    showToast("Echec de l'upload", "error");
+  }
+}
+
+async function removeAvatar(id: number) {
+  const s = activeServer();
+  const cid = channelId.value;
+  if (!s || !cid) return;
+  try {
+    await api.deleteWebhookAvatar(s.url, s.token, cid, id);
+    const wh = webhooks.value.find((w) => w.id === id);
+    if (wh) wh.avatar_url = null;
+  } catch {
+    showToast("Echec de la suppression", "error");
+  }
+}
+
+async function loadWebhooks() {
+  const s = activeServer();
+  const id = channelId.value;
+  if (!s || !id) return;
+  loadingWebhooks.value = true;
+  try {
+    webhooks.value = await api.listWebhooks(s.url, s.token, id);
+  } catch {
+    webhooks.value = [];
+  } finally {
+    loadingWebhooks.value = false;
+  }
+}
+
+async function createWebhook() {
+  const s = activeServer();
+  const id = channelId.value;
+  const name = newWebhookName.value.trim();
+  if (!s || !id || !name) return;
+  creatingWebhook.value = true;
+  try {
+    const created = await api.createWebhook(s.url, s.token, id, { name });
+    webhooks.value.push(created);
+    newWebhookName.value = "";
+  } catch {
+    showToast("Echec de creation", "error");
+  } finally {
+    creatingWebhook.value = false;
+  }
+}
+
+async function saveWebhook(wh: Webhook) {
+  const s = activeServer();
+  const id = channelId.value;
+  if (!s || !id) return;
+  savingWebhookId.value = wh.id;
+  try {
+    const updated = await api.updateWebhook(s.url, s.token, id, wh.id, {
+      name: wh.name.trim() || wh.name,
+    });
+    Object.assign(wh, updated);
+    showToast("Webhook mis a jour", "success", 1500);
+  } catch {
+    showToast("Echec de la mise a jour", "error");
+  } finally {
+    savingWebhookId.value = null;
+  }
+}
+
+async function deleteWebhook(id: number) {
+  const s = activeServer();
+  const cid = channelId.value;
+  if (!s || !cid) return;
+  try {
+    await api.deleteWebhook(s.url, s.token, cid, id);
+    webhooks.value = webhooks.value.filter((w) => w.id !== id);
+  } catch {
+    showToast("Echec de la suppression", "error");
+  } finally {
+    confirmDeleteId.value = null;
+  }
+}
+
+async function copyUrl(url: string) {
+  try {
+    await navigator.clipboard.writeText(url);
+    const wh = webhooks.value.find((w) => webhookUrl(w) === url);
+    if (wh) {
+      copiedId.value = wh.id;
+      setTimeout(() => { if (copiedId.value === wh.id) copiedId.value = null; }, 1500);
+    }
+  } catch {
+    showToast("Impossible de copier", "error");
+  }
+}
+
+watch(activeTab, (t) => {
+  if (t === "webhooks" && webhooks.value.length === 0 && !loadingWebhooks.value) {
+    loadWebhooks();
+  }
+});
 
 // Delete
 async function handleDelete() {
@@ -467,6 +697,272 @@ function close() {
 .ow-perm-name {
   font-size: 0.8125rem;
   color: var(--text-normal);
+}
+
+/* ── Webhooks ── */
+.webhook-empty {
+  text-align: center;
+  padding: 32px 16px;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+}
+
+.webhook-item {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.webhook-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.webhook-avatar {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--text-bright);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.webhook-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.webhook-avatar.clickable {
+  cursor: pointer;
+}
+
+.webhook-avatar .avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-bright);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.webhook-avatar.clickable:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  font: inherit;
+  font-size: 0.6875rem;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-btn:hover {
+  background: none;
+  color: var(--text-bright);
+}
+
+.webhook-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.webhook-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--header-primary);
+}
+
+.webhook-sub {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.webhook-action {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.webhook-action:hover { background: var(--bg-modifier-hover); color: var(--text-normal); }
+.webhook-action.danger:hover { background: var(--danger); color: var(--text-bright); }
+
+.webhook-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.webhook-actions-row {
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.webhook-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.btn-secondary {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 0.8125rem;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  border: none;
+  cursor: pointer;
+}
+.btn-secondary:hover { background: var(--bg-modifier-hover); }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.webhook-url {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.webhook-url-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+.webhook-url-code {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-normal);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.btn-copy {
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.webhook-aliases {
+  margin-top: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.webhook-alias-label {
+  flex-shrink: 0;
+}
+
+.webhook-alias-code {
+  font-family: monospace;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  overflow-x: auto;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── Delete confirm modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.modal-small {
+  background: var(--bg-primary);
+  padding: 24px;
+  border-radius: 8px;
+  width: 360px;
+}
+
+.modal-small h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--header-primary);
+  margin-bottom: 12px;
+}
+
+.confirm-text {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  font-size: 0.8125rem;
+  border-radius: 6px;
+}
+
+.btn-cancel {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn-cancel:hover {
+  color: var(--text-normal);
+  background: transparent;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--text-bright);
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
 }
 
 </style>

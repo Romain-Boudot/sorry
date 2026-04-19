@@ -80,9 +80,9 @@
           </div>
 
           <template v-if="!isGrouped(i)">
-            <div class="message-avatar" :class="{ 'has-reply': msg.reply_to }" @click="openCard(msg.author_id, $event)">
-              <img v-if="resolveAvatarUrl(msg.author_id)" :src="resolveAvatarUrl(msg.author_id)!" />
-              <span v-else>{{ resolveUser(msg.author_id)[0]?.toUpperCase() }}</span>
+            <div class="message-avatar" :class="{ 'has-reply': msg.reply_to }" @click="!isWebhookMessage(msg) && openCard(msg.author_id, $event)">
+              <img v-if="displayAvatar(msg)" :src="displayAvatar(msg)!" />
+              <span v-else>{{ displayName(msg)[0]?.toUpperCase() }}</span>
             </div>
             <div class="message-body">
               <ReplyPreview
@@ -94,8 +94,13 @@
                 @click="scrollToMessage(msg.reply_to.id)"
               />
               <div class="message-header">
-                <span class="message-author" :style="resolveUserColor(msg.author_id) ? `color:${resolveUserColor(msg.author_id)}` : ''" @click="openCard(msg.author_id, $event)">{{ resolveUser(msg.author_id) }}</span>
-                <span v-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
+                <span
+                  class="message-author"
+                  :style="displayColor(msg) ? `color:${displayColor(msg)}` : ''"
+                  @click="!isWebhookMessage(msg) && openCard(msg.author_id, $event)"
+                >{{ displayName(msg) }}</span>
+                <span v-if="isWebhookMessage(msg)" class="bot-tag" title="Message envoye par un webhook">BOT</span>
+                <span v-else-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
                 <span class="message-time">{{ formatTime(msg.created_at) }}</span>
                 <Pin v-if="msg.pinned" :size="12" class="pin-icon" title="Message epingle" />
               </div>
@@ -223,7 +228,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff, AlertCircle } from "lucide-vue-next";
-import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest, retryMessage, discardFailedMessage } from "../store";
+import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest, retryMessage, discardFailedMessage, resolveWebhookName, resolveWebhookAvatar, isWebhookMessage } from "../store";
 import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
 import * as perms from "../permissions";
 import { api, type Message, type User } from "../api";
@@ -386,9 +391,28 @@ function isGrouped(index: number): boolean {
   const msg = messages.value[index];
   if (msg.reply_to) return false;
   const prev = messages.value[index - 1];
-  if (msg.author_id !== prev.author_id) return false;
+  // Group webhook messages by displayed identity (so "GitHub Bot" and "CI Failed"
+  // posted via the same webhook still render with their own headers).
+  if (isWebhookMessage(msg) || isWebhookMessage(prev)) {
+    if (isWebhookMessage(msg) !== isWebhookMessage(prev)) return false;
+    if (displayName(msg) !== displayName(prev)) return false;
+  } else if (msg.author_id !== prev.author_id) {
+    return false;
+  }
   const diff = new Date(msg.created_at + "Z").getTime() - new Date(prev.created_at + "Z").getTime();
   return diff < 5 * 60 * 1000;
+}
+
+function displayName(msg: Message): string {
+  return isWebhookMessage(msg) ? resolveWebhookName(msg) : resolveUser(msg.author_id);
+}
+
+function displayAvatar(msg: Message): string | null {
+  return isWebhookMessage(msg) ? resolveWebhookAvatar(msg) : resolveAvatarUrl(msg.author_id);
+}
+
+function displayColor(msg: Message): string | null {
+  return isWebhookMessage(msg) ? null : resolveUserColor(msg.author_id);
 }
 
 function showDateSeparator(index: number): boolean {
@@ -549,6 +573,7 @@ const canManage = computed(() =>
 );
 
 function isOwnMessage(msg: Message): boolean {
+  if (isWebhookMessage(msg)) return false;
   return msg.author_id === state.value?.user?.id;
 }
 

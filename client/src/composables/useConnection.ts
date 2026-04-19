@@ -65,6 +65,10 @@ function applySnapshot(serverId: string, snapshot: Snapshot) {
   state.onlineUsers.add(snapshot.user.id);
   state.roles = snapshot.roles;
   state.channelOverwrites = snapshot.channel_overwrites ?? [];
+  state.webhooks.clear();
+  for (const wh of snapshot.webhooks ?? []) {
+    state.webhooks.set(wh.id, wh);
+  }
   state.maxFileSize = snapshot.max_file_size;
 
   state.users.clear();

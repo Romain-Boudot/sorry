@@ -131,6 +131,39 @@ pub struct Message {
     pub reactions: Vec<Reaction>,
     #[serde(default)]
     pub pinned: bool,
+    /// If set, the message was authored by a webhook (not a real user).
+    /// `author_id` still references the user who created the webhook (for audit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_id: Option<i64>,
+    /// Per-message display name override (Discord-style). Falls back to the webhook's `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_username: Option<String>,
+    /// Per-message avatar override. Falls back to the webhook's `avatar_url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_avatar_url: Option<String>,
+}
+
+/// Public-safe webhook descriptor — exposed to all clients via the snapshot
+/// so the UI can render webhook-authored messages with the correct identity.
+/// Never includes the token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookInfo {
+    pub id: i64,
+    pub channel_id: i64,
+    pub name: String,
+    pub avatar_url: Option<String>,
+}
+
+/// Full webhook record — only returned via admin endpoints (includes the token).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    pub id: i64,
+    pub channel_id: i64,
+    pub token: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub created_by: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

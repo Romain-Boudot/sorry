@@ -38,6 +38,8 @@ pub struct AppState {
     pub login_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
     pub og_cache: RwLock<HashMap<String, (crate::routes::og::OgData, Instant)>>,
     pub invite_attempts: RwLock<HashMap<IpAddr, Vec<Instant>>>,
+    /// Per-webhook rate limiting (independent buckets per webhook id).
+    pub webhook_attempts: RwLock<HashMap<i64, Vec<Instant>>>,
     pub server_logs: crate::log_buffer::LogBuffer,
 }
 
@@ -84,6 +86,7 @@ impl AppState {
             login_attempts: RwLock::new(HashMap::new()),
             og_cache: RwLock::new(HashMap::new()),
             invite_attempts: RwLock::new(HashMap::new()),
+            webhook_attempts: RwLock::new(HashMap::new()),
             server_logs,
         }
     }

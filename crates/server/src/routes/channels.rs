@@ -577,6 +577,187 @@ async fn pin_message(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ── Webhooks (admin) ──
+//
+// Public ingest lives in `routes/webhooks.rs` (no auth, token in URL).
+// These endpoints manage webhook lifecycle and require MANAGE_CHANNELS.
+
+#[derive(Deserialize)]
+pub struct CreateWebhookPayload {
+    name: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateWebhookPayload {
+    name: Option<String>,
+}
+
+/// GET /api/channels/:id/webhooks — full records (admin only, includes tokens).
+async fn list_webhooks(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+) -> Result<Json<Vec<shared::models::Webhook>>, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+    crate::db::channels::find_by_id(&state.db, channel_id).await?.ok_or(AppError::NotFound)?;
+    let list = crate::db::webhooks::list_by_channel(&state.db, channel_id).await?;
+    Ok(Json(list))
+}
+
+/// POST /api/channels/:id/webhooks
+async fn create_webhook(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<i64>,
+    Json(payload): Json<CreateWebhookPayload>,
+) -> Result<Json<shared::models::Webhook>, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let channel = crate::db::channels::find_by_id(&state.db, channel_id).await?.ok_or(AppError::NotFound)?;
+    if channel.kind != "text" {
+        return Err(AppError::BadRequest("Webhooks are only supported on text channels".into()));
+    }
+
+    let name = payload.name.trim();
+    if name.is_empty() || name.len() > 80 {
+        return Err(AppError::BadRequest("Invalid name".into()));
+    }
+
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    let webhook = crate::db::webhooks::create(
+        &state.db, channel_id, &token, name, None, auth.0,
+    ).await?;
+
+    state.broadcast(shared::events::ServerEvent::WebhookCreate(shared::models::WebhookInfo {
+        id: webhook.id,
+        channel_id: webhook.channel_id,
+        name: webhook.name.clone(),
+        avatar_url: webhook.avatar_url.clone(),
+    }));
+    let _ = crate::db::audit::log(&state.db, auth.0, "webhook.create", None, Some(channel_id), None, Some(&webhook.name)).await;
+
+    Ok(Json(webhook))
+}
+
+/// PATCH /api/channels/:id/webhooks/:wh_id
+async fn update_webhook(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, wh_id)): Path<(i64, i64)>,
+    Json(payload): Json<UpdateWebhookPayload>,
+) -> Result<Json<shared::models::Webhook>, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let existing = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    if existing.channel_id != channel_id {
+        return Err(AppError::NotFound);
+    }
+
+    let new_name = payload.name.as_deref().map(str::trim).unwrap_or(&existing.name);
+    if new_name.is_empty() || new_name.len() > 80 {
+        return Err(AppError::BadRequest("Invalid name".into()));
+    }
+
+    crate::db::webhooks::update(&state.db, wh_id, new_name, existing.avatar_url.as_deref()).await?;
+
+    let updated = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    state.broadcast(shared::events::ServerEvent::WebhookUpdate(shared::models::WebhookInfo {
+        id: updated.id,
+        channel_id: updated.channel_id,
+        name: updated.name.clone(),
+        avatar_url: updated.avatar_url.clone(),
+    }));
+
+    Ok(Json(updated))
+}
+
+/// POST /api/channels/:id/webhooks/:wh_id/avatar — upload webhook avatar (multipart, field "avatar" or "file")
+async fn upload_webhook_avatar(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, wh_id)): Path<(i64, i64)>,
+    mut multipart: Multipart,
+) -> Result<Json<shared::models::Webhook>, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let existing = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    if existing.channel_id != channel_id {
+        return Err(AppError::NotFound);
+    }
+
+    let file = upload::parse_single_image(&mut multipart, "avatar", 5 * 1024 * 1024).await?;
+
+    // Replace any previous avatar for this webhook (one image per webhook).
+    let _ = crate::storage::delete_prefix(&state.storage, &format!("webhook-avatars/{}/", wh_id)).await;
+
+    let stored_name = format!("{}.{}", uuid::Uuid::new_v4(), file.ext);
+    let key = format!("webhook-avatars/{}/{}", wh_id, stored_name);
+
+    crate::storage::upload(&state.storage, &key, &file.data, &file.content_type)
+        .await
+        .map_err(|e| AppError::Internal(format!("Avatar upload failed: {e}")))?;
+
+    let avatar_url = format!("/webhook-avatars/{}/{}", wh_id, stored_name);
+    crate::db::webhooks::update(&state.db, wh_id, &existing.name, Some(&avatar_url)).await?;
+
+    let updated = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    state.broadcast(shared::events::ServerEvent::WebhookUpdate(shared::models::WebhookInfo {
+        id: updated.id,
+        channel_id: updated.channel_id,
+        name: updated.name.clone(),
+        avatar_url: updated.avatar_url.clone(),
+    }));
+
+    Ok(Json(updated))
+}
+
+/// DELETE /api/channels/:id/webhooks/:wh_id/avatar
+async fn delete_webhook_avatar(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, wh_id)): Path<(i64, i64)>,
+) -> Result<StatusCode, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let existing = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    if existing.channel_id != channel_id {
+        return Err(AppError::NotFound);
+    }
+
+    let _ = crate::storage::delete_prefix(&state.storage, &format!("webhook-avatars/{}/", wh_id)).await;
+    crate::db::webhooks::update(&state.db, wh_id, &existing.name, None).await?;
+
+    state.broadcast(shared::events::ServerEvent::WebhookUpdate(shared::models::WebhookInfo {
+        id: wh_id,
+        channel_id,
+        name: existing.name,
+        avatar_url: None,
+    }));
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// DELETE /api/channels/:id/webhooks/:wh_id
+async fn delete_webhook(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((channel_id, wh_id)): Path<(i64, i64)>,
+) -> Result<StatusCode, AppError> {
+    require_permission(&state.db, auth.0, permissions::MANAGE_CHANNELS).await?;
+
+    let existing = crate::db::webhooks::find_by_id(&state.db, wh_id).await?.ok_or(AppError::NotFound)?;
+    if existing.channel_id != channel_id {
+        return Err(AppError::NotFound);
+    }
+
+    let _ = crate::storage::delete_prefix(&state.storage, &format!("webhook-avatars/{}/", wh_id)).await;
+    crate::db::webhooks::delete(&state.db, wh_id).await?;
+    state.broadcast(shared::events::ServerEvent::WebhookDelete { id: wh_id, channel_id });
+    let _ = crate::db::audit::log(&state.db, auth.0, "webhook.delete", None, Some(channel_id), None, Some(&existing.name)).await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// GET /api/channels/:id/pins
 async fn list_pinned(
     State(state): State<Arc<AppState>>,
@@ -609,4 +790,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/pins", get(list_pinned))
         .route("/:id/messages/:msg_id/pin", axum::routing::post(pin_message))
         .route("/:id/overwrites", get(list_overwrites).put(set_overwrite).delete(delete_overwrite))
+        .route("/:id/webhooks", get(list_webhooks).post(create_webhook))
+        .route("/:id/webhooks/:wh_id", axum::routing::patch(update_webhook).delete(delete_webhook))
+        .route(
+            "/:id/webhooks/:wh_id/avatar",
+            axum::routing::post(upload_webhook_avatar)
+                .delete(delete_webhook_avatar)
+                .layer(DefaultBodyLimit::max(5 * 1024 * 1024 + 1024 * 64)),
+        )
 }

@@ -2,7 +2,7 @@
  * WS event handler — dispatches ServerEvents to the correct state mutations.
  * Extracted from store.ts — operates on the same reactive store object.
  */
-import { type ServerEvent, type Message, type User, type Role, type VoiceUserState, type Channel, type ChannelGroup, type ChannelOverwrite, type DmMessage } from "../api";
+import { type ServerEvent, type Message, type User, type Role, type VoiceUserState, type Channel, type ChannelGroup, type ChannelOverwrite, type DmMessage, type WebhookInfo } from "../api";
 import { store, persistServers, type ServerState } from "../store";
 import { setDeafened as voiceSetDeafened, setMuted as voiceSetMuted } from "../voice";
 import { fireNotification } from "./useNotifications";
@@ -354,6 +354,19 @@ export function handleEvent(serverId: string, event: ServerEvent) {
     case "DmReactionRemoved": {
       const data = event.data as { dm_id: number; peer_a: number; peer_b: number; user_id: number; emoji: string };
       handleDmReaction(state, data, false);
+      break;
+    }
+    case "WebhookCreate":
+    case "WebhookUpdate": {
+      const wh = event.data as WebhookInfo;
+      state.webhooks.set(wh.id, wh);
+      state.webhooks = new Map(state.webhooks);
+      break;
+    }
+    case "WebhookDelete": {
+      const { id } = event.data as { id: number; channel_id: number };
+      state.webhooks.delete(id);
+      state.webhooks = new Map(state.webhooks);
       break;
     }
     case "UserKeyUpdate": {

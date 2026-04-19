@@ -12,7 +12,7 @@
  * the public API is re-exported here as thin wrappers.
  */
 import { reactive } from "vue";
-import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type ChannelOverwrite, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState, type DmMessage } from "./api";
+import { api, resolveBaseUrl, type User, type Channel, type ChannelGroup, type ChannelOverwrite, type Message, type Role, type VoiceUserState, type NotificationPref, type WsConnection, type WsConnectionState, type DmMessage, type WebhookInfo } from "./api";
 import type { Keypair } from "./crypto";
 
 // ── Types ──
@@ -64,6 +64,8 @@ export interface ServerState {
   /** Timestamp of last typing event sent by us */
   lastTypingSent: number;
   channelOverwrites: ChannelOverwrite[];
+  /** Webhooks publics (sans token) — utilisés pour rendre les messages d'un webhook. */
+  webhooks: Map<number, WebhookInfo>;
   // ── DMs (E2EE) ──
   /** Keypair locale pour ce serveur. Null tant qu'on ne l'a pas générée. */
   dmKeypair: Keypair | null;
@@ -116,6 +118,7 @@ export function createServerState(): ServerState {
     typingUsers: new Map(),
     lastTypingSent: 0,
     channelOverwrites: [],
+    webhooks: new Map(),
     dmKeypair: null,
     dms: new Map(),
     dmConversations: [],
@@ -239,6 +242,34 @@ export function resolveUserColor(userId: number): string | null {
     .filter((r) => roleIds.includes(r.id) && r.color)
     .sort((a, b) => a.position - b.position);
   return userRoles[0]?.color ?? null;
+}
+
+/** True if a message originated from a webhook (live or since-deleted). */
+export function isWebhookMessage(msg: Message): boolean {
+  return msg.webhook_id != null || msg.webhook_username != null;
+}
+
+/** Display name for a webhook-authored message (override → webhook → fallback). */
+export function resolveWebhookName(msg: Message): string {
+  if (msg.webhook_username) return msg.webhook_username;
+  const state = activeState();
+  if (state && msg.webhook_id != null) {
+    const wh = state.webhooks.get(msg.webhook_id);
+    if (wh) return wh.name;
+  }
+  return "Webhook";
+}
+
+/** Resolved avatar URL for a webhook-authored message (or null for default).
+ *  Relative paths (uploads stored on the server) are prefixed with the server's base URL;
+ *  absolute http(s) URLs (legacy/per-message override) are returned as-is. */
+export function resolveWebhookAvatar(msg: Message): string | null {
+  const raw = msg.webhook_avatar_url
+    ?? (msg.webhook_id != null ? activeState()?.webhooks.get(msg.webhook_id)?.avatar_url ?? null : null);
+  if (!raw) return null;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  const server = activeServer();
+  return server ? `${server.url}${raw}` : raw;
 }
 
 export function isGuest(userId: number): boolean {

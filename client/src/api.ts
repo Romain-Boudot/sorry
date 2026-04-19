@@ -417,6 +417,45 @@ export const api = {
     });
   },
 
+  // ── Webhooks (admin) ──
+  listWebhooks(baseUrl: string, token: string, channelId: number) {
+    return request<Webhook[]>(baseUrl, `/channels/${channelId}/webhooks`, token);
+  },
+
+  createWebhook(baseUrl: string, token: string, channelId: number, data: { name: string }) {
+    return request<Webhook>(baseUrl, `/channels/${channelId}/webhooks`, token, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateWebhook(baseUrl: string, token: string, channelId: number, webhookId: number, data: { name?: string }) {
+    return request<Webhook>(baseUrl, `/channels/${channelId}/webhooks/${webhookId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteWebhook(baseUrl: string, token: string, channelId: number, webhookId: number) {
+    return request<void>(baseUrl, `/channels/${channelId}/webhooks/${webhookId}`, token, { method: "DELETE" });
+  },
+
+  async uploadWebhookAvatar(baseUrl: string, token: string, channelId: number, webhookId: number, file: File) {
+    const formData = new FormData();
+    formData.append("avatar", file);
+    const res = await fetch(`${baseUrl}/api/channels/${channelId}/webhooks/${webhookId}/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<Webhook>;
+  },
+
+  deleteWebhookAvatar(baseUrl: string, token: string, channelId: number, webhookId: number) {
+    return request<void>(baseUrl, `/channels/${channelId}/webhooks/${webhookId}/avatar`, token, { method: "DELETE" });
+  },
+
   // ── DMs (E2EE) ──
   uploadPublicKey(baseUrl: string, token: string, publicKey: string) {
     return request<void>(baseUrl, "/users/me/key", token, {
@@ -572,12 +611,30 @@ export interface Message {
   mentions: Mention[];
   reactions: Reaction[];
   pinned: boolean;
+  webhook_id?: number | null;
+  webhook_username?: string | null;
+  webhook_avatar_url?: string | null;
   // Client-only: optimistic send state (never sent from server)
   nonce?: string;
   pending?: boolean;
   failed?: boolean;
   pendingFiles?: File[];
   pendingReplyToId?: number;
+}
+
+/** Public webhook descriptor surfaced via the snapshot — used to render messages. */
+export interface WebhookInfo {
+  id: number;
+  channel_id: number;
+  name: string;
+  avatar_url: string | null;
+}
+
+/** Full webhook record (with token) — only returned via admin endpoints. */
+export interface Webhook extends WebhookInfo {
+  token: string;
+  created_by: number;
+  created_at: string;
 }
 
 export interface NotificationPref {
@@ -666,6 +723,7 @@ export interface Snapshot {
   user_roles: Record<number, number[]>;
   voice_state: Record<number, Record<number, VoiceUserState>>;
   channel_overwrites: ChannelOverwrite[];
+  webhooks?: WebhookInfo[];
   server_name: string;
   server_description: string | null;
   server_icon_url: string | null;

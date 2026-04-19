@@ -209,6 +209,7 @@ async fn send_snapshot(
     )?;
     let user = user_opt.ok_or("user not found")?;
     let channel_overwrites = crate::db::roles::list_all_channel_overwrites(&state.db).await?;
+    let webhooks = crate::db::webhooks::list_all_info(&state.db).await?;
 
     let online_users: Vec<i64> = {
         let online = state.online_users.read().unwrap();
@@ -234,6 +235,7 @@ async fn send_snapshot(
         user_roles: all_user_roles,
         voice_state,
         channel_overwrites,
+        webhooks,
         server_name: server_settings.0,
         server_description: server_settings.1,
         server_icon_url: server_settings.2,
