@@ -358,7 +358,10 @@ cd "$INSTALL_DIR"
 write_configs
 
 echo ""
+info "Recuperation des images..."
+$COMPOSE pull
+
 info "Demarrage..."
-$COMPOSE up -d
+$COMPOSE up -d --force-recreate
 
 print_summary

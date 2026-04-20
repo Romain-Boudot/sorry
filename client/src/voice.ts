@@ -7,6 +7,7 @@ import {
   RemoteParticipant,
   ConnectionQuality,
   RemoteTrackPublication,
+  VideoQuality,
 } from "livekit-client";
 import { reactive } from "vue";
 
@@ -152,6 +153,34 @@ export function unwatchScreen(identity: string) {
   mediaState.version++;
 }
 
+export type ViewQuality = "auto" | "high" | "medium" | "low";
+
+/** Preferred viewer quality per (identity, source). "auto" = adaptive. */
+export const watchQuality = new Map<string, ViewQuality>();
+
+/** Set the quality preference for a remote video track we're subscribed to.
+ *  - "auto" resets to HIGH (adaptive SDK can still pick lower for small tiles)
+ *  - "high" / "medium" / "low" caps what the SFU sends us */
+export function setViewQuality(identity: string, source: "camera" | "screen_share", q: ViewQuality) {
+  if (!currentRoom) return;
+  const wanted = source === "screen_share" ? Track.Source.ScreenShare : Track.Source.Camera;
+  const participant = currentRoom.remoteParticipants.get(identity);
+  if (!participant) return;
+  for (const pub of participant.trackPublications.values()) {
+    if (pub.kind !== Track.Kind.Video || pub.source !== wanted) continue;
+    const rpub = pub as RemoteTrackPublication;
+    const mapped = q === "low" ? VideoQuality.LOW : q === "medium" ? VideoQuality.MEDIUM : VideoQuality.HIGH;
+    try { rpub.setVideoQuality(mapped); } catch {}
+    break;
+  }
+  watchQuality.set(`${identity}:${source}`, q);
+  mediaState.version++;
+}
+
+export function getViewQuality(identity: string, source: "camera" | "screen_share"): ViewQuality {
+  return watchQuality.get(`${identity}:${source}`) ?? "auto";
+}
+
 /** Toggle local-only mute for one remote participant's audio. */
 export function toggleRemoteMute(identity: string): boolean {
   const isMuted = mediaState.mutedRemotes.has(identity);
@@ -273,19 +302,23 @@ export async function joinVoice(
   room.on(RoomEvent.TrackPublished, (publication, participant) => {
     if (shouldAutoSubscribe(publication)) {
       publication.setSubscribed(true);
+    } else if (
+      publication.source === Track.Source.ScreenShare &&
+      mediaState.watchedScreens.has(participant.identity)
+    ) {
+      // Publisher re-published their screen (quality change, etc.) — we still
+      // want to watch, so re-subscribe without requiring a user click.
+      publication.setSubscribed(true);
     }
-    // Refresh the discovery list so the UI shows the screen-share badge
-    // even before the user opts-in to view it.
     scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
     mediaState.version++;
     callbacks.onTrackChanged?.();
   });
 
-  room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
-    // If a watched screen-share went away, drop it from the watch set.
-    if (publication.source === Track.Source.ScreenShare) {
-      mediaState.watchedScreens.delete(participant.identity);
-    }
+  room.on(RoomEvent.TrackUnpublished, (_publication, participant) => {
+    // We intentionally keep `watchedScreens` populated even when a screen share
+    // is unpublished: if the publisher republishes (quality change), we want to
+    // auto-resubscribe. The entry is cleared on participant disconnect.
     scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
     mediaState.version++;
     callbacks.onTrackChanged?.();
@@ -427,13 +460,46 @@ export function setDeafened(deafened: boolean) {
 //  Screen share
 // ══════════════════════════════════════
 
+import { streamSettings, RESOLUTION_DIMS, type StreamPreset } from "./streamSettings";
+
+// We always request the MAXIMUM capture resolution + framerate at start so
+// `applyConstraints` can freely downscale later. Upscaling above the initial
+// capture isn't possible — the encoder never sees frames larger/faster than
+// what the source delivered. Browsers/cameras use `ideal` constraints here,
+// so they silently fall back to what the source can actually produce.
+const CAPTURE_MAX_SCREEN = { width: 3840, height: 2160, frameRate: 60 };
+const CAPTURE_MAX_CAMERA = { width: 1920, height: 1080, frameRate: 60 };
+
+function screenOpts(preset: StreamPreset) {
+  return {
+    capture: { resolution: CAPTURE_MAX_SCREEN, contentHint: preset.contentHint },
+    publish: {
+      videoEncoding: { maxBitrate: preset.bitrateKbps * 1000, maxFramerate: preset.fps },
+      simulcast: preset.simulcast,
+    },
+  };
+}
+
+function cameraOpts(preset: StreamPreset) {
+  return {
+    capture: { resolution: CAPTURE_MAX_CAMERA },
+    publish: {
+      videoEncoding: { maxBitrate: preset.bitrateKbps * 1000, maxFramerate: preset.fps },
+      simulcast: preset.simulcast,
+    },
+  };
+}
+
 export async function startScreenShare(): Promise<boolean> {
   if (!currentRoom) return false;
   try {
-    await currentRoom.localParticipant.setScreenShareEnabled(true, {
-      resolution: { width: 1920, height: 1080, frameRate: 30 },
-      contentHint: "detail",
-    });
+    const opts = screenOpts(streamSettings.screen.preset);
+    await currentRoom.localParticipant.setScreenShareEnabled(true, opts.capture, opts.publish);
+    // Apply our custom encoder params (degradationPreference, per-encoding
+    // maxFramerate, simulcast layer toggle). LiveKit's publish options don't
+    // expose degradationPreference, so without this call the initial publish
+    // runs with conservative defaults and FPS gets choked.
+    await applyLive(Track.Source.ScreenShare, streamSettings.screen.preset);
     return true;
   } catch {
     return false;
@@ -457,7 +523,16 @@ export function isScreenSharing(): boolean {
 export async function setCameraEnabled(enabled: boolean): Promise<boolean> {
   if (!currentRoom) return false;
   try {
-    await currentRoom.localParticipant.setCameraEnabled(enabled);
+    if (enabled) {
+      const opts = cameraOpts(streamSettings.camera.preset);
+      await currentRoom.localParticipant.setCameraEnabled(true, opts.capture, opts.publish);
+      // Apply degradationPreference / per-encoding maxFramerate / simulcast toggle
+      // — none of these are exposed in LiveKit's publishOptions, so we layer
+      // them on after the publish settles.
+      await applyLive(Track.Source.Camera, streamSettings.camera.preset);
+    } else {
+      await currentRoom.localParticipant.setCameraEnabled(false);
+    }
     return true;
   } catch {
     return false;
@@ -467,6 +542,88 @@ export async function setCameraEnabled(enabled: boolean): Promise<boolean> {
 export function isCameraEnabled(): boolean {
   if (!currentRoom) return false;
   return currentRoom.localParticipant.isCameraEnabled;
+}
+
+// ══════════════════════════════════════
+//  Live stream settings apply
+// ══════════════════════════════════════
+//
+// Changes are applied on the already-published track via:
+//  - `MediaStreamTrack.applyConstraints(...)` for resolution + FPS
+//  - `track.contentHint` for the encoder hint
+//  - `RTCRtpSender.setParameters({ encodings })` for the max bitrate
+//
+// This avoids re-publishing the track, which for screen shares would re-open
+// the browser's native source picker (bad UX) and cause a hard interruption
+// on the viewer side. The downside: we can't upscale ABOVE the original
+// capture resolution — if the user started in 1080p and wants 4K, they need
+// to stop and restart the share manually. Downscaling always works.
+
+export async function applyCameraSettings(): Promise<void> {
+  if (!currentRoom || !isCameraEnabled()) return;
+  await applyLive(Track.Source.Camera, streamSettings.camera.preset);
+}
+
+export async function applyScreenSettings(): Promise<void> {
+  if (!currentRoom || !isScreenSharing()) return;
+  await applyLive(Track.Source.ScreenShare, streamSettings.screen.preset);
+}
+
+async function applyLive(source: Track.Source, preset: StreamPreset) {
+  if (!currentRoom) return;
+  const { width, height } = RESOLUTION_DIMS[preset.resolution];
+
+  for (const pub of currentRoom.localParticipant.videoTrackPublications.values()) {
+    if (pub.source !== source || !pub.track) continue;
+
+    const mediaTrack = (pub.track as any).mediaStreamTrack as MediaStreamTrack | undefined;
+    if (mediaTrack) {
+      try {
+        await mediaTrack.applyConstraints({
+          width: { ideal: width },
+          height: { ideal: height },
+          frameRate: { ideal: preset.fps },
+        });
+      } catch (e) {
+        console.warn("[voice] applyConstraints failed", e);
+      }
+      if ("contentHint" in mediaTrack) {
+        try { (mediaTrack as any).contentHint = preset.contentHint; } catch {}
+      }
+    }
+
+    const sender = (pub.track as any).sender as RTCRtpSender | undefined;
+    if (sender) {
+      try {
+        const params = sender.getParameters();
+        if (params.encodings && params.encodings.length) {
+          // Find the highest-resolution layer (smallest scaleResolutionDownBy or first one).
+          const highIdx = params.encodings.reduce((best, enc, i, arr) => {
+            const a = enc.scaleResolutionDownBy ?? 1;
+            const b = arr[best].scaleResolutionDownBy ?? 1;
+            return a < b ? i : best;
+          }, 0);
+          for (let i = 0; i < params.encodings.length; i++) {
+            const enc = params.encodings[i];
+            enc.maxBitrate = preset.bitrateKbps * 1000;
+            enc.maxFramerate = preset.fps;
+            // Simulcast OFF = only the highest layer stays active, others are
+            // paused at the sender level (no bytes sent, CPU freed up).
+            enc.active = preset.simulcast ? true : i === highIdx;
+          }
+          // degradationPreference tells the encoder what to sacrifice when
+          // bandwidth/CPU is tight. Map from contentHint:
+          //   - motion → maintain-framerate (drop resolution to keep smooth video)
+          //   - detail / text → maintain-resolution (drop fps to keep text sharp)
+          (params as any).degradationPreference =
+            preset.contentHint === "motion" ? "maintain-framerate" : "maintain-resolution";
+          await sender.setParameters(params);
+        }
+      } catch (e) {
+        console.warn("[voice] setParameters failed", e);
+      }
+    }
+  }
 }
 
 export async function getVideoDevices(): Promise<MediaDeviceInfo[]> {
@@ -520,33 +677,90 @@ export function setMicEnabled(enabled: boolean) {
 }
 
 // ══════════════════════════════════════
-//  Per-track stats (FPS / resolution / bitrate)
+//  Per-track stats (FPS / resolution / bitrate / encoder health)
 // ══════════════════════════════════════
 
-export interface TrackStats {
+export type LimitationReason = "none" | "cpu" | "bandwidth" | "other";
+
+export interface LayerStats {
+  /** Simulcast layer id (rid) — "q"/"h"/"f" or numeric. Undefined = single-layer. */
+  rid?: string;
   width: number;
   height: number;
   fps: number;
   bitrateKbps: number;
+  /** False if dynacast paused this layer or encoding.active = false. */
+  active: boolean;
+}
+
+export interface TrackStats {
+  /** Aggregate view (highest layer's resolution/fps, total bitrate across layers). */
+  width: number;
+  height: number;
+  fps: number;
+  bitrateKbps: number;
+  /** Per-simulcast-layer breakdown. 1 entry for single-layer, 2-3 for simulcast. */
+  layers: LayerStats[];
+
+  // ── Publisher-only (sender) diagnostics ──
+  /** Why the encoder is underperforming, or "none" when healthy. */
+  limitationReason?: LimitationReason;
+  /** Encoder implementation name, e.g. "libvpx", "ExternalEncoder" (hw), "OpenH264". */
+  encoderImplementation?: string;
+  /** Mean time spent encoding one frame (ms) — indicator of CPU load. */
+  encodeMsPerFrame?: number;
+  /** PLI/NACK/FIR counters received FROM viewers — signals of packet loss. */
+  pliCount?: number;
+  nackCount?: number;
+  firCount?: number;
+  /** Target bitrate LiveKit/BWE is currently trying to hit (kbps, sum of layers). */
+  targetBitrateKbps?: number;
+  /** What the OS/browser actually captures from the source (publisher only).
+   *  If `captureFps` < requested, the browser/source is the bottleneck — not
+   *  the encoder, not the network. Common case: Chrome on Windows caps screen
+   *  capture to 30 FPS regardless of constraints. */
+  captureWidth?: number;
+  captureHeight?: number;
+  captureFps?: number;
 }
 
 const lastBytes = new Map<string, { bytes: number; ts: number }>();
+/** Per-layer bytes for accurate per-layer bitrate deltas. */
+const lastLayerBytes = new Map<string, { bytes: number; ts: number }>();
+/** Per-sender totalEncodeTime + framesEncoded for computing encode-time-per-frame deltas. */
+const lastEncode = new Map<string, { time: number; frames: number }>();
+
+function deltaBitrate(key: string, bytes: number, now: number): number {
+  const prev = lastBytes.get(key);
+  lastBytes.set(key, { bytes, ts: now });
+  if (!prev || now <= prev.ts) return 0;
+  const deltaBytes = bytes - prev.bytes;
+  const deltaSecs = (now - prev.ts) / 1000;
+  return deltaSecs > 0 ? Math.round((deltaBytes * 8) / deltaSecs / 1000) : 0;
+}
 
 /** Compute live stats for a local or remote video track (camera / screen share).
- *  Local tracks report outbound-rtp (what we publish), remote tracks report
- *  inbound-rtp (what we receive). */
+ *  Local tracks report outbound-rtp (publish), remote tracks report inbound-rtp. */
 export async function getTrackStats(identity: string, source: "camera" | "screen_share"): Promise<TrackStats | null> {
   if (!currentRoom) return null;
   const wantedSource = source === "screen_share" ? Track.Source.ScreenShare : Track.Source.Camera;
 
   const isLocal = identity === currentRoom.localParticipant.identity;
   let webrtcEndpoint: RTCRtpReceiver | RTCRtpSender | undefined;
+  let sender: RTCRtpSender | undefined;
   let inbound = false;
+
+  let captureSettings: MediaTrackSettings | undefined;
 
   if (isLocal) {
     for (const p of currentRoom.localParticipant.videoTrackPublications.values()) {
       if (p.source === wantedSource && p.track) {
-        webrtcEndpoint = (p.track as any).sender as RTCRtpSender | undefined;
+        sender = (p.track as any).sender as RTCRtpSender | undefined;
+        webrtcEndpoint = sender;
+        const mst = (p.track as any).mediaStreamTrack as MediaStreamTrack | undefined;
+        if (mst) {
+          try { captureSettings = mst.getSettings(); } catch {}
+        }
         break;
       }
     }
@@ -566,36 +780,120 @@ export async function getTrackStats(identity: string, source: "camera" | "screen
 
   try {
     const report = await webrtcEndpoint.getStats();
-    let width = 0, height = 0, fps = 0, bytes = 0;
+    const now = performance.now();
+    const layers: LayerStats[] = [];
+    let totalBytes = 0;
+    let aggWidth = 0, aggHeight = 0, aggFps = 0;
+
+    // Encoder / health stats (outbound only)
+    let limitationReason: LimitationReason | undefined;
+    let encoderImpl: string | undefined;
+    let totalEncodeTime = 0;
+    let framesEncoded = 0;
+    let pliCount = 0, nackCount = 0, firCount = 0;
+    let targetBitrate = 0;
+
+    const targetType = inbound ? "inbound-rtp" : "outbound-rtp";
+
     report.forEach((r: any) => {
-      const targetType = inbound ? "inbound-rtp" : "outbound-rtp";
       if (r.type === targetType && r.kind === "video") {
-        // Outbound simulcast: multiple reports exist (one per layer); keep the
-        // highest resolution as "the" published stream.
-        if ((r.frameWidth ?? 0) >= width) {
-          width = r.frameWidth ?? width;
-          height = r.frameHeight ?? height;
-          fps = Math.round(r.framesPerSecond ?? fps);
+        const w = r.frameWidth ?? 0;
+        const h = r.frameHeight ?? 0;
+        const f = Math.round(r.framesPerSecond ?? 0);
+        const bytes = inbound ? (r.bytesReceived ?? 0) : (r.bytesSent ?? 0);
+
+        const layerKey = `${identity}:${source}:${r.rid ?? r.ssrc ?? "single"}`;
+        const layerBr = deltaLayerBitrate(layerKey, bytes, now);
+
+        layers.push({
+          rid: r.rid,
+          width: w,
+          height: h,
+          fps: f,
+          bitrateKbps: layerBr,
+          active: r.active !== false,
+        });
+
+        totalBytes += bytes;
+        if (w >= aggWidth) {
+          aggWidth = w;
+          aggHeight = h;
+          aggFps = f;
         }
-        bytes += inbound ? (r.bytesReceived ?? 0) : (r.bytesSent ?? 0);
+
+        if (!inbound) {
+          limitationReason ??= (r.qualityLimitationReason as LimitationReason | undefined);
+          encoderImpl ??= (r.encoderImplementation as string | undefined);
+          totalEncodeTime += r.totalEncodeTime ?? 0;
+          framesEncoded += r.framesEncoded ?? 0;
+          pliCount += r.pliCount ?? 0;
+          nackCount += r.nackCount ?? 0;
+          firCount += r.firCount ?? 0;
+          targetBitrate += r.targetBitrate ?? 0;
+        } else {
+          // Inbound NACK/PLI counters are still useful on the viewer side for diagnostics
+          pliCount += r.pliCount ?? 0;
+          nackCount += r.nackCount ?? 0;
+          firCount += r.firCount ?? 0;
+        }
       }
     });
 
-    const key = `${identity}:${source}`;
-    const now = performance.now();
-    const prev = lastBytes.get(key);
-    let bitrateKbps = 0;
-    if (prev && now > prev.ts) {
-      const deltaBytes = bytes - prev.bytes;
-      const deltaSecs = (now - prev.ts) / 1000;
-      if (deltaSecs > 0) bitrateKbps = Math.round((deltaBytes * 8) / deltaSecs / 1000);
-    }
-    lastBytes.set(key, { bytes, ts: now });
+    const aggKey = `${identity}:${source}`;
+    const bitrateKbps = deltaBitrate(aggKey, totalBytes, now);
 
-    return { width, height, fps, bitrateKbps };
+    // Per-frame encode time delta (publisher only).
+    let encodeMsPerFrame: number | undefined;
+    if (!inbound && sender) {
+      const encKey = `${identity}:${source}:enc`;
+      const prev = lastEncode.get(encKey);
+      lastEncode.set(encKey, { time: totalEncodeTime, frames: framesEncoded });
+      if (prev) {
+        const df = framesEncoded - prev.frames;
+        const dt = totalEncodeTime - prev.time;
+        if (df > 0) encodeMsPerFrame = Math.round((dt / df) * 1000);
+      }
+    }
+
+    const stats: TrackStats = {
+      width: aggWidth,
+      height: aggHeight,
+      fps: aggFps,
+      bitrateKbps,
+      layers: layers.sort((a, b) => b.width - a.width),
+    };
+
+    if (!inbound) {
+      stats.limitationReason = limitationReason ?? "none";
+      stats.encoderImplementation = encoderImpl;
+      stats.encodeMsPerFrame = encodeMsPerFrame;
+      stats.pliCount = pliCount;
+      stats.nackCount = nackCount;
+      stats.firCount = firCount;
+      if (targetBitrate > 0) stats.targetBitrateKbps = Math.round(targetBitrate / 1000);
+      if (captureSettings) {
+        stats.captureWidth = captureSettings.width;
+        stats.captureHeight = captureSettings.height;
+        stats.captureFps = captureSettings.frameRate ? Math.round(captureSettings.frameRate) : undefined;
+      }
+    } else {
+      stats.pliCount = pliCount;
+      stats.nackCount = nackCount;
+      stats.firCount = firCount;
+    }
+    return stats;
   } catch {
     return null;
   }
+}
+
+function deltaLayerBitrate(key: string, bytes: number, now: number): number {
+  const prev = lastLayerBytes.get(key);
+  lastLayerBytes.set(key, { bytes, ts: now });
+  if (!prev || now <= prev.ts) return 0;
+  const deltaBytes = bytes - prev.bytes;
+  const deltaSecs = (now - prev.ts) / 1000;
+  return deltaSecs > 0 ? Math.round((deltaBytes * 8) / deltaSecs / 1000) : 0;
 }
 
 // ══════════════════════════════════════

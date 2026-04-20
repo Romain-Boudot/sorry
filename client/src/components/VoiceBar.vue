@@ -43,27 +43,47 @@
       </div>
     </div>
     <div v-if="canStream && voiceEntry.state.voiceStatus === 'connected'" class="voice-bar-share">
-      <button
-        class="share-btn"
-        :class="{ active: isCameraOn }"
-        @click="onToggleCamera"
-        title="Webcam"
-      >
-        <Loader2 v-if="cameraLoading" :size="15" class="spin" />
-        <Video v-else-if="isCameraOn" :size="15" />
-        <VideoOff v-else :size="15" />
-        <span>Webcam</span>
-      </button>
-      <button
-        class="share-btn"
-        :class="{ active: isScreenSharing }"
-        @click="onScreenShareClick"
-        title="Ecran"
-      >
-        <MonitorOff v-if="isScreenSharing" :size="15" />
-        <Monitor v-else :size="15" />
-        <span>Ecran</span>
-      </button>
+      <div class="share-group">
+        <button
+          class="share-btn"
+          :class="{ active: isCameraOn }"
+          @click="onToggleCamera"
+          title="Webcam"
+        >
+          <Loader2 v-if="cameraLoading" :size="15" class="spin" />
+          <Video v-else-if="isCameraOn" :size="15" />
+          <VideoOff v-else :size="15" />
+          <span>Webcam</span>
+        </button>
+        <button
+          class="share-chevron"
+          :class="{ active: openPopover === 'camera' }"
+          @click="togglePopover('camera')"
+          title="Qualite webcam"
+        >
+          <ChevronUp :size="13" />
+        </button>
+      </div>
+      <div class="share-group">
+        <button
+          class="share-btn"
+          :class="{ active: isScreenSharing }"
+          @click="onScreenShareClick"
+          title="Ecran"
+        >
+          <MonitorOff v-if="isScreenSharing" :size="15" />
+          <Monitor v-else :size="15" />
+          <span>Ecran</span>
+        </button>
+        <button
+          class="share-chevron"
+          :class="{ active: openPopover === 'screen' }"
+          @click="togglePopover('screen')"
+          title="Qualite ecran"
+        >
+          <ChevronUp :size="13" />
+        </button>
+      </div>
       <button
         class="share-btn disabled"
         disabled
@@ -74,14 +94,21 @@
       </button>
     </div>
   </div>
+
+  <StreamQualityPopover
+    v-if="openPopover"
+    :kind="openPopover"
+    @close="openPopover = null"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
-import { Phone, PhoneOff, Loader2, AlertCircle, RadioTower, Monitor, MonitorOff, Video, VideoOff, Radio } from "lucide-vue-next";
+import { Phone, PhoneOff, Loader2, AlertCircle, RadioTower, Monitor, MonitorOff, Video, VideoOff, Radio, ChevronUp } from "lucide-vue-next";
 import { store, leaveVoiceChannel, toggleScreenShare, toggleCamera } from "../store";
 import { getConnectionStats, type ConnectionStats } from "../voice";
 import * as perms from "../permissions";
+import StreamQualityPopover from "./voice/StreamQualityPopover.vue";
 
 const showTooltip = ref(false);
 const connRef = ref<HTMLElement | null>(null);
@@ -120,6 +147,13 @@ const canStream = computed(() => {
 
 function onScreenShareClick() {
   toggleScreenShare();
+}
+
+// ── Quality modal ──
+const openPopover = ref<"camera" | "screen" | null>(null);
+
+function togglePopover(kind: "camera" | "screen") {
+  openPopover.value = openPopover.value === kind ? null : kind;
 }
 
 const voiceEntry = computed(() => {
@@ -214,6 +248,7 @@ const transportLabel = computed(() => {
   font-weight: 600;
   border: none;
   cursor: pointer;
+  margin: 0;
   transition: background 0.1s, color 0.1s;
 }
 
@@ -237,6 +272,36 @@ const transportLabel = computed(() => {
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+/* Group: main share button + chevron sit side-by-side, sharing one rounded container. */
+.share-group {
+  flex: 1;
+  display: flex;
+  gap: 1px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+.share-group .share-btn {
+  border-radius: 0;
+  flex: 1;
+}
+.share-chevron {
+  width: 22px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.share-chevron:hover { background: var(--bg-modifier-hover); color: var(--text-normal); box-shadow: none; }
+.share-chevron.active { background: var(--bg-modifier-hover); color: var(--text-bright); }
 
 .voice-bar-info {
   display: flex;

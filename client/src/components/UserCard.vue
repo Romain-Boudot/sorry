@@ -21,6 +21,11 @@
           Message prive
         </button>
 
+        <button v-if="canWatchStream" class="user-card-watch-btn" @click="onWatchStream">
+          <Monitor :size="14" />
+          Regarder le stream
+        </button>
+
         <div class="user-card-separator" />
 
         <div class="user-card-section">
@@ -69,8 +74,9 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Circle, Plus, MessageCircle } from "lucide-vue-next";
-import { activeState, activeServer, resolveAvatarUrl, openDmWith } from "../store";
+import { Circle, Plus, MessageCircle, Monitor } from "lucide-vue-next";
+import { activeState, activeServer, resolveAvatarUrl, openDmWith, selectChannel, joinVoiceChannel } from "../store";
+import { watchScreen } from "../voice";
 import { api, type User, type Role } from "../api";
 import * as perms from "../permissions";
 
@@ -110,6 +116,38 @@ const canDm = computed(() => {
 async function onStartDm() {
   await openDmWith(props.user.id);
   emit("close");
+}
+
+// ── Watch stream affordance ──
+/** If this user is currently screen-sharing in any voice channel, return its id. */
+const streamingChannelId = computed((): number | null => {
+  const s = state.value;
+  if (!s) return null;
+  for (const [chId, users] of s.voiceState) {
+    if (users.get(props.user.id)?.screen_sharing) return chId;
+  }
+  return null;
+});
+
+const canWatchStream = computed(() => {
+  const me = state.value?.user;
+  return !!me && me.id !== props.user.id && streamingChannelId.value !== null;
+});
+
+async function onWatchStream() {
+  const chId = streamingChannelId.value;
+  if (!chId) return;
+  emit("close");
+
+  await selectChannel(chId);
+
+  // Join (or switch to) this voice channel if we're not already in it.
+  if (state.value?.voiceChannelId !== chId) {
+    await joinVoiceChannel(chId);
+  }
+
+  // Subscribe to the screen share. The identity format matches server-side tokens.
+  watchScreen(`user-${props.user.id}`);
 }
 
 const availableRoles = computed(() =>
@@ -265,6 +303,29 @@ function close() {
   background: var(--accent);
   color: var(--text-bright);
   border-color: var(--accent);
+  box-shadow: none;
+}
+
+.user-card-watch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-normal);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.user-card-watch-btn:hover {
+  background: var(--green);
+  color: var(--text-bright);
+  border-color: var(--green);
   box-shadow: none;
 }
 

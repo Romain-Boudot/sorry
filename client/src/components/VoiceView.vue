@@ -101,12 +101,98 @@
           <span>Stats — {{ statsTrack.name }}</span>
           <button class="stats-close" @click="statsTrack = null"><X :size="14" /></button>
         </div>
+
         <div v-if="liveStats" class="stats-body">
-          <div class="stats-row"><span>Source</span><span>{{ statsTrack.kind === 'screen' ? 'Ecran' : 'Camera' }}</span></div>
-          <div class="stats-row"><span>Resolution</span><span>{{ liveStats.width }}x{{ liveStats.height }}</span></div>
-          <div class="stats-row"><span>FPS</span><span>{{ liveStats.fps }}</span></div>
-          <div class="stats-row"><span>{{ statsTrack.uid === state?.user?.id ? 'Bitrate (envoi)' : 'Bitrate (reception)' }}</span><span>{{ liveStats.bitrateKbps }} kbps</span></div>
-          <div class="stats-row"><span>Qualite</span><span>{{ qualityLabel(qualityFor(statsTrack.uid)) }}</span></div>
+          <!-- Health banner (publisher only) -->
+          <div v-if="isLocalStats && liveStats.limitationReason" class="stats-health" :class="healthClass">
+            <component :is="healthIcon" :size="14" />
+            <div class="stats-health-text">
+              <div class="stats-health-title">{{ healthTitle }}</div>
+              <div class="stats-health-sub">{{ healthSub }}</div>
+            </div>
+          </div>
+
+          <!-- Summary -->
+          <div class="stats-section">
+            <div class="stats-row"><span>Source</span><span>{{ statsTrack.kind === 'screen' ? 'Ecran' : 'Camera' }}</span></div>
+            <div class="stats-row"><span>Resolution</span><span>{{ liveStats.width }}x{{ liveStats.height }}</span></div>
+            <div class="stats-row"><span>FPS</span><span>{{ liveStats.fps }}</span></div>
+            <div class="stats-row">
+              <span>{{ isLocalStats ? 'Bitrate total (envoi)' : 'Bitrate (reception)' }}</span>
+              <span>{{ formatKbps(liveStats.bitrateKbps) }}</span>
+            </div>
+            <div v-if="isLocalStats && liveStats.targetBitrateKbps" class="stats-row">
+              <span title="Bitrate cible que le BWE tente d'atteindre">Bitrate cible</span>
+              <span>{{ formatKbps(liveStats.targetBitrateKbps) }}</span>
+            </div>
+            <div class="stats-row"><span>Qualite reseau</span><span>{{ qualityLabel(qualityFor(statsTrack.uid)) }}</span></div>
+          </div>
+
+          <!-- Layers (simulcast breakdown) -->
+          <div v-if="liveStats.layers.length > 1" class="stats-section">
+            <div class="stats-section-title">Layers simulcast</div>
+            <table class="stats-layers">
+              <thead>
+                <tr>
+                  <th>Layer</th>
+                  <th>Resolution</th>
+                  <th>FPS</th>
+                  <th>Bitrate</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(l, i) in liveStats.layers" :key="i" :class="{ inactive: !l.active }">
+                  <td>{{ layerLabel(l.rid, i, liveStats.layers.length) }}</td>
+                  <td>{{ l.width }}x{{ l.height }}</td>
+                  <td>{{ l.fps }}</td>
+                  <td>{{ formatKbps(l.bitrateKbps) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Capture (publisher only) — shows the OS/browser source rate -->
+          <div v-if="isLocalStats && liveStats.captureFps !== undefined" class="stats-section">
+            <div class="stats-section-title">
+              Capture (source)
+              <span v-if="captureCapped" class="stats-cap-badge" title="La source delivre moins que demande">limitee</span>
+            </div>
+            <div class="stats-row">
+              <span title="Resolution captee depuis l'ecran ou la webcam">Resolution source</span>
+              <span>{{ liveStats.captureWidth }}x{{ liveStats.captureHeight }}</span>
+            </div>
+            <div class="stats-row">
+              <span title="Frames recues du source par seconde — cap par l'OS / le navigateur / la cam">FPS source</span>
+              <span :class="{ 'stats-warn': captureCapped }">{{ liveStats.captureFps }}</span>
+            </div>
+            <div v-if="captureCapped" class="stats-hint">
+              Le navigateur cap la capture sous le FPS demande. Cause probable : politique browser pour `getDisplayMedia` (Chrome Windows = 30 FPS par defaut), ou refresh-rate de l'ecran source.
+            </div>
+          </div>
+
+          <!-- Encoder health (publisher only) -->
+          <div v-if="isLocalStats" class="stats-section">
+            <div class="stats-section-title">Encodeur</div>
+            <div v-if="liveStats.encoderImplementation" class="stats-row">
+              <span>Implementation</span>
+              <span>{{ formatEncoder(liveStats.encoderImplementation) }}</span>
+            </div>
+            <div v-if="liveStats.encodeMsPerFrame !== undefined" class="stats-row">
+              <span title="Temps moyen pour encoder une frame">Temps/frame</span>
+              <span>{{ liveStats.encodeMsPerFrame }} ms</span>
+            </div>
+          </div>
+
+          <!-- Loss counters -->
+          <div
+            v-if="(liveStats.nackCount ?? 0) + (liveStats.pliCount ?? 0) + (liveStats.firCount ?? 0) > 0"
+            class="stats-section"
+          >
+            <div class="stats-section-title">Signaux de perte</div>
+            <div class="stats-row"><span title="Retransmission demandees">NACK</span><span>{{ liveStats.nackCount ?? 0 }}</span></div>
+            <div class="stats-row"><span title="Picture Loss Indication : frame perdue">PLI</span><span>{{ liveStats.pliCount ?? 0 }}</span></div>
+            <div class="stats-row"><span title="Full Intra Request : keyframe demandee">FIR</span><span>{{ liveStats.firCount ?? 0 }}</span></div>
+          </div>
         </div>
         <div v-else class="stats-body stats-loading">Mesure en cours...</div>
       </div>
@@ -125,10 +211,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
-import { Phone, Volume2, Loader, AlertCircle, X, Star, Maximize, MonitorOff, Monitor, MicOff, HeadphoneOff, Info, VolumeX, EyeOff } from "lucide-vue-next";
+import { Phone, Volume2, Loader, AlertCircle, X, Star, Maximize, MonitorOff, Monitor, MicOff, HeadphoneOff, Info, VolumeX, EyeOff, CheckCircle2, Cpu, Gauge, AlertTriangle } from "lucide-vue-next";
 import { Track } from "livekit-client";
 import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen, resolveAvatarUrl } from "../store";
-import { getCurrentRoom, mediaState, watchScreen, unwatchScreen, toggleRemoteMute, getTrackStats, type TrackStats, type QualityLevel } from "../voice";
+import { getCurrentRoom, mediaState, watchScreen, unwatchScreen, toggleRemoteMute, getTrackStats, setViewQuality, getViewQuality, type TrackStats, type QualityLevel, type ViewQuality } from "../voice";
+import { streamSettings } from "../streamSettings";
 import * as perms from "../permissions";
 import type { VoiceUserState } from "../api";
 import ParticipantTile, { type Tile } from "./voice/ParticipantTile.vue";
@@ -300,6 +387,82 @@ async function refreshStats() {
 watch(statsTrack, (v) => {
   if (!v && statsTimer) { clearInterval(statsTimer); statsTimer = null; }
 });
+
+// ── Stats display helpers ──
+const isLocalStats = computed(() => statsTrack.value?.uid === state.value?.user?.id);
+
+const healthClass = computed(() => {
+  switch (liveStats.value?.limitationReason) {
+    case "cpu": return "warn";
+    case "bandwidth": return "warn";
+    case "other": return "neutral";
+    case "none":
+    default: return "ok";
+  }
+});
+
+const healthIcon = computed(() => {
+  switch (liveStats.value?.limitationReason) {
+    case "cpu": return Cpu;
+    case "bandwidth": return Gauge;
+    case "other": return AlertTriangle;
+    case "none":
+    default: return CheckCircle2;
+  }
+});
+
+const healthTitle = computed(() => {
+  switch (liveStats.value?.limitationReason) {
+    case "cpu": return "Encodeur en galere (CPU)";
+    case "bandwidth": return "Bande passante limitee";
+    case "other": return "Limitation diverse";
+    case "none":
+    default: return "Stream en bonne sante";
+  }
+});
+
+const healthSub = computed(() => {
+  switch (liveStats.value?.limitationReason) {
+    case "cpu":
+      return "Ton processeur n'arrive pas a suivre. Baisse resolution ou FPS.";
+    case "bandwidth":
+      return "Congestion entre toi et le serveur — pas ton reseau local. Essaie un preset plus leger.";
+    case "other":
+      return "Encodeur contraint pour une autre raison.";
+    case "none":
+    default:
+      return "Si les FPS sont bas c'est surement juste du contenu statique (optimisation encodeur normale).";
+  }
+});
+
+function formatKbps(kbps: number): string {
+  if (kbps >= 1000) return `${(kbps / 1000).toFixed(1)} Mbps`;
+  return `${kbps} kbps`;
+}
+
+function formatEncoder(impl: string): string {
+  // Heuristic: hardware encoders usually mention "External" or vendor names.
+  const hw = /External|Hardware|Intel|NVENC|VideoToolbox|MediaCodec|AMF|QuickSync/i.test(impl);
+  return `${impl} (${hw ? "materiel" : "logiciel"})`;
+}
+
+/** True if the OS/browser is delivering noticeably fewer FPS than the user requested. */
+const captureCapped = computed(() => {
+  const t = statsTrack.value;
+  if (!t || !liveStats.value?.captureFps) return false;
+  const targetFps = t.kind === "screen"
+    ? streamSettings.screen.preset.fps
+    : streamSettings.camera.preset.fps;
+  return liveStats.value.captureFps < targetFps - 5;
+});
+
+function layerLabel(rid: string | undefined, index: number, total: number): string {
+  if (rid) return rid.toUpperCase();
+  // No rid → derive from position. LiveKit usually orders high→low.
+  if (total === 1) return "Single";
+  if (total === 2) return index === 0 ? "HIGH" : "LOW";
+  return ["HIGH", "MED", "LOW"][index] ?? `L${index}`;
+}
 onUnmounted(() => { if (statsTimer) clearInterval(statsTimer); });
 
 // ── Right-click context menu ──
@@ -327,7 +490,26 @@ function openContextMenu(tile: Tile, e: MouseEvent) {
   if (tile.kind === "screen" && !isSelf) {
     items.push({ label: "Arreter de regarder", icon: EyeOff, action: () => onToggleWatch(tile), danger: true });
   } else if (tile.kind === "screen-pending" && !isSelf) {
-    items.push({ label: "Regarder l'ecran", icon: Monitor, action: () => onToggleWatch(tile) });
+    items.push({ label: "Regarder le stream", icon: Monitor, action: () => onToggleWatch(tile) });
+  }
+
+  // Quality selector for remote video tiles we're actually watching.
+  if (!isSelf && (tile.kind === "camera" || tile.kind === "screen")) {
+    const src = tile.kind === "screen" ? "screen_share" : "camera";
+    const current = getViewQuality(tile.identity, src);
+    const options: { id: ViewQuality; label: string }[] = [
+      { id: "auto",   label: "Auto (adaptatif)" },
+      { id: "high",   label: "Haute" },
+      { id: "medium", label: "Moyenne" },
+      { id: "low",    label: "Basse" },
+    ];
+    for (const opt of options) {
+      items.push({
+        label: `${current === opt.id ? "✓ " : ""}Qualite : ${opt.label}`,
+        icon: Gauge,
+        action: () => setViewQuality(tile.identity, src, opt.id),
+      });
+    }
   }
 
   if (!isSelf && hasAudio(tile.uid)) {
@@ -616,4 +798,94 @@ const statusText = computed(() => {
   color: var(--text-normal);
 }
 .stats-row span:first-child { color: var(--text-muted); }
+
+/* ── Stats sections / health / layers ── */
+.stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.stats-section:first-child { border-top: none; padding-top: 0; }
+
+.stats-section-title {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.stats-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--text-muted);
+}
+.stats-health.ok { border-left-color: var(--green); color: var(--green); }
+.stats-health.warn { border-left-color: #f0a020; color: #f0a020; }
+.stats-health.neutral { border-left-color: var(--text-muted); color: var(--text-muted); }
+
+.stats-health-text { flex: 1; min-width: 0; }
+.stats-health-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.stats-health-sub {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.stats-layers {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.stats-layers th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 4px 6px;
+}
+.stats-layers td {
+  padding: 4px 6px;
+  color: var(--text-normal);
+  border-top: 1px solid var(--border);
+}
+.stats-layers th:last-child,
+.stats-layers td:last-child { text-align: right; }
+.stats-layers tr.inactive td { color: var(--text-faint); font-style: italic; }
+
+.stats-cap-badge {
+  font-size: 0.5625rem;
+  background: #f0a020;
+  color: #1a1a1a;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-weight: 700;
+  margin-left: 6px;
+}
+.stats-warn { color: #f0a020; font-weight: 600; }
+.stats-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  background: var(--bg-secondary);
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
 </style>
