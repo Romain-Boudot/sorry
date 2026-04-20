@@ -1,184 +1,409 @@
 <template>
-  <div class="voice-view" :class="{ 'has-video': videoTracks.length > 0 }">
-    <!-- Video streams -->
-    <div v-if="videoTracks.length" class="voice-video-area">
-      <div
-        v-for="vt in videoTracks"
-        :key="vt.identity + '-' + vt.source"
-        class="voice-video-tile"
-        :class="{ spotlight: videoTracks.length === 1 }"
-        :data-track-key="vt.identity + '-' + vt.source"
-      >
-        <video autoplay playsinline muted />
-        <div class="voice-video-label">
-          <span>{{ vt.name }}</span>
-          <span class="voice-video-source">{{ vt.source === 'screen_share' ? 'Ecran' : 'Camera' }}</span>
-        </div>
+  <div class="voice-view">
+    <!-- Idle / error -->
+    <div v-if="state?.voiceStatus === 'idle' || state?.voiceStatus === 'error'" class="voice-idle">
+      <div class="voice-idle-status" :class="state?.voiceStatus">
+        <AlertCircle v-if="state?.voiceStatus === 'error'" :size="20" />
+        <Volume2 v-else :size="20" />
+        <span>{{ statusText }}</span>
       </div>
-    </div>
-
-    <div v-if="!videoTracks.length" class="voice-view-status" :class="state?.voiceStatus">
-      <Loader v-if="state?.voiceStatus === 'connecting'" :size="20" class="spin" />
-      <Phone v-else-if="state?.voiceStatus === 'connected'" :size="20" />
-      <AlertCircle v-else-if="state?.voiceStatus === 'error'" :size="20" />
-      <Volume2 v-else :size="20" />
-      <span>{{ statusText }}</span>
-    </div>
-
-    <div class="voice-view-participants">
-      <div v-for="[uid, vs] in participants" :key="uid" class="voice-participant">
-        <div class="voice-participant-avatar" :class="{ speaking: !vs.muted && !vs.deafened && isUserSpeaking(uid) }">
-          {{ resolveUser(uid)[0]?.toUpperCase() }}
-        </div>
-        <span class="voice-participant-name">{{ resolveUser(uid) }}</span>
-        <div class="voice-participant-icons">
-          <MicOff v-if="vs.muted || vs.force_muted" :size="14" :class="{ forced: vs.force_muted }" />
-          <HeadphoneOff v-if="vs.deafened || vs.force_deafened" :size="14" :class="{ forced: vs.force_deafened }" />
-          <Monitor v-if="vs.screen_sharing" :size="14" class="streaming" />
-          <Video v-if="vs.camera_on" :size="14" class="streaming" />
-        </div>
-        <!-- Force mute/deafen pour les admins -->
-        <div v-if="uid !== state?.user?.id && (canMuteMembers || canDeafenMembers)" class="voice-participant-actions">
-          <button
-            v-if="canMuteMembers"
-            class="voice-action-btn"
-            :class="{ active: vs.force_muted }"
-            @click="forceMute(uid, !vs.force_muted)"
-            :title="vs.force_muted ? 'Unmute' : 'Force mute'"
-          >
-            <MicOff :size="12" />
-          </button>
-          <button
-            v-if="canDeafenMembers"
-            class="voice-action-btn"
-            :class="{ active: vs.force_deafened }"
-            @click="forceDeafen(uid, !vs.force_deafened)"
-            :title="vs.force_deafened ? 'Undeafen' : 'Force deafen'"
-          >
-            <HeadphoneOff :size="12" />
-          </button>
-        </div>
-      </div>
-      <div v-if="!participants.length && state?.voiceStatus !== 'connecting'" class="voice-view-empty">
-        Personne dans ce channel
-      </div>
-    </div>
-
-    <div class="voice-view-action">
-      <button
-        v-if="state?.voiceStatus === 'idle' || state?.voiceStatus === 'error'"
-        class="voice-join-btn"
-        @click="joinVoiceChannel(channelId!)"
-      >
+      <button class="voice-join-btn" @click="joinVoiceChannel(channelId!)">
         <Phone :size="18" />
         Rejoindre
       </button>
     </div>
+
+    <!-- Connecting -->
+    <div v-else-if="state?.voiceStatus === 'connecting'" class="voice-idle">
+      <div class="voice-idle-status connecting">
+        <Loader :size="20" class="spin" />
+        <span>Connexion en cours...</span>
+      </div>
+    </div>
+
+    <!-- Connected -->
+    <div v-else class="voice-stage" :class="{ 'has-streams': hasStreams, 'has-spotlight': spotlightTile }">
+      <!-- Stream area: only rendered when at least one stream exists -->
+      <div v-if="hasStreams" class="voice-streams">
+        <!-- Spotlight tile (if any) -->
+        <div v-if="spotlightTile" class="voice-spotlight">
+          <ParticipantTile
+            :tile="spotlightTile"
+            :is-spotlight="true"
+            :is-speaking="isUserSpeaking(spotlightTile.uid)"
+            :is-self="spotlightTile.uid === state?.user?.id"
+            :is-watching-screen="isWatchingScreen(spotlightTile.uid)"
+            :is-remote-muted="isRemoteMuted(spotlightTile.uid)"
+            :has-audio="hasAudio(spotlightTile.uid)"
+            :quality="qualityFor(spotlightTile.uid)"
+            @toggle-watch="onToggleWatch(spotlightTile)"
+            @toggle-spotlight="spotlightKey = null"
+            @stats="onShowStats(spotlightTile)"
+            @fullscreen="onFullscreen(spotlightTile)"
+            @mute-local="toggleLocalMute(spotlightTile.uid)"
+            @context-menu="(e: MouseEvent) => openContextMenu(spotlightTile!, e)"
+          />
+        </div>
+
+        <!-- Stream grid / thumbnails -->
+        <div class="voice-grid" :class="{ thumbnails: spotlightTile, empty: !nonSpotlightStreams.length }">
+          <ParticipantTile
+            v-for="tile in nonSpotlightStreams"
+            :key="tile.key"
+            :tile="tile"
+            :is-spotlight="false"
+            :is-speaking="isUserSpeaking(tile.uid)"
+            :is-self="tile.uid === state?.user?.id"
+            :is-watching-screen="isWatchingScreen(tile.uid)"
+            :is-remote-muted="isRemoteMuted(tile.uid)"
+            :has-audio="hasAudio(tile.uid)"
+            :quality="qualityFor(tile.uid)"
+            @toggle-watch="onToggleWatch(tile)"
+            @toggle-spotlight="setSpotlight(tile)"
+            @stats="onShowStats(tile)"
+            @fullscreen="onFullscreen(tile)"
+            @mute-local="toggleLocalMute(tile.uid)"
+            @context-menu="(e) => openContextMenu(tile, e)"
+          />
+        </div>
+      </div>
+
+      <!-- User cards: compact strip at the bottom when streams exist, else centered grid -->
+      <div class="voice-users" :class="{ strip: hasStreams }">
+        <VoiceUserCard
+          v-for="p in participants"
+          :key="p.uid"
+          :name="p.name"
+          :avatar-url="p.avatarUrl"
+          :voice-state="p.voiceState"
+          :is-speaking="isUserSpeaking(p.uid)"
+          :is-self="p.uid === state?.user?.id"
+          :quality="qualityFor(p.uid)"
+          :compact="hasStreams"
+          @click="(e) => openUserCard(p.uid, e)"
+          @context-menu="(e) => openUserContextMenu(p, e)"
+        />
+      </div>
+    </div>
+
+    <UserCard
+      v-if="cardUser"
+      :user="cardUser"
+      :x="cardX"
+      :y="cardY"
+      @close="cardUser = null"
+    />
+
+    <!-- Stats popup -->
+    <div v-if="statsTrack" class="stats-popup" @click.self="statsTrack = null">
+      <div class="stats-card">
+        <div class="stats-header">
+          <span>Stats — {{ statsTrack.name }}</span>
+          <button class="stats-close" @click="statsTrack = null"><X :size="14" /></button>
+        </div>
+        <div v-if="liveStats" class="stats-body">
+          <div class="stats-row"><span>Source</span><span>{{ statsTrack.kind === 'screen' ? 'Ecran' : 'Camera' }}</span></div>
+          <div class="stats-row"><span>Resolution</span><span>{{ liveStats.width }}x{{ liveStats.height }}</span></div>
+          <div class="stats-row"><span>FPS</span><span>{{ liveStats.fps }}</span></div>
+          <div class="stats-row"><span>{{ statsTrack.uid === state?.user?.id ? 'Bitrate (envoi)' : 'Bitrate (reception)' }}</span><span>{{ liveStats.bitrateKbps }} kbps</span></div>
+          <div class="stats-row"><span>Qualite</span><span>{{ qualityLabel(qualityFor(statsTrack.uid)) }}</span></div>
+        </div>
+        <div v-else class="stats-body stats-loading">Mesure en cours...</div>
+      </div>
+    </div>
+
+    <!-- Right-click context menu -->
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxMenu.items"
+      @close="ctxMenu = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
-import { Phone, Volume2, Loader, AlertCircle, MicOff, HeadphoneOff, Monitor, Video } from "lucide-vue-next";
+import { computed, ref, watch, onUnmounted } from "vue";
+import { Phone, Volume2, Loader, AlertCircle, X, Star, Maximize, MonitorOff, Monitor, MicOff, HeadphoneOff, Info, VolumeX, EyeOff } from "lucide-vue-next";
 import { Track } from "livekit-client";
-import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen } from "../store";
-import { getCurrentRoom, mediaState } from "../voice";
+import { activeState, resolveUser, joinVoiceChannel, isUserSpeaking, forceMute, forceDeafen, resolveAvatarUrl } from "../store";
+import { getCurrentRoom, mediaState, watchScreen, unwatchScreen, toggleRemoteMute, getTrackStats, type TrackStats, type QualityLevel } from "../voice";
 import * as perms from "../permissions";
 import type { VoiceUserState } from "../api";
+import ParticipantTile, { type Tile } from "./voice/ParticipantTile.vue";
+import VoiceUserCard from "./voice/VoiceUserCard.vue";
+import UserCard from "./UserCard.vue";
+import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
+import type { User } from "../api";
 
 const state = computed(() => activeState());
 const channelId = computed(() => state.value?.activeChannelId);
 
-// ── Video tracks ──
-interface VideoTrackInfo {
-  identity: string;
-  name: string;
-  source: "camera" | "screen_share";
-  track: any;
-}
+// LiveKit identity ↔ uid bridge (server uses `user-${id}`).
+const identityForUid = (uid: number) => `user-${uid}`;
 
-const videoTracks = computed((): VideoTrackInfo[] => {
-  // Read both versions to trigger reactivity
-  const _v1 = state.value?.videoTrackVersion;
-  const _v2 = mediaState.version;
+// ── Live video tracks pulled from the LiveKit room ──
+interface LiveTrack { identity: string; source: "camera" | "screen_share"; track: any }
+
+const liveTracks = computed((): LiveTrack[] => {
+  void state.value?.videoTrackVersion;
+  void mediaState.version;
   const room = getCurrentRoom();
   if (!room) return [];
+  const list: LiveTrack[] = [];
 
-  const tracks: VideoTrackInfo[] = [];
-
-  // Local participant tracks
-  const local = room.localParticipant;
-  for (const pub of local.videoTrackPublications.values()) {
+  // Local: always render local previews
+  for (const pub of room.localParticipant.videoTrackPublications.values()) {
     if (pub.track && !pub.isMuted) {
-      tracks.push({
-        identity: local.identity,
-        name: local.name || local.identity,
+      list.push({
+        identity: room.localParticipant.identity,
         source: pub.source === Track.Source.ScreenShare ? "screen_share" : "camera",
         track: pub.track,
       });
     }
   }
 
-  // Remote participant tracks
-  for (const participant of room.remoteParticipants.values()) {
-    for (const pub of participant.videoTrackPublications.values()) {
-      if (pub.track && pub.isSubscribed && !pub.isMuted) {
-        tracks.push({
-          identity: participant.identity,
-          name: participant.name || participant.identity,
-          source: pub.source === Track.Source.ScreenShare ? "screen_share" : "camera",
-          track: pub.track,
-        });
-      }
+  // Remote: only subscribed + unmuted
+  for (const p of room.remoteParticipants.values()) {
+    for (const pub of p.videoTrackPublications.values()) {
+      if (!pub.track || pub.isMuted || !pub.isSubscribed) continue;
+      list.push({
+        identity: p.identity,
+        source: pub.source === Track.Source.ScreenShare ? "screen_share" : "camera",
+        track: pub.track,
+      });
     }
   }
-
-  return tracks;
+  return list;
 });
 
-const prevTrackKeys = new Set<string>();
+function findLive(identity: string, source: "camera" | "screen_share") {
+  return liveTracks.value.find((t) => t.identity === identity && t.source === source);
+}
 
-watch(videoTracks, (tracks) => {
-  const currentKeys = new Set(tracks.map((vt) => vt.identity + "-" + vt.source));
+// ── Stream tiles (camera / screen / screen-pending) ──
+// User avatars live in `userCards` below — the two lists are rendered separately.
+interface VoiceUserEntry { uid: number; identity: string; name: string; avatarUrl: string | null; voiceState: VoiceUserState }
 
-  // Detach removed tracks
-  for (const key of prevTrackKeys) {
-    if (!currentKeys.has(key)) {
-      const tile = document.querySelector(`[data-track-key="${key}"]`);
-      const video = tile?.querySelector("video");
-      if (video) video.srcObject = null;
-    }
-  }
-
-  prevTrackKeys.clear();
-  for (const key of currentKeys) prevTrackKeys.add(key);
-
-  nextTick(() => {
-    for (const vt of tracks) {
-      const key = vt.identity + "-" + vt.source;
-      const tile = document.querySelector(`[data-track-key="${key}"]`);
-      if (!tile) continue;
-      const video = tile.querySelector("video");
-      if (!video) continue;
-      vt.track.detach().forEach((el: HTMLElement) => { if (el !== video) el.remove(); });
-      vt.track.attach(video);
-    }
-  });
-}, { immediate: true });
-
-const participants = computed((): [number, VoiceUserState][] => {
+const participants = computed((): VoiceUserEntry[] => {
   if (!state.value?.activeChannelId) return [];
   const map = state.value.voiceState.get(state.value.activeChannelId);
-  return map ? [...map.entries()] : [];
+  if (!map) return [];
+  return [...map.entries()].map(([uid, vs]) => ({
+    uid,
+    identity: identityForUid(uid),
+    name: resolveUser(uid),
+    avatarUrl: resolveAvatarUrl(uid),
+    voiceState: vs,
+  }));
 });
 
-const canMuteMembers = computed(() =>
-  perms.has(state.value?.permissions ?? 0, perms.MUTE_MEMBERS)
+const streamTiles = computed((): Tile[] => {
+  const list: Tile[] = [];
+  for (const p of participants.value) {
+    // Camera (live)
+    const cam = findLive(p.identity, "camera");
+    if (cam) {
+      list.push({
+        key: `${p.identity}-camera`,
+        uid: p.uid, identity: p.identity, name: p.name, avatarUrl: p.avatarUrl,
+        kind: "camera", videoTrack: cam.track, voiceState: p.voiceState,
+      });
+    }
+    // Screen share (live or pending)
+    if (p.voiceState.screen_sharing) {
+      const screen = findLive(p.identity, "screen_share");
+      list.push(screen ? {
+        key: `${p.identity}-screen`,
+        uid: p.uid, identity: p.identity, name: p.name, avatarUrl: p.avatarUrl,
+        kind: "screen", videoTrack: screen.track, voiceState: p.voiceState,
+      } : {
+        key: `${p.identity}-screen-pending`,
+        uid: p.uid, identity: p.identity, name: p.name, avatarUrl: p.avatarUrl,
+        kind: "screen-pending", voiceState: p.voiceState,
+      });
+    }
+  }
+  return list;
+});
+
+const hasStreams = computed(() => streamTiles.value.length > 0);
+
+// ── Spotlight (streams only) ──
+const spotlightKey = ref<string | null>(null);
+
+const spotlightTile = computed(() =>
+  spotlightKey.value ? streamTiles.value.find((t) => t.key === spotlightKey.value) ?? null : null
 );
 
-const canDeafenMembers = computed(() =>
-  perms.has(state.value?.permissions ?? 0, perms.DEAFEN_MEMBERS)
+const nonSpotlightStreams = computed(() =>
+  spotlightKey.value ? streamTiles.value.filter((t) => t.key !== spotlightKey.value) : streamTiles.value
 );
+
+function setSpotlight(tile: Tile) {
+  spotlightKey.value = spotlightKey.value === tile.key ? null : tile.key;
+}
+
+watch(streamTiles, (list) => {
+  if (spotlightKey.value && !list.some((t) => t.key === spotlightKey.value)) {
+    spotlightKey.value = null;
+  }
+});
+
+// ── Per-participant action helpers (delegated to voice.ts state) ──
+const isWatchingScreen = (uid: number) => (void mediaState.version, mediaState.watchedScreens.has(identityForUid(uid)));
+const isRemoteMuted = (uid: number) => (void mediaState.version, mediaState.mutedRemotes.has(identityForUid(uid)));
+const hasAudio = (uid: number) => (void mediaState.version, mediaState.audioElements.has(identityForUid(uid)));
+const qualityFor = (uid: number): QualityLevel | null => (void mediaState.version, mediaState.quality.get(identityForUid(uid)) ?? null);
+const toggleLocalMute = (uid: number) => toggleRemoteMute(identityForUid(uid));
+
+function qualityLabel(q: QualityLevel | null): string {
+  switch (q) {
+    case "excellent": return "Excellente";
+    case "good": return "Correcte";
+    case "poor": return "Faible";
+    default: return "Inconnue";
+  }
+}
+
+// ── Tile callbacks ──
+function onToggleWatch(t: Tile) {
+  const id = identityForUid(t.uid);
+  if (mediaState.watchedScreens.has(id)) unwatchScreen(id);
+  else watchScreen(id);
+}
+
+function onFullscreen(t: Tile) {
+  const tile = document.querySelector(`[data-tile-key="${t.key}"] video`) as HTMLVideoElement | null;
+  if (tile?.requestFullscreen) tile.requestFullscreen().catch(() => {});
+}
+
+// ── Stats popup ──
+const statsTrack = ref<Tile | null>(null);
+const liveStats = ref<TrackStats | null>(null);
+let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+function onShowStats(t: Tile) {
+  statsTrack.value = t;
+  liveStats.value = null;
+  refreshStats();
+  statsTimer = setInterval(refreshStats, 1500);
+}
+
+async function refreshStats() {
+  const t = statsTrack.value;
+  if (!t || (t.kind !== "camera" && t.kind !== "screen")) return;
+  liveStats.value = await getTrackStats(t.identity, t.kind === "screen" ? "screen_share" : "camera");
+}
+
+watch(statsTrack, (v) => {
+  if (!v && statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+});
+onUnmounted(() => { if (statsTimer) clearInterval(statsTimer); });
+
+// ── Right-click context menu ──
+const canMuteMembers = computed(() => perms.has(state.value?.permissions ?? 0, perms.MUTE_MEMBERS));
+const canDeafenMembers = computed(() => perms.has(state.value?.permissions ?? 0, perms.DEAFEN_MEMBERS));
+
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+function openContextMenu(tile: Tile, e: MouseEvent) {
+  const items: MenuItem[] = [];
+  const isSelf = tile.uid === state.value?.user?.id;
+
+  // Spotlight toggle
+  items.push({
+    label: spotlightKey.value === tile.key ? "Sortir du focus" : "Mettre en focus",
+    icon: spotlightKey.value === tile.key ? MonitorOff : Star,
+    action: () => setSpotlight(tile),
+  });
+
+  if (tile.kind === "camera" || tile.kind === "screen") {
+    items.push({ label: "Plein ecran", icon: Maximize, action: () => onFullscreen(tile) });
+    items.push({ label: "Stats", icon: Info, action: () => onShowStats(tile) });
+  }
+
+  if (tile.kind === "screen" && !isSelf) {
+    items.push({ label: "Arreter de regarder", icon: EyeOff, action: () => onToggleWatch(tile), danger: true });
+  } else if (tile.kind === "screen-pending" && !isSelf) {
+    items.push({ label: "Regarder l'ecran", icon: Monitor, action: () => onToggleWatch(tile) });
+  }
+
+  if (!isSelf && hasAudio(tile.uid)) {
+    items.push({
+      label: isRemoteMuted(tile.uid) ? "Reactiver le son" : "Mute pour moi",
+      icon: isRemoteMuted(tile.uid) ? Volume2 : VolumeX,
+      action: () => toggleLocalMute(tile.uid),
+    });
+  }
+
+  if (!isSelf && canMuteMembers.value && tile.voiceState) {
+    items.push({
+      label: tile.voiceState.force_muted ? "Unmute (admin)" : "Force mute",
+      icon: MicOff,
+      action: () => forceMute(tile.uid, !tile.voiceState!.force_muted),
+      danger: !tile.voiceState.force_muted,
+    });
+  }
+  if (!isSelf && canDeafenMembers.value && tile.voiceState) {
+    items.push({
+      label: tile.voiceState.force_deafened ? "Undeafen (admin)" : "Force deafen",
+      icon: HeadphoneOff,
+      action: () => forceDeafen(tile.uid, !tile.voiceState!.force_deafened),
+      danger: !tile.voiceState.force_deafened,
+    });
+  }
+
+  if (items.length) ctxMenu.value = { x: e.clientX, y: e.clientY, items };
+}
+
+// ── User card popup (same component used elsewhere — chat hover, etc.) ──
+const cardUser = ref<User | null>(null);
+const cardX = ref(0);
+const cardY = ref(0);
+
+function openUserCard(uid: number, e: MouseEvent) {
+  const user = state.value?.users.get(uid);
+  if (!user) return;
+  const el = e.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  cardX.value = rect.right + 8;
+  cardY.value = rect.top;
+  cardUser.value = user;
+}
+
+/** Context menu for the compact user cards — subset: mute-for-me + admin actions. */
+function openUserContextMenu(p: VoiceUserEntry, e: MouseEvent) {
+  const items: MenuItem[] = [];
+  const isSelf = p.uid === state.value?.user?.id;
+
+  if (!isSelf && hasAudio(p.uid)) {
+    items.push({
+      label: isRemoteMuted(p.uid) ? "Reactiver le son" : "Mute pour moi",
+      icon: isRemoteMuted(p.uid) ? Volume2 : VolumeX,
+      action: () => toggleLocalMute(p.uid),
+    });
+  }
+  if (!isSelf && canMuteMembers.value) {
+    items.push({
+      label: p.voiceState.force_muted ? "Unmute (admin)" : "Force mute",
+      icon: MicOff,
+      action: () => forceMute(p.uid, !p.voiceState.force_muted),
+      danger: !p.voiceState.force_muted,
+    });
+  }
+  if (!isSelf && canDeafenMembers.value) {
+    items.push({
+      label: p.voiceState.force_deafened ? "Undeafen (admin)" : "Force deafen",
+      icon: HeadphoneOff,
+      action: () => forceDeafen(p.uid, !p.voiceState.force_deafened),
+      danger: !p.voiceState.force_deafened,
+    });
+  }
+
+  if (items.length) ctxMenu.value = { x: e.clientX, y: e.clientY, items };
+}
 
 const statusText = computed(() => {
   switch (state.value?.voiceStatus) {
@@ -188,7 +413,6 @@ const statusText = computed(() => {
     default: return "Vocal";
   }
 });
-
 </script>
 
 <style scoped>
@@ -196,206 +420,35 @@ const statusText = computed(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   background: var(--bg-primary);
-  gap: 24px;
-  padding: 40px;
-  overflow: hidden;
-}
-
-.voice-view.has-video {
-  justify-content: flex-start;
-  padding: 16px;
-  gap: 16px;
-}
-
-/* ── Video area ── */
-.voice-video-area {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  flex: 1;
   min-height: 0;
-  width: 100%;
-}
-
-.voice-video-tile {
-  position: relative;
-  border-radius: 12px;
   overflow: hidden;
-  background: var(--bg-tertiary);
-  flex: 1 1 300px;
-  max-width: 100%;
-  min-height: 200px;
-  max-height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
-.voice-video-tile.spotlight {
-  flex: 1 1 100%;
-}
-
-.voice-video-tile video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
-  border-radius: 12px;
-}
-
-.voice-video-label {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.voice-video-source {
-  font-weight: 400;
-  opacity: 0.7;
-}
-
-.voice-view-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 1rem;
-  color: var(--text-muted);
-}
-
-.voice-view-status.connecting { color: var(--text-normal); }
-.voice-view-status.connected { color: var(--green); }
-.voice-view-status.error { color: var(--danger); }
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.voice-view-participants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: center;
-  max-width: 480px;
-}
-
-.voice-participant {
+/* ── Idle states ── */
+.voice-idle {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  position: relative;
+  justify-content: center;
+  gap: 24px;
+  padding: 40px;
 }
-
-.voice-participant-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg-secondary);
+.voice-idle-status {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
   font-weight: 600;
   font-size: 1rem;
-  color: var(--text-normal);
-  border: 2px solid transparent;
-  transition: border-color 0.15s;
-}
-
-.voice-participant-avatar.speaking {
-  border-color: var(--green);
-}
-
-.voice-participant-name {
-  font-size: 0.75rem;
-  font-weight: 500;
   color: var(--text-muted);
 }
-
-.voice-participant-icons {
-  display: flex;
-  gap: 4px;
-  color: var(--text-faint);
-}
-
-.voice-participant-icons .forced {
-  color: var(--danger);
-}
-
-.voice-participant-icons .streaming {
-  color: var(--accent);
-}
-
-.voice-participant-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-
-.voice-participant:hover .voice-participant-actions {
-  opacity: 1;
-}
-
-.voice-action-btn {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-faint);
-  border: none;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
-}
-
-.voice-action-btn:hover {
-  background: var(--bg-modifier-hover);
-  color: var(--text-normal);
-  box-shadow: none;
-}
-
-.voice-action-btn.active {
-  background: var(--danger);
-  color: var(--text-bright);
-}
-
-.voice-action-btn.active:hover {
-  background: var(--danger);
-  box-shadow: none;
-}
-
-.voice-view-empty {
-  color: var(--text-faint);
-  font-size: 0.875rem;
-}
-
-.voice-view-action {
-  display: flex;
-}
+.voice-idle-status.connecting { color: var(--text-normal); }
+.voice-idle-status.connected { color: var(--green); }
+.voice-idle-status.error { color: var(--danger); }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .voice-join-btn {
   display: flex;
@@ -409,6 +462,158 @@ const statusText = computed(() => {
   font-size: 0.875rem;
   border-radius: 8px;
 }
-
 .voice-join-btn:hover { opacity: 0.9; }
+
+/* ── Stage (connected) ── */
+.voice-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+  gap: 12px;
+}
+
+/* Stream area (only rendered when streams exist) */
+.voice-streams {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.voice-spotlight {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.voice-spotlight .ptile {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Stream grid ── */
+.voice-grid {
+  display: grid;
+  gap: 8px;
+  grid-auto-rows: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  flex: 1;
+  min-height: 0;
+}
+
+.voice-grid > * {
+  aspect-ratio: 16 / 9;
+  min-height: 0;
+}
+
+/* Thumbnail strip below the spotlight */
+.voice-grid.thumbnails {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 130px;
+  align-items: stretch;
+}
+.voice-grid.thumbnails > * {
+  flex: 0 0 auto;
+  width: 220px;
+  height: 100%;
+  aspect-ratio: auto;
+}
+.voice-grid.thumbnails.empty { display: none; }
+
+/* ── User cards ── */
+.voice-users {
+  /* No streams mode → centered grid */
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
+  gap: 16px;
+  justify-content: center;
+  align-content: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Streams present → compact horizontal strip, centered, no background */
+.voice-users.strip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Stats popup (unchanged shape) */
+.stats-popup {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.stats-card {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  width: 320px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--header-primary);
+}
+.stats-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.stats-close:hover { background: var(--bg-modifier-hover); color: var(--text-normal); }
+.stats-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stats-loading {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  padding: 24px;
+}
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: var(--text-normal);
+}
+.stats-row span:first-child { color: var(--text-muted); }
 </style>

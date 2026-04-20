@@ -5,6 +5,8 @@ import {
   TrackPublication,
   Participant,
   RemoteParticipant,
+  ConnectionQuality,
+  RemoteTrackPublication,
 } from "livekit-client";
 import { reactive } from "vue";
 
@@ -19,6 +21,8 @@ export interface ParticipantMedia {
   screenShare: boolean;
 }
 
+export type QualityLevel = "excellent" | "good" | "poor" | "unknown";
+
 /**
  * Reactive media state — components can read this directly.
  * Updated automatically by LiveKit events + initial scan.
@@ -28,8 +32,16 @@ export const mediaState = reactive({
   audioElements: new Map<string, HTMLAudioElement>(),
   /** Per-participant media info (camera, screen share) */
   participants: new Map<string, ParticipantMedia>(),
+  /** Per-participant remote-audio mute (local-only — server-side audio still arrives). */
+  mutedRemotes: new Set<string>(),
   /** Whether local audio output is deafened (all remote audio muted) */
   deafened: false,
+  /** Screen-share streams the local user has opted-in to view.
+   *  Audio + camera are auto-subscribed; screen shares require explicit opt-in
+   *  to spare bandwidth. Key = participant identity. */
+  watchedScreens: new Set<string>(),
+  /** Per-participant connection quality (LiveKit ConnectionQualityChanged). */
+  quality: new Map<string, QualityLevel>(),
   /** Incremented on any track change — triggers computed re-evaluation */
   version: 0,
 });
@@ -47,7 +59,7 @@ function attachAudio(identity: string, track: any) {
   }
 
   const el = track.attach() as HTMLAudioElement;
-  el.muted = mediaState.deafened;
+  el.muted = mediaState.deafened || mediaState.mutedRemotes.has(identity);
   el.dataset.identity = identity;
   document.body.appendChild(el);
   mediaState.audioElements.set(identity, el);
@@ -64,8 +76,8 @@ function detachAudio(identity: string) {
 
 function setAllAudioMuted(muted: boolean) {
   mediaState.deafened = muted;
-  for (const el of mediaState.audioElements.values()) {
-    el.muted = muted;
+  for (const [identity, el] of mediaState.audioElements) {
+    el.muted = muted || mediaState.mutedRemotes.has(identity);
   }
 }
 
@@ -75,8 +87,82 @@ function cleanupAllMedia() {
   }
   mediaState.audioElements.clear();
   mediaState.participants.clear();
+  mediaState.mutedRemotes.clear();
+  mediaState.watchedScreens.clear();
+  mediaState.quality.clear();
   mediaState.deafened = false;
   mediaState.version++;
+}
+
+// ══════════════════════════════════════
+//  Auto-subscribe policy: audio + camera always; screen-share opt-in.
+// ══════════════════════════════════════
+
+/** Should this publication be auto-subscribed when published? */
+function shouldAutoSubscribe(pub: TrackPublication): boolean {
+  if (pub.kind === Track.Kind.Audio) return true;
+  if (pub.kind === Track.Kind.Video && pub.source === Track.Source.Camera) return true;
+  return false; // screen shares wait for explicit watchScreen()
+}
+
+/** Subscribe to all "always-on" tracks (audio + camera) currently published by remotes.
+ *  Called once at connect time; new publications are handled by the TrackPublished event. */
+function autoSubscribeExisting(room: Room) {
+  for (const participant of room.remoteParticipants.values()) {
+    for (const pub of participant.trackPublications.values()) {
+      const rpub = pub as RemoteTrackPublication;
+      if (shouldAutoSubscribe(rpub) && !rpub.isSubscribed) {
+        rpub.setSubscribed(true);
+      }
+    }
+  }
+}
+
+/** Public API: opt-in to a screen share. Returns true if the publication exists. */
+export function watchScreen(identity: string): boolean {
+  if (!currentRoom) return false;
+  const participant = currentRoom.remoteParticipants.get(identity);
+  if (!participant) return false;
+  for (const pub of participant.trackPublications.values()) {
+    if (pub.source === Track.Source.ScreenShare) {
+      (pub as RemoteTrackPublication).setSubscribed(true);
+      mediaState.watchedScreens.add(identity);
+      mediaState.version++;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Public API: stop receiving a screen share (frees bandwidth). */
+export function unwatchScreen(identity: string) {
+  if (!currentRoom) {
+    mediaState.watchedScreens.delete(identity);
+    return;
+  }
+  const participant = currentRoom.remoteParticipants.get(identity);
+  if (participant) {
+    for (const pub of participant.trackPublications.values()) {
+      if (pub.source === Track.Source.ScreenShare) {
+        (pub as RemoteTrackPublication).setSubscribed(false);
+      }
+    }
+  }
+  mediaState.watchedScreens.delete(identity);
+  mediaState.version++;
+}
+
+/** Toggle local-only mute for one remote participant's audio. */
+export function toggleRemoteMute(identity: string): boolean {
+  const isMuted = mediaState.mutedRemotes.has(identity);
+  const next = !isMuted;
+  if (next) mediaState.mutedRemotes.add(identity);
+  else mediaState.mutedRemotes.delete(identity);
+
+  const el = mediaState.audioElements.get(identity);
+  if (el) el.muted = next || mediaState.deafened;
+  mediaState.version++;
+  return next;
 }
 
 // ══════════════════════════════════════
@@ -132,6 +218,22 @@ export interface VoiceCallbacks {
   onError: (error: string) => void;
 }
 
+/** Try to switch to the device id saved in localStorage; on failure, drop the entry. */
+async function applySavedDevice(
+  room: Room,
+  kind: MediaDeviceKind,
+  storageKey: string,
+) {
+  const saved = localStorage.getItem(storageKey);
+  if (!saved) return;
+  try {
+    await room.switchActiveDevice(kind, saved);
+  } catch (e) {
+    console.warn(`[voice] Saved ${kind} device "${saved}" unavailable, clearing.`, e);
+    localStorage.removeItem(storageKey);
+  }
+}
+
 export async function joinVoice(
   url: string,
   token: string,
@@ -143,6 +245,9 @@ export async function joinVoice(
     adaptiveStream: true,
     dynacast: true,
   });
+
+  // We manage subscriptions ourselves: audio + camera auto, screen share opt-in.
+  // (Set on the connect call below since `autoSubscribe` is a connect option.)
 
   room.on(RoomEvent.Disconnected, () => {
     currentRoom = null;
@@ -157,8 +262,43 @@ export async function joinVoice(
   room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
     detachAudio(participant.identity);
     mediaState.participants.delete(participant.identity);
+    mediaState.watchedScreens.delete(participant.identity);
+    mediaState.mutedRemotes.delete(participant.identity);
+    mediaState.quality.delete(participant.identity);
     mediaState.version++;
     callbacks.onParticipantLeft(participant.identity);
+  });
+
+  // ── Track published (autoSubscribe:false → we choose what to subscribe) ──
+  room.on(RoomEvent.TrackPublished, (publication, participant) => {
+    if (shouldAutoSubscribe(publication)) {
+      publication.setSubscribed(true);
+    }
+    // Refresh the discovery list so the UI shows the screen-share badge
+    // even before the user opts-in to view it.
+    scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+    mediaState.version++;
+    callbacks.onTrackChanged?.();
+  });
+
+  room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
+    // If a watched screen-share went away, drop it from the watch set.
+    if (publication.source === Track.Source.ScreenShare) {
+      mediaState.watchedScreens.delete(participant.identity);
+    }
+    scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
+    mediaState.version++;
+    callbacks.onTrackChanged?.();
+  });
+
+  // ── Connection quality (per participant) ──
+  room.on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
+    let level: QualityLevel = "unknown";
+    if (quality === ConnectionQuality.Excellent) level = "excellent";
+    else if (quality === ConnectionQuality.Good) level = "good";
+    else if (quality === ConnectionQuality.Poor) level = "poor";
+    mediaState.quality.set(participant.identity, level);
+    mediaState.version++;
   });
 
   room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
@@ -216,30 +356,26 @@ export async function joinVoice(
   });
 
   try {
-    await room.connect(url, token);
+    await room.connect(url, token, { autoSubscribe: false });
 
-    // Apply saved audio devices
-    const savedMic = localStorage.getItem("audioInputDevice");
-    const savedSpeaker = localStorage.getItem("audioOutputDevice");
-    if (savedMic) await room.switchActiveDevice("audioinput", savedMic);
-    if (savedSpeaker) await room.switchActiveDevice("audiooutput", savedSpeaker);
+    // Apply saved audio devices.
+    // A device ID stored from another browser/profile (or after the user unplugged
+    // the mic) won't match anything here — fall back to the system default and
+    // clear the stale entry so we don't fail the whole connect flow.
+    await applySavedDevice(room, "audioinput", "audioInputDevice");
+    await applySavedDevice(room, "audiooutput", "audioOutputDevice");
 
     // Publish microphone
     await room.localParticipant.setMicrophoneEnabled(true);
 
     currentRoom = room;
 
-    // Initial scan — catches tracks already published by participants who joined before us
+    // Initial scan — catches tracks already published by participants who joined before us.
     scanAllTracks(room);
 
-    // Attach audio for already-subscribed remote tracks
-    for (const participant of room.remoteParticipants.values()) {
-      for (const pub of participant.audioTrackPublications.values()) {
-        if (pub.track && pub.isSubscribed) {
-          attachAudio(participant.identity, pub.track);
-        }
-      }
-    }
+    // Subscribe audio + camera for already-published remote tracks (TrackPublished
+    // doesn't fire for pre-existing pubs at connect time).
+    autoSubscribeExisting(room);
 
     callbacks.onConnected(room);
     return room;
@@ -381,6 +517,85 @@ export async function switchSpeaker(deviceId: string) {
 export function setMicEnabled(enabled: boolean) {
   if (!currentRoom) return;
   currentRoom.localParticipant.setMicrophoneEnabled(enabled);
+}
+
+// ══════════════════════════════════════
+//  Per-track stats (FPS / resolution / bitrate)
+// ══════════════════════════════════════
+
+export interface TrackStats {
+  width: number;
+  height: number;
+  fps: number;
+  bitrateKbps: number;
+}
+
+const lastBytes = new Map<string, { bytes: number; ts: number }>();
+
+/** Compute live stats for a local or remote video track (camera / screen share).
+ *  Local tracks report outbound-rtp (what we publish), remote tracks report
+ *  inbound-rtp (what we receive). */
+export async function getTrackStats(identity: string, source: "camera" | "screen_share"): Promise<TrackStats | null> {
+  if (!currentRoom) return null;
+  const wantedSource = source === "screen_share" ? Track.Source.ScreenShare : Track.Source.Camera;
+
+  const isLocal = identity === currentRoom.localParticipant.identity;
+  let webrtcEndpoint: RTCRtpReceiver | RTCRtpSender | undefined;
+  let inbound = false;
+
+  if (isLocal) {
+    for (const p of currentRoom.localParticipant.videoTrackPublications.values()) {
+      if (p.source === wantedSource && p.track) {
+        webrtcEndpoint = (p.track as any).sender as RTCRtpSender | undefined;
+        break;
+      }
+    }
+  } else {
+    const participant = currentRoom.remoteParticipants.get(identity);
+    if (!participant) return null;
+    for (const p of participant.trackPublications.values()) {
+      if (p.kind === Track.Kind.Video && p.source === wantedSource) {
+        webrtcEndpoint = ((p as RemoteTrackPublication).track as any)?.receiver as RTCRtpReceiver | undefined;
+        inbound = true;
+        break;
+      }
+    }
+  }
+
+  if (!webrtcEndpoint) return null;
+
+  try {
+    const report = await webrtcEndpoint.getStats();
+    let width = 0, height = 0, fps = 0, bytes = 0;
+    report.forEach((r: any) => {
+      const targetType = inbound ? "inbound-rtp" : "outbound-rtp";
+      if (r.type === targetType && r.kind === "video") {
+        // Outbound simulcast: multiple reports exist (one per layer); keep the
+        // highest resolution as "the" published stream.
+        if ((r.frameWidth ?? 0) >= width) {
+          width = r.frameWidth ?? width;
+          height = r.frameHeight ?? height;
+          fps = Math.round(r.framesPerSecond ?? fps);
+        }
+        bytes += inbound ? (r.bytesReceived ?? 0) : (r.bytesSent ?? 0);
+      }
+    });
+
+    const key = `${identity}:${source}`;
+    const now = performance.now();
+    const prev = lastBytes.get(key);
+    let bitrateKbps = 0;
+    if (prev && now > prev.ts) {
+      const deltaBytes = bytes - prev.bytes;
+      const deltaSecs = (now - prev.ts) / 1000;
+      if (deltaSecs > 0) bitrateKbps = Math.round((deltaBytes * 8) / deltaSecs / 1000);
+    }
+    lastBytes.set(key, { bytes, ts: now });
+
+    return { width, height, fps, bitrateKbps };
+  } catch {
+    return null;
+  }
 }
 
 // ══════════════════════════════════════
