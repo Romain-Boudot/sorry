@@ -47,7 +47,9 @@ check_dependencies() {
   for cmd in curl awk grep sort head base64 tr sed; do
     command -v "$cmd" &>/dev/null || MISSING="$MISSING $cmd"
   done
-  [ -n "$MISSING" ] && error "Commandes manquantes:$MISSING — installe-les avant de relancer"
+  if [ -n "$MISSING" ]; then
+    error "Commandes manquantes:$MISSING — installe-les avant de relancer"
+  fi
 }
 
 # ── Detect container engine ──
