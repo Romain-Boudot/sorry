@@ -44,7 +44,7 @@ x Webhooks — integrations (bots, CI notifications)
 - suppression automatique des guest users tout les X (parametrable)
 
 Bugs
-------------
+----
 x ws event pour les display name
 x si je deaf et undeaf je n'entend plus rien, pas de undeaf ? pas de réabonnement Stream
 x si j'entre dans un channel avec qqn qui stream, je ne le vois pas
@@ -63,6 +63,9 @@ Awesome Features
 - voice channel text chat
 - forum channels
 - Threads — reponses groupees sous un message
+
+Would be better but not needed
+------------------------------
 - Filtrage channels serveur-side — broadcasts cibles par user, per-user WS senders, recompute visibility sur changement de role/overwrite
 
 Done

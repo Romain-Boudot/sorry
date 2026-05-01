@@ -75,6 +75,8 @@ export interface ServerState {
   dmConversations: number[];
   /** ID du peer actuellement ouvert dans le panneau DM. null si aucun. */
   activeDmUserId: number | null;
+  /** Onglet actif dans la sidebar : channels ou DMs. Non persisté. */
+  activeTab: "channels" | "dms";
   /** Nombre de DMs non lus par peer. */
   dmUnread: Map<number, number>;
   /** Empreintes connues (TOFU). On compare à la clé courante du peer pour détecter une rotation. */
@@ -123,6 +125,7 @@ export function createServerState(): ServerState {
     dms: new Map(),
     dmConversations: [],
     activeDmUserId: null,
+    activeTab: "channels",
     dmUnread: new Map(),
     knownFingerprints: new Map(),
   };
@@ -205,6 +208,8 @@ export const store = reactive({
   serverSettingsChannelId: null as number | null,
   channelSettingsId: null as number | null,
   groupSettingsId: null as number | null,
+  /** ID du serveur dont la session a expire — declenche l'ouverture de ReauthModal. */
+  reauthServerId: null as string | null,
 });
 
 // ── Getters ──
@@ -345,6 +350,7 @@ export async function openDmWith(peerId: number) {
   const state = activeState();
   if (!server || !state) return;
   state.activeDmUserId = peerId;
+  state.activeTab = "dms";
   state.dmUnread.delete(peerId);
   if (!state.dms.has(peerId)) {
     await _dms.loadConversation(server, state, peerId);
@@ -455,7 +461,7 @@ export async function selectChannel(channelId: number) {
   if (!server || !state) return;
 
   state.activeChannelId = channelId;
-  state.activeDmUserId = null; // revient à la vue channel
+  state.activeTab = "channels"; // revient à la vue channel (on garde activeDmUserId pour mémoriser le dernier DM)
   state.channelUnread.delete(channelId);
   state.channelMentions.delete(channelId);
   persistNav();

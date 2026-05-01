@@ -93,7 +93,6 @@ setup_deployment_mode() {
   HOST="localhost"
 
   if [ "$DEPLOY_MODE" = "2" ]; then
-    local PUBLIC_IP
     PUBLIC_IP=$(curl -s -4 ifconfig.me 2>/dev/null || curl -s -4 icanhazip.com 2>/dev/null || echo "")
     if [ -n "$PUBLIC_IP" ]; then
       ok "IP detectee: $PUBLIC_IP"
@@ -288,8 +287,13 @@ COMPOSE
 CADDY
 
   # livekit.yaml
+  local NODE_IP_LINE=""
+  if [ -n "$PUBLIC_IP" ]; then
+    NODE_IP_LINE="node_ip: $PUBLIC_IP"
+  fi
   cat > livekit.yaml <<LK
 port: 7880
+$NODE_IP_LINE
 rtc:
   tcp_port: 7881
   port_range_start: $UDP_START

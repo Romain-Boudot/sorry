@@ -183,7 +183,21 @@ const state = computed(() => activeState());
 const server = computed(() => activeServer());
 
 // ── Tabs ──
-const activeTab = ref<"channels" | "dms">("channels");
+// L'onglet actif vit dans l'état du serveur (non persisté) pour qu'App.vue puisse router la vue.
+const activeTab = computed<"channels" | "dms">({
+  get: () => state.value?.activeTab ?? "channels",
+  set: (v) => {
+    const st = state.value;
+    if (!st) return;
+    st.activeTab = v;
+    // En passant sur l'onglet DMs : si aucun DM n'est déjà ouvert, ouvrir automatiquement
+    // le dernier utilisé (mémorisé via activeDmUserId) ou sinon le premier de la liste.
+    if (v === "dms" && st.activeDmUserId == null) {
+      const first = st.dmConversations[0];
+      if (first != null) openDmWith(first);
+    }
+  },
+});
 
 const totalDmUnread = computed(() => {
   let sum = 0;
@@ -195,11 +209,6 @@ const tabItems = computed<TabItem[]>(() => [
   { id: "channels", label: "Channels", icon: Hash },
   { id: "dms", label: "DMs", icon: MessageCircle, count: totalDmUnread.value },
 ]);
-
-// Bascule automatiquement sur l'onglet DMs quand un DM devient actif (ex: clic "Message prive" sur UserCard).
-watch(() => state.value?.activeDmUserId, (peerId) => {
-  if (peerId != null) activeTab.value = "dms";
-});
 
 // ── DMs ──
 const dmPeers = computed(() => state.value?.dmConversations ?? []);
@@ -267,7 +276,8 @@ async function quickCreateChannel(kind: "text" | "voice") {
   if (!s || !st) return;
   const name = kind === "text" ? "nouveau-channel" : "Nouveau vocal";
   const ch = await api.createChannel(s.url, s.token, name, kind);
-  st.channels.push(ch);
+  // L'event WS ChannelCreate peut être arrivé avant la réponse REST — dédup pour éviter un doublon.
+  if (!st.channels.find((c) => c.id === ch.id)) st.channels.push(ch);
   store.channelSettingsId = ch.id;
 }
 
@@ -276,7 +286,7 @@ async function quickCreateGroup() {
   const st = activeState();
   if (!s || !st) return;
   const group = await api.createGroup(s.url, s.token, "Nouveau groupe");
-  st.groups.push(group);
+  if (!st.groups.find((g) => g.id === group.id)) st.groups.push(group);
   store.groupSettingsId = group.id;
 }
 

@@ -21,6 +21,13 @@ function getTokenExp(token: string): number | null {
   } catch { return null; }
 }
 
+/** True si le token JWT est expire (ou illisible). Garde de quelques secondes. */
+export function isTokenExpired(token: string): boolean {
+  const exp = getTokenExp(token);
+  if (!exp) return true;
+  return exp <= Math.floor(Date.now() / 1000) + 5;
+}
+
 function scheduleTokenRefresh(serverId: string) {
   const existing = refreshTimers.get(serverId);
   if (existing) clearTimeout(existing);
@@ -33,7 +40,9 @@ function scheduleTokenRefresh(serverId: string) {
 
   const nowSecs = Math.floor(Date.now() / 1000);
   const remaining = exp - nowSecs;
-  const refreshIn = Math.max(remaining * 0.8, 60) * 1000;
+  // Refresh 60s avant expiration ; si moins de 60s (ou deja expire), tenter
+  // immediatement — le serveur 401era si le token est mort, ce qu'on gere ci-dessous.
+  const refreshIn = Math.max(0, (remaining - 60) * 1000);
 
   const timer = setTimeout(async () => {
     try {
@@ -41,8 +50,13 @@ function scheduleTokenRefresh(serverId: string) {
       server.token = res.token;
       persistServers();
       scheduleTokenRefresh(serverId);
-    } catch {
-      // Token expired or server unreachable
+    } catch (e) {
+      // 401 = token deja expire/invalide cote serveur : /auth/refresh exige un JWT valide,
+      // donc inutile de retenter — l'utilisateur devra se reconnecter.
+      // Autre erreur (reseau, serveur down) : retry dans 30s.
+      if (e instanceof Error && e.message === "401") return;
+      const retry = setTimeout(() => scheduleTokenRefresh(serverId), 30_000);
+      refreshTimers.set(serverId, retry);
     }
   }, refreshIn);
 
@@ -166,6 +180,17 @@ export async function connectToServer(serverId: string) {
   const existing = store.serverStates.get(serverId);
   if (existing?.connected || existing?.wsConnection) {
     store.activeServerId = serverId;
+    return;
+  }
+
+  // Token mort : inutile de tenter le WS (boucle de reconnexion infinie sur 401).
+  // On declenche le prompt de re-login a la place.
+  if (isTokenExpired(server.token)) {
+    if (!store.serverStates.has(serverId)) {
+      store.serverStates.set(serverId, createServerState());
+    }
+    store.reauthServerId = serverId;
+    showToast(`Session expiree sur ${server.name}, reconnecte-toi.`, "warning", 5000);
     return;
   }
 

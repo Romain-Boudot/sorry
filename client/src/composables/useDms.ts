@@ -404,4 +404,5 @@ export function closeDm() {
   const state = store.serverStates.get(store.activeServerId ?? "");
   if (!state) return;
   state.activeDmUserId = null;
+  state.activeTab = "channels";
 }

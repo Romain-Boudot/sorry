@@ -7,7 +7,7 @@
       <Sidebar v-if="store.activeServerId" />
       <div v-if="store.activeServerId" class="main-area has-sidebar">
         <ChatHeader
-          v-if="!activeDm"
+          v-if="!onDmTab"
           :gallery-open="showGallery"
           :pins-open="showPins"
           @jump-to="onSearchJump"
@@ -15,7 +15,7 @@
           @toggle-pins="showPins = !showPins; showGallery = false"
         />
         <div class="main-body">
-          <DmView v-if="activeDm" />
+          <DmView v-if="onDmTab" />
           <template v-else>
             <VoiceView v-if="isVoice" />
             <ChatBody v-else ref="chatBodyRef" />
@@ -63,6 +63,7 @@
     <ServerSettingsModal v-if="store.showServerSettingsModal" />
     <ChannelSettingsModal v-if="store.channelSettingsId" />
     <GroupSettingsModal v-if="store.groupSettingsId" />
+    <ReauthModal v-if="store.reauthServerId" />
   </div>
 </template>
 
@@ -88,12 +89,13 @@ import SettingsModal from "./components/SettingsModal.vue";
 import ServerSettingsModal from "./components/ServerSettingsModal.vue";
 import ChannelSettingsModal from "./components/ChannelSettingsModal.vue";
 import GroupSettingsModal from "./components/GroupSettingsModal.vue";
+import ReauthModal from "./components/ReauthModal.vue";
 import VoiceBar from "./components/VoiceBar.vue";
 import AudioControls from "./components/AudioControls.vue";
 
 const state = computed(() => activeState());
 const isVoice = computed(() => isActiveChannelVoice());
-const activeDm = computed(() => state.value?.activeDmUserId != null);
+const onDmTab = computed(() => state.value?.activeTab === "dms");
 const isTauri = ref("__TAURI_INTERNALS__" in window);
 const chatBodyRef = ref<InstanceType<typeof ChatBody>>();
 const showGallery = ref(false);

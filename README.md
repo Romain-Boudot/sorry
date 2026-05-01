@@ -47,6 +47,8 @@ The script will:
 | Public + IP | `http://YOUR_IP`, accessible from the network |
 | Public + domain | `http://domain.com`, with optional HTTPS (auto TLS via Caddy) |
 
+In public modes the installer auto-detects the machine's public IP (via `ifconfig.me` / `icanhazip.com`) and writes it to `livekit.yaml` as `node_ip:`. This is the IP LiveKit advertises to WebRTC clients for media traffic — it's what makes voice/video work through NAT. If detection fails or the host changes IP, edit `~/sorry/livekit.yaml` and update the `node_ip` line, then `docker compose restart livekit`.
+
 ### After install
 
 ```bash

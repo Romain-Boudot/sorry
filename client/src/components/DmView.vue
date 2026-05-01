@@ -1,5 +1,10 @@
 <template>
-  <div class="dm-view">
+  <div v-if="!peerId" class="dm-view dm-view-empty">
+    <MessageSquare :size="48" :stroke-width="1.2" />
+    <h3>Aucun message privé</h3>
+    <p>Sélectionne une conversation à gauche ou démarre-en une nouvelle.</p>
+  </div>
+  <div v-else class="dm-view">
     <div class="dm-header">
       <div class="dm-header-user" @click="openPeerCard">
         <div class="dm-avatar" :style="avatarStyle">
@@ -375,6 +380,25 @@ watch(peerId, () => {
   flex-direction: column;
   min-height: 0;
   background: var(--bg-primary);
+}
+.dm-view-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 24px;
+}
+.dm-view-empty h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.dm-view-empty p {
+  margin: 0;
+  font-size: 0.875rem;
+  max-width: 320px;
 }
 
 .dm-header {
