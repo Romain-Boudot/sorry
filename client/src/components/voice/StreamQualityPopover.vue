@@ -198,16 +198,19 @@ async function applyChanges() {
 }
 
 function onPickPreset(id: PresetId) {
+  // Don't call applyChanges here — the watcher below picks up the change
+  // and runs it through the 250ms debounce. Calling it now would double-apply.
   applyPreset(props.kind, id);
-  applyChanges();
 }
 
 function onField<K extends keyof StreamPreset>(field: K, value: StreamPreset[K]) {
+  const wasPreset = settings.value.presetId !== "custom";
   updateField(props.kind, field, value);
-  // Resolution / FPS / hint imply a different optimal bitrate — recompute it
-  // so the user always starts from a sane default. They can override after
-  // by dragging the bitrate slider, which is itself excluded from this rule.
-  if (field !== "bitrateKbps") {
+  // When the user is on a preset, tweaking a non-bitrate field implies a
+  // different optimal bitrate — refresh it so the value stays coherent. Once
+  // they're in custom mode (i.e. they moved the slider), respect their
+  // bitrate choice and don't overwrite it on subsequent edits.
+  if (field !== "bitrateKbps" && wasPreset) {
     updateField(props.kind, "bitrateKbps", recommendedBitrate(settings.value.preset));
   }
 }

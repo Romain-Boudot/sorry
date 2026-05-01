@@ -10,6 +10,38 @@ import {
   VideoQuality,
 } from "livekit-client";
 import { reactive } from "vue";
+import { streamSettings, RESOLUTION_DIMS, type StreamPreset } from "./streamSettings";
+
+// ══════════════════════════════════════
+//  Identity helpers
+// ══════════════════════════════════════
+
+/** LiveKit identity emitted by the server for a given user id (must mirror
+ *  `format!("user-{}", id)` in crates/server/src/routes/livekit.rs). */
+export function voiceIdentityFor(userId: number): string {
+  return `user-${userId}`;
+}
+
+// ══════════════════════════════════════
+//  LiveKit private-API access — cast helpers
+// ══════════════════════════════════════
+//
+// LiveKit doesn't publicly expose the underlying MediaStreamTrack or RTCRtpSender
+// on a LocalTrack. We need them for live `applyConstraints` and `sender.setParameters`
+// calls. Centralizing the casts here so they're easy to spot if a LiveKit upgrade
+// renames the props.
+
+function getMediaStreamTrack(track: unknown): MediaStreamTrack | undefined {
+  return (track as { mediaStreamTrack?: MediaStreamTrack } | null)?.mediaStreamTrack;
+}
+
+function getRtcSender(track: unknown): RTCRtpSender | undefined {
+  return (track as { sender?: RTCRtpSender } | null)?.sender;
+}
+
+function getRtcReceiver(track: unknown): RTCRtpReceiver | undefined {
+  return (track as { receiver?: RTCRtpReceiver } | null)?.receiver;
+}
 
 // ══════════════════════════════════════
 //  Media state — reactive, source of truth for all track info
@@ -92,6 +124,10 @@ function cleanupAllMedia() {
   mediaState.watchedScreens.clear();
   mediaState.quality.clear();
   mediaState.deafened = false;
+  watchQuality.clear();
+  lastBytes.clear();
+  lastLayerBytes.clear();
+  lastEncode.clear();
   mediaState.version++;
 }
 
@@ -161,20 +197,27 @@ export const watchQuality = new Map<string, ViewQuality>();
 /** Set the quality preference for a remote video track we're subscribed to.
  *  - "auto" resets to HIGH (adaptive SDK can still pick lower for small tiles)
  *  - "high" / "medium" / "low" caps what the SFU sends us */
-export function setViewQuality(identity: string, source: "camera" | "screen_share", q: ViewQuality) {
-  if (!currentRoom) return;
+export function setViewQuality(identity: string, source: "camera" | "screen_share", q: ViewQuality): boolean {
+  if (!currentRoom) return false;
   const wanted = source === "screen_share" ? Track.Source.ScreenShare : Track.Source.Camera;
   const participant = currentRoom.remoteParticipants.get(identity);
-  if (!participant) return;
+  if (!participant) return false;
   for (const pub of participant.trackPublications.values()) {
     if (pub.kind !== Track.Kind.Video || pub.source !== wanted) continue;
     const rpub = pub as RemoteTrackPublication;
     const mapped = q === "low" ? VideoQuality.LOW : q === "medium" ? VideoQuality.MEDIUM : VideoQuality.HIGH;
-    try { rpub.setVideoQuality(mapped); } catch {}
-    break;
+    // Only commit the preference if the SFU accepted it — otherwise the UI would
+    // claim a quality cap is active when the publisher has e.g. simulcast disabled.
+    try {
+      rpub.setVideoQuality(mapped);
+      watchQuality.set(`${identity}:${source}`, q);
+      mediaState.version++;
+      return true;
+    } catch {
+      return false;
+    }
   }
-  watchQuality.set(`${identity}:${source}`, q);
-  mediaState.version++;
+  return false;
 }
 
 export function getViewQuality(identity: string, source: "camera" | "screen_share"): ViewQuality {
@@ -294,6 +337,7 @@ export async function joinVoice(
     mediaState.watchedScreens.delete(participant.identity);
     mediaState.mutedRemotes.delete(participant.identity);
     mediaState.quality.delete(participant.identity);
+    purgeStatsFor(participant.identity);
     mediaState.version++;
     callbacks.onParticipantLeft(participant.identity);
   });
@@ -302,23 +346,20 @@ export async function joinVoice(
   room.on(RoomEvent.TrackPublished, (publication, participant) => {
     if (shouldAutoSubscribe(publication)) {
       publication.setSubscribed(true);
-    } else if (
-      publication.source === Track.Source.ScreenShare &&
-      mediaState.watchedScreens.has(participant.identity)
-    ) {
-      // Publisher re-published their screen (quality change, etc.) — we still
-      // want to watch, so re-subscribe without requiring a user click.
-      publication.setSubscribed(true);
     }
     scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
     mediaState.version++;
     callbacks.onTrackChanged?.();
   });
 
-  room.on(RoomEvent.TrackUnpublished, (_publication, participant) => {
-    // We intentionally keep `watchedScreens` populated even when a screen share
-    // is unpublished: if the publisher republishes (quality change), we want to
-    // auto-resubscribe. The entry is cleared on participant disconnect.
+  room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
+    // A screen share that just went away is no longer being watched by us.
+    // (Live quality changes don't re-publish — they go through applyConstraints
+    // / sender.setParameters — so an unpublish here is a deliberate stop. The
+    // viewer must opt-in again if/when the publisher restarts the share.)
+    if (publication.source === Track.Source.ScreenShare) {
+      mediaState.watchedScreens.delete(participant.identity);
+    }
     scanParticipantMedia(participant.identity, participant.name || participant.identity, participant.trackPublications.values());
     mediaState.version++;
     callbacks.onTrackChanged?.();
@@ -460,8 +501,6 @@ export function setDeafened(deafened: boolean) {
 //  Screen share
 // ══════════════════════════════════════
 
-import { streamSettings, RESOLUTION_DIMS, type StreamPreset } from "./streamSettings";
-
 // We always request the MAXIMUM capture resolution + framerate at start so
 // `applyConstraints` can freely downscale later. Upscaling above the initial
 // capture isn't possible — the encoder never sees frames larger/faster than
@@ -482,7 +521,11 @@ function screenOpts(preset: StreamPreset) {
 
 function cameraOpts(preset: StreamPreset) {
   return {
-    capture: { resolution: CAPTURE_MAX_CAMERA },
+    // Pass the same contentHint as we will set on the live track so the encoder
+    // gets a consistent signal from the first frame, even though the popover
+    // doesn't currently surface this for the camera (camera presets always use
+    // "motion", which is the right default for face video).
+    capture: { resolution: CAPTURE_MAX_CAMERA, contentHint: preset.contentHint },
     publish: {
       videoEncoding: { maxBitrate: preset.bitrateKbps * 1000, maxFramerate: preset.fps },
       simulcast: preset.simulcast,
@@ -576,7 +619,7 @@ async function applyLive(source: Track.Source, preset: StreamPreset) {
   for (const pub of currentRoom.localParticipant.videoTrackPublications.values()) {
     if (pub.source !== source || !pub.track) continue;
 
-    const mediaTrack = (pub.track as any).mediaStreamTrack as MediaStreamTrack | undefined;
+    const mediaTrack = getMediaStreamTrack(pub.track);
     if (mediaTrack) {
       try {
         await mediaTrack.applyConstraints({
@@ -588,11 +631,11 @@ async function applyLive(source: Track.Source, preset: StreamPreset) {
         console.warn("[voice] applyConstraints failed", e);
       }
       if ("contentHint" in mediaTrack) {
-        try { (mediaTrack as any).contentHint = preset.contentHint; } catch {}
+        try { (mediaTrack as { contentHint: string }).contentHint = preset.contentHint; } catch {}
       }
     }
 
-    const sender = (pub.track as any).sender as RTCRtpSender | undefined;
+    const sender = getRtcSender(pub.track);
     if (sender) {
       try {
         const params = sender.getParameters();
@@ -730,6 +773,17 @@ const lastLayerBytes = new Map<string, { bytes: number; ts: number }>();
 /** Per-sender totalEncodeTime + framesEncoded for computing encode-time-per-frame deltas. */
 const lastEncode = new Map<string, { time: number; frames: number }>();
 
+/** Drop all stats accumulated for one identity. Called when a participant
+ *  disconnects so the maps don't grow unboundedly over a long session. */
+function purgeStatsFor(identity: string) {
+  const prefix = `${identity}:`;
+  for (const k of lastBytes.keys()) if (k.startsWith(prefix)) lastBytes.delete(k);
+  for (const k of lastLayerBytes.keys()) if (k.startsWith(prefix)) lastLayerBytes.delete(k);
+  for (const k of lastEncode.keys()) if (k.startsWith(prefix)) lastEncode.delete(k);
+  watchQuality.delete(`${identity}:camera`);
+  watchQuality.delete(`${identity}:screen_share`);
+}
+
 function deltaBitrate(key: string, bytes: number, now: number): number {
   const prev = lastBytes.get(key);
   lastBytes.set(key, { bytes, ts: now });
@@ -755,9 +809,9 @@ export async function getTrackStats(identity: string, source: "camera" | "screen
   if (isLocal) {
     for (const p of currentRoom.localParticipant.videoTrackPublications.values()) {
       if (p.source === wantedSource && p.track) {
-        sender = (p.track as any).sender as RTCRtpSender | undefined;
+        sender = getRtcSender(p.track);
         webrtcEndpoint = sender;
-        const mst = (p.track as any).mediaStreamTrack as MediaStreamTrack | undefined;
+        const mst = getMediaStreamTrack(p.track);
         if (mst) {
           try { captureSettings = mst.getSettings(); } catch {}
         }
@@ -769,7 +823,7 @@ export async function getTrackStats(identity: string, source: "camera" | "screen
     if (!participant) return null;
     for (const p of participant.trackPublications.values()) {
       if (p.kind === Track.Kind.Video && p.source === wantedSource) {
-        webrtcEndpoint = ((p as RemoteTrackPublication).track as any)?.receiver as RTCRtpReceiver | undefined;
+        webrtcEndpoint = getRtcReceiver((p as RemoteTrackPublication).track);
         inbound = true;
         break;
       }

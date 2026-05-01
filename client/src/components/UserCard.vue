@@ -76,7 +76,7 @@
 import { ref, computed } from "vue";
 import { Circle, Plus, MessageCircle, Monitor } from "lucide-vue-next";
 import { activeState, activeServer, resolveAvatarUrl, openDmWith, selectChannel, joinVoiceChannel } from "../store";
-import { watchScreen } from "../voice";
+import { watchScreen, voiceIdentityFor } from "../voice";
 import { api, type User, type Role } from "../api";
 import * as perms from "../permissions";
 
@@ -146,8 +146,7 @@ async function onWatchStream() {
     await joinVoiceChannel(chId);
   }
 
-  // Subscribe to the screen share. The identity format matches server-side tokens.
-  watchScreen(`user-${props.user.id}`);
+  watchScreen(voiceIdentityFor(props.user.id));
 }
 
 const availableRoles = computed(() =>

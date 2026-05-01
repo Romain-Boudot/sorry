@@ -366,6 +366,10 @@ info "Recuperation des images..."
 $COMPOSE pull
 
 info "Demarrage..."
-$COMPOSE up -d --force-recreate
+# `up -d` recreates only services whose image or config changed; we deliberately
+# do NOT pass --force-recreate here so an accidental re-run doesn't bounce
+# unrelated services (LiveKit, Caddy) and kick everyone out of voice. Use
+# update.sh for the upgrade path.
+$COMPOSE up -d
 
 print_summary
