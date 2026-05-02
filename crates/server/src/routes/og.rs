@@ -1,10 +1,72 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::auth::AuthUser;
 use crate::state::AppState;
+
+fn is_public_ip(addr: IpAddr) -> bool {
+    match addr {
+        IpAddr::V4(ip) => {
+            let o = ip.octets();
+            !(ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || ip.is_unspecified()
+                || ip.is_documentation()
+                // CGNAT 100.64.0.0/10
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)
+                // Benchmarking 198.18.0.0/15
+                || (o[0] == 198 && (o[1] & 0xfe) == 18))
+        }
+        IpAddr::V6(ip) => {
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let s = ip.segments();
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                // fe80::/10 link-local
+                || (s[0] & 0xffc0) == 0xfe80
+                // fc00::/7 unique local
+                || (s[0] & 0xfe00) == 0xfc00)
+        }
+    }
+}
+
+struct PublicOnlyResolver;
+
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+                .collect();
+            if addrs.is_empty() {
+                return Err::<reqwest::dns::Addrs, _>("no addresses returned".into());
+            }
+            if !addrs.iter().all(|sa| is_public_ip(sa.ip())) {
+                return Err::<reqwest::dns::Addrs, _>("host resolves to non-public address".into());
+            }
+            let iter: reqwest::dns::Addrs = Box::new(addrs.into_iter());
+            Ok(iter)
+        })
+    }
+}
+
+fn safe_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .dns_resolver(Arc::new(PublicOnlyResolver))
+}
 
 #[derive(Deserialize)]
 pub struct OgRequest {
@@ -55,9 +117,7 @@ pub async fn fetch_og(
     }
 
     // Fallback: fetch OG tags from HTML
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .redirect(reqwest::redirect::Policy::limited(5))
+    let response = safe_client_builder()
         .build()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .get(&payload.url)
@@ -280,8 +340,7 @@ struct OembedResponse {
 }
 
 async fn fetch_oembed(oembed_url: &str, original_url: &str) -> Result<OgData, ()> {
-    let response = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+    let response = safe_client_builder()
         .build()
         .map_err(|_| ())?
         .get(oembed_url)

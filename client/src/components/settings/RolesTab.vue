@@ -79,6 +79,11 @@
         Ce role est au-dessus ou au meme niveau que les tiens — lecture seule.
       </p>
 
+      <p v-else-if="canEditEditingRole && !isAdmin" class="card-hint" style="margin-bottom: 12px;">
+        <Lock :size="11" class="lock-icon" style="vertical-align: -1px;" />
+        Tu ne peux activer que les permissions que tu possedes toi-meme.
+      </p>
+
       <!-- Custom roles: name + color editing -->
       <div v-if="editingRole.id > 2" class="input-row" style="margin-bottom: 16px;">
         <BaseInput v-model="editingRole.name" placeholder="Nom" :disabled="!canEditEditingRole" />
@@ -98,12 +103,15 @@
       <!-- Permission editing (all roles except Owner) -->
       <div v-for="group in permissionGroups" :key="group.label" class="perm-section">
         <div class="perm-section-title">{{ group.label }}</div>
-        <div v-for="p in group.perms" :key="p.flag" class="perm-row">
-          <span class="perm-label">{{ p.name }}</span>
+        <div v-for="p in group.perms" :key="p.flag" class="perm-row" :class="{ 'perm-locked': !canTogglePerm(p.flag) }">
+          <span class="perm-label">
+            {{ p.name }}
+            <Lock v-if="canEditEditingRole && !canTogglePerm(p.flag)" :size="10" class="perm-lock-icon" />
+          </span>
           <PermToggle
             :model-value="(editingRole.permissions & p.flag) !== 0 ? 'allow' : 'deny'"
             mode="dual"
-            :disabled="!canEditEditingRole"
+            :disabled="!canEditEditingRole || !canTogglePerm(p.flag)"
             @update:model-value="togglePerm(p.flag)"
           />
         </div>
@@ -180,6 +188,29 @@ const canEditEditingRole = computed(() => {
   if (!full) return false;
   return canActOnRole(full);
 });
+
+/** True if the current user holds ADMINISTRATOR (owner is implicit admin). */
+const isAdmin = computed(() => {
+  const st = activeState();
+  if (!st?.user) return false;
+  if (st.user.id === OWNER_USER_ID) return true;
+  return perms.has(st.permissions, perms.ADMINISTRATOR);
+});
+
+/**
+ * Mirror of `require_permission_subset` on the server: a non-admin user can
+ * only toggle a permission if they hold it themselves. Bits already set in
+ * the role can stay (a higher-up may have set them) but cannot be removed
+ * and re-added by a non-holder.
+ */
+function canTogglePerm(flag: number): boolean {
+  if (isAdmin.value) return true;
+  const st = activeState();
+  if (!st) return false;
+  if ((st.permissions & flag) !== 0) return true;
+  if (editingRole.value && (editingRole.value.permissions & flag) !== 0) return true;
+  return false;
+}
 
 const permissionGroups = [
   {
@@ -544,6 +575,18 @@ async function onRoleDragEnd() {
   font-size: 0.8125rem;
   color: var(--text-normal);
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.perm-lock-icon {
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.perm-row.perm-locked .perm-label {
+  color: var(--text-muted);
 }
 
 .detail-actions {

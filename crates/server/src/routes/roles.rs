@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::auth::AuthUser;
 use crate::error::AppError;
-use crate::perms::{require_permission, require_role_hierarchy, require_user_hierarchy};
+use crate::perms::{require_permission, require_permission_subset, require_role_hierarchy, require_user_hierarchy};
 use crate::state::AppState;
 use shared::events::ServerEvent;
 use shared::permissions;
@@ -38,6 +38,8 @@ async fn create_role(
     Json(payload): Json<CreateRolePayload>,
 ) -> Result<Json<shared::models::Role>, AppError> {
     require_permission(&state.db, auth.0, permissions::MANAGE_ROLES).await?;
+    // Cannot create a role that grants permissions the actor doesn't possess.
+    require_permission_subset(&state.db, auth.0, payload.permissions).await?;
 
     // Auto-assign position: after all existing custom roles.
     // Reserve position 0 for Owner role, so first custom role starts at 1.
@@ -91,6 +93,10 @@ async fn update_role(
         .ok_or(AppError::NotFound)?;
 
     require_role_hierarchy(&state.db, auth.0, target.position).await?;
+    // Cannot grant new permissions the actor doesn't possess. Bits already
+    // present in the role can stay (a higher-up may have set them).
+    let added = payload.permissions & !target.permissions;
+    require_permission_subset(&state.db, auth.0, added).await?;
 
     // Everyone role: only permissions can change, name/color stay fixed
     let final_name = if id == shared::EVERYONE_ROLE_ID { target.name.clone() } else { payload.name.clone() };
@@ -167,6 +173,8 @@ async fn assign_role(
         .ok_or(AppError::NotFound)?;
 
     require_role_hierarchy(&state.db, auth.0, target.position).await?;
+    // Cannot assign a role that grants permissions the actor doesn't possess.
+    require_permission_subset(&state.db, auth.0, target.permissions).await?;
 
     crate::db::roles::assign_to_user(&state.db, payload.user_id, role_id).await?;
 

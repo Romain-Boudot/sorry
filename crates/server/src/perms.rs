@@ -56,6 +56,28 @@ pub async fn check_channel_permission(
     Ok(permissions::has(final_perms, permission))
 }
 
+/// Check that every bit in `requested` is also set in the actor's effective
+/// permissions. Used to prevent privilege escalation when an actor with
+/// `MANAGE_ROLES` tries to grant a permission they don't themselves hold.
+/// Owner and ADMINISTRATOR holders bypass.
+pub async fn require_permission_subset(
+    db: &sqlx::SqlitePool,
+    actor_id: i64,
+    requested: i64,
+) -> Result<(), AppError> {
+    if actor_id == shared::OWNER_USER_ID {
+        return Ok(());
+    }
+    let actor_perms = crate::db::roles::get_user_permissions(db, actor_id).await?;
+    if actor_perms & permissions::ADMINISTRATOR != 0 {
+        return Ok(());
+    }
+    if requested & !actor_perms != 0 {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
+}
+
 /// Check that the acting user's highest role outranks a given role position.
 /// Owner (user ID 1) always bypasses.
 pub async fn require_role_hierarchy(

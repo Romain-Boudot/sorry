@@ -30,7 +30,7 @@ async fn create_invite(
 ) -> Result<Json<crate::db::invites::Invite>, AppError> {
     crate::perms::require_permission(&state.db, auth.0, shared::permissions::CREATE_INVITE).await?;
 
-    // Validate role hierarchy
+    // Validate role hierarchy and permission subset
     if let Some(role_id) = payload.role_id {
         let perms = crate::db::roles::get_user_permissions(&state.db, auth.0).await?;
         if !shared::permissions::has(perms, shared::permissions::ADMINISTRATOR) {
@@ -38,6 +38,9 @@ async fn create_invite(
                 .await?
                 .ok_or(AppError::BadRequest("Role not found".into()))?;
             crate::perms::require_role_hierarchy(&state.db, auth.0, target_role.position).await?;
+            // Cannot attach a role to an invite if it grants permissions the
+            // actor doesn't possess (would let the invitee out-rank the inviter).
+            crate::perms::require_permission_subset(&state.db, auth.0, target_role.permissions).await?;
         }
     }
 

@@ -42,6 +42,15 @@
               <Circle :size="8" fill="currentColor" :style="{ color: role.color || 'var(--text-muted)' }" />
               <span>{{ role.name }}</span>
             </div>
+            <div
+              v-for="role in escalatingRoles"
+              :key="role.id"
+              class="role-select-item locked"
+              title="Tu ne peux pas attribuer ce role : il accorde des permissions que tu ne possedes pas."
+            >
+              <Lock :size="10" />
+              <span>{{ role.name }}</span>
+            </div>
           </div>
         </div>
         <div class="invite-field invite-toggle-field">
@@ -97,7 +106,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { Trash2, TicketPlus, Copy, Check, Link2, Circle, ChevronDown } from "lucide-vue-next";
+import { Trash2, TicketPlus, Copy, Check, Link2, Circle, ChevronDown, Lock } from "lucide-vue-next";
 import NumberStepper from "../ui/NumberStepper.vue";
 import { showToast } from "../../composables/useToast";
 import { activeState, activeServer, resolveUser } from "../../store";
@@ -120,7 +129,29 @@ const assignableRoles = computed(() => {
   const userHighest = st.roles
     .filter((r) => userRoleIds.includes(r.id))
     .reduce((min, r) => Math.min(min, r.position), Infinity);
-  return st.roles.filter((r) => r.id > 2 && r.position > userHighest);
+  // Mirror of `require_permission_subset`: cannot attach a role that grants
+  // permissions the actor doesn't possess.
+  return st.roles.filter((r) =>
+    r.id > 2
+    && r.position > userHighest
+    && (r.permissions & ~st.permissions) === 0
+  );
+});
+
+/** Roles excluded from `assignableRoles` because their permissions exceed the actor's. */
+const escalatingRoles = computed(() => {
+  const st = activeState();
+  if (!st) return [];
+  if (perms.has(st.permissions, perms.ADMINISTRATOR)) return [];
+  const userRoleIds = st.userRoles.get(st.user?.id ?? 0) ?? [];
+  const userHighest = st.roles
+    .filter((r) => userRoleIds.includes(r.id))
+    .reduce((min, r) => Math.min(min, r.position), Infinity);
+  return st.roles.filter((r) =>
+    r.id > 2
+    && r.position > userHighest
+    && (r.permissions & ~st.permissions) !== 0
+  );
 });
 
 const selectedRole = computed(() =>
@@ -356,6 +387,15 @@ function formatExpiry(ts: number): string {
 .role-select-item.active {
   color: var(--header-primary);
   background: var(--bg-modifier-active);
+}
+
+.role-select-item.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.role-select-item.locked:hover {
+  background: transparent;
+  color: var(--text-muted);
 }
 
 .invite-toggle-field {
