@@ -1,6 +1,6 @@
 {
   "name": "client",
-  "version": "0.1.8",
+  "version": "0.1.14",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-deep-link": "^2.4.7",
+    "@tauri-apps/plugin-updater": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.0.0",
     "libsodium-wrappers": "^0.8.3",
     "livekit-client": "^2.18.0",
     "lucide-vue-next": "^1.0.0",

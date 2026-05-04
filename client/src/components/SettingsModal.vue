@@ -93,13 +93,32 @@
           <div class="settings-section">
             <div class="about-app">
               <h3>Sorry</h3>
-              <p class="about-version">v0.1.0</p>
+              <p class="about-version">v{{ currentVersion }}</p>
               <p class="about-tagline">Open-source, self-hosted, no account required.</p>
               <p class="about-desc">
                 Pas de tracking, pas de telemetrie, pas de compte centralise.
                 Ton serveur, tes donnees, tes regles.
               </p>
               <p class="about-stack">Rust + Axum + Vue.js + LiveKit</p>
+            </div>
+          </div>
+
+          <div v-if="isTauri" class="settings-section">
+            <label>Mises a jour</label>
+            <p class="settings-hint">
+              Verifie la presence d'une nouvelle version de l'application desktop.
+              Une verification silencieuse s'execute deja a chaque demarrage.
+            </p>
+            <div class="settings-input-row">
+              <span class="update-status">
+                <template v-if="pendingUpdate">
+                  Mise a jour disponible : <strong>v{{ pendingUpdate.version }}</strong>
+                </template>
+                <template v-else>A jour</template>
+              </span>
+              <button class="settings-save-btn" :disabled="checking" @click="onCheckUpdates">
+                {{ checking ? "Verification..." : "Verifier maintenant" }}
+              </button>
             </div>
           </div>
         </div>
@@ -115,6 +134,7 @@ import Dropdown from "./ui/Dropdown.vue";
 import { store } from "../store";
 import { onUnmounted } from "vue";
 import { switchMicrophone, switchSpeaker } from "../voice";
+import { checkForUpdates, pendingUpdate } from "../composables/useUpdater";
 
 const activeTab = ref("profile");
 
@@ -123,6 +143,16 @@ const tabs = [
   { id: "audio", label: "Audio", icon: Volume2 },
   { id: "about", label: "A propos", icon: Info },
 ];
+
+// ── About / Updates ──
+const isTauri = "__TAURI_INTERNALS__" in window;
+const currentVersion = ref("0.0.0");
+const checking = ref(false);
+
+async function onCheckUpdates() {
+  checking.value = true;
+  try { await checkForUpdates(false); } finally { checking.value = false; }
+}
 
 const activeTabLabel = computed(() => tabs.find((t) => t.id === activeTab.value)?.label ?? "");
 
@@ -178,6 +208,13 @@ onMounted(async () => {
     speakers.value = devices.filter((d) => d.kind === "audiooutput");
   } catch {
     // Permissions pas encore accordees
+  }
+
+  if (isTauri) {
+    try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      currentVersion.value = await getVersion();
+    } catch { /* desktop only */ }
   }
 });
 
@@ -424,6 +461,19 @@ function close() {
   font-size: 0.75rem;
   color: var(--green);
   margin-top: 6px;
+}
+
+.update-status {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.update-status strong {
+  color: var(--accent);
+  margin-left: 4px;
 }
 
 

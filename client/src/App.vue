@@ -2,6 +2,25 @@
   <div class="app-shell" :class="{ 'is-tauri': isTauri }">
     <ToastContainer />
     <TopBar />
+    <div v-if="pendingUpdate && !installing" class="update-banner">
+      <Download :size="14" />
+      <span class="update-banner-text">
+        Mise a jour disponible : <strong>v{{ pendingUpdate.version }}</strong>
+      </span>
+      <button class="update-banner-btn" @click="installUpdate">Installer</button>
+      <button class="update-banner-dismiss" @click="dismissUpdate" title="Plus tard">
+        <X :size="14" />
+      </button>
+    </div>
+    <div v-else-if="installing" class="update-banner installing">
+      <Loader2 :size="14" class="spinner" />
+      <span class="update-banner-text">
+        Telechargement de la mise a jour... {{ Math.round(installProgress * 100) }}%
+      </span>
+      <div class="update-progress-bar">
+        <div class="update-progress-fill" :style="{ width: (installProgress * 100) + '%' }"></div>
+      </div>
+    </div>
     <div class="app-grid">
       <ServerList />
       <Sidebar v-if="store.activeServerId" />
@@ -69,8 +88,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Settings, Plus } from "lucide-vue-next";
+import { Settings, Plus, Download, X, Loader2 } from "lucide-vue-next";
 import { store, connectAll, restoreNav, activeState, isActiveChannelVoice, resolveUserColor } from "./store";
+import { autoCheckOnStartup, installUpdate, pendingUpdate, installing, installProgress } from "./composables/useUpdater";
 import { setMentionResolver } from "./markdown";
 import TopBar from "./components/TopBar.vue";
 import ServerList from "./components/ServerList.vue";
@@ -170,7 +190,14 @@ onMounted(async () => {
 
   restoreNav();
   connectAll();
+  autoCheckOnStartup();
 });
+
+// "Plus tard" : on cache la banniere pour la session courante. Le check
+// rejouera au prochain demarrage de l'app.
+function dismissUpdate() {
+  pendingUpdate.value = null;
+}
 </script>
 
 <style scoped>
@@ -343,5 +370,94 @@ onMounted(async () => {
   padding: 10px 20px;
   font-size: 0.875rem;
   border-radius: 8px;
+}
+
+/* ── Update banner ── */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--text-bright);
+  font-size: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.update-banner.installing {
+  background: var(--bg-tertiary);
+  color: var(--text-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.update-banner-text {
+  flex: 1;
+}
+
+.update-banner-text strong {
+  font-weight: 700;
+}
+
+.update-banner-btn {
+  width: auto;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.update-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: none;
+}
+
+.update-banner-dismiss {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: inherit;
+  opacity: 0.8;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.update-banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 1;
+  box-shadow: none;
+}
+
+.update-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--bg-modifier-hover);
+}
+
+.update-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

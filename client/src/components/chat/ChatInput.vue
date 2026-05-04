@@ -1,31 +1,36 @@
 <template>
-  <div v-if="fileError" class="file-error">{{ fileError }}</div>
-  <div class="chat-input">
-    <div v-if="pendingFiles.length" class="pending-files">
-      <div v-for="(file, i) in pendingFiles" :key="i" class="pending-file">
-        <img v-if="file.type.startsWith('image/')" :src="objectUrls.get(file)" class="pending-thumb" />
-        <FileText v-else :size="24" class="pending-file-icon" />
-        <div class="pending-file-info">
-          <span class="pending-file-name">{{ file.name }}</span>
-          <span class="pending-file-size">{{ formatSize(file.size) }}</span>
+  <Composer
+    ref="composerRef"
+    v-model="input"
+    :placeholder="`Envoyer un message dans #${channelName}`"
+    :disabled="!input.trim() && !pendingFiles.length"
+    :error="fileError"
+    :replying-to="replyContext"
+    :scroll-container="messagesContainer ?? null"
+    :is-scrolled-to-bottom="isScrolledToBottom"
+    @submit="handleSend"
+    @cancel-reply="$emit('cancel-reply')"
+    @paste="onPaste"
+    @keydown="onKeydown"
+    @input="onInputChange"
+  >
+    <template #above>
+      <div v-if="pendingFiles.length" class="pending-files">
+        <div v-for="(file, i) in pendingFiles" :key="i" class="pending-file">
+          <img v-if="file.type.startsWith('image/')" :src="objectUrls.get(file)" class="pending-thumb" />
+          <FileText v-else :size="24" class="pending-file-icon" />
+          <div class="pending-file-info">
+            <span class="pending-file-name">{{ file.name }}</span>
+            <span class="pending-file-size">{{ formatSize(file.size) }}</span>
+          </div>
+          <button class="pending-file-remove" @click="removeFile(i)">
+            <X :size="14" />
+          </button>
         </div>
-        <button class="pending-file-remove" @click="removeFile(i)">
-          <X :size="14" />
-        </button>
       </div>
-    </div>
-    <div v-if="replyingTo" class="reply-bar">
-      <Reply :size="14" class="reply-bar-icon" />
-      <span class="reply-bar-text">
-        Reponse a <strong>{{ resolveUser(replyingTo.author_id) }}</strong>
-        <span class="reply-bar-content">{{ replyingTo.content.slice(0, 80) }}{{ replyingTo.content.length > 80 ? '...' : '' }}</span>
-      </span>
-      <button class="reply-bar-close" @click="$emit('cancel-reply')">
-        <X :size="14" />
-      </button>
-    </div>
-    <div class="chat-input-wrapper">
-      <!-- Mention autocomplete -->
+    </template>
+
+    <template #popups>
       <div v-if="mentionSuggestions.length" class="mention-popup">
         <div
           v-for="(item, i) in mentionSuggestions"
@@ -39,31 +44,23 @@
           <span class="mention-type-tag">{{ item.type === 'role' ? 'role' : 'user' }}</span>
         </div>
       </div>
+    </template>
+
+    <template #left>
       <input type="file" ref="fileInput" multiple hidden @change="onFileSelect" />
       <button class="chat-attach" @click="fileInput?.click()" title="Joindre un fichier">
         <Paperclip :size="18" />
       </button>
-      <textarea
-        ref="mainInput"
-        v-model="input"
-        @keydown="onMainKeydown"
-        @input="onInputChange"
-        @paste="onPaste"
-        :placeholder="`Envoyer un message dans #${channelName}`"
-        rows="1"
-      ></textarea>
-      <button class="chat-send" @click="handleSend" :disabled="!input.trim() && !pendingFiles.length">
-        <SendHorizonal :size="18" />
-      </button>
-    </div>
-  </div>
+    </template>
+  </Composer>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, nextTick } from "vue";
-import { SendHorizonal, Paperclip, X, FileText, Reply } from "lucide-vue-next";
+import { Paperclip, X, FileText } from "lucide-vue-next";
 import { activeState, activeServer, sendMessage, sendTyping, resolveUser } from "../../store";
 import type { Message } from "../../api";
+import Composer from "./Composer.vue";
 
 const props = defineProps<{
   channelName: string;
@@ -93,11 +90,19 @@ const state = computed(() => activeState());
 const MAX_FILE_SIZE = computed(() => state.value?.maxFileSize ?? 25 * 1024 * 1024);
 
 const input = ref("");
-const mainInput = ref<HTMLTextAreaElement>();
+const composerRef = ref<InstanceType<typeof Composer>>();
 const fileInput = ref<HTMLInputElement>();
 const pendingFiles = ref<File[]>([]);
 const objectUrls = ref<Map<File, string>>(new Map());
 const fileError = ref("");
+
+const replyContext = computed(() => {
+  if (!props.replyingTo) return null;
+  return {
+    authorName: resolveUser(props.replyingTo.author_id),
+    content: props.replyingTo.content,
+  };
+});
 
 // ── Mention autocomplete ──
 interface MentionItem {
@@ -133,7 +138,7 @@ const mentionSuggestions = computed((): MentionItem[] => {
 });
 
 function updateMentionState() {
-  const el = mainInput.value;
+  const el = composerRef.value?.textarea();
   if (!el) { mentionStart.value = -1; return; }
   const pos = el.selectionStart ?? 0;
   const text = input.value.slice(0, pos);
@@ -153,7 +158,7 @@ function updateMentionState() {
 }
 
 function insertMention(item: MentionItem) {
-  const el = mainInput.value;
+  const el = composerRef.value?.textarea();
   if (!el || mentionStart.value < 0) return;
   const pos = el.selectionStart ?? 0;
   const before = input.value.slice(0, mentionStart.value);
@@ -168,24 +173,9 @@ function insertMention(item: MentionItem) {
   });
 }
 
-function onInputChange(e: Event) {
-  autoResize(e);
+function onInputChange() {
   updateMentionState();
   if (input.value.trim()) sendTyping();
-}
-
-function autoResize(e: Event) {
-  const wasAtBottom = props.isScrolledToBottom();
-  const el = e.target as HTMLTextAreaElement;
-  el.style.height = "auto";
-  el.style.height = el.scrollHeight + "px";
-  el.style.overflowY = el.scrollHeight > el.offsetHeight ? "auto" : "hidden";
-  if (wasAtBottom) {
-    nextTick(() => {
-      const container = props.messagesContainer;
-      if (container) container.scrollTop = container.scrollHeight;
-    });
-  }
 }
 
 function trimMessage(s: string): string {
@@ -268,16 +258,12 @@ function handleSend() {
   for (const [, url] of objectUrls.value) URL.revokeObjectURL(url);
   objectUrls.value.clear();
   pendingFiles.value = [];
-  nextTick(() => {
-    if (mainInput.value) {
-      mainInput.value.style.height = "auto";
-    }
-  });
+  nextTick(() => composerRef.value?.reset());
   emit('sent');
 }
 
-function onMainKeydown(e: KeyboardEvent) {
-  // Mention autocomplete navigation
+function onKeydown(e: KeyboardEvent) {
+  // Mention autocomplete navigation — must intercept before Composer's own Enter handling.
   if (mentionSuggestions.value.length > 0) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -301,11 +287,6 @@ function onMainKeydown(e: KeyboardEvent) {
     }
   }
 
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    handleSend();
-    return;
-  }
   if (e.key === "ArrowUp" && !input.value) {
     const st = state.value;
     if (!st?.activeChannelId || !st.user) return;
@@ -321,66 +302,13 @@ function onMainKeydown(e: KeyboardEvent) {
   }
 }
 
-// Expose addFiles so parent can call it for drag/drop
-defineExpose({ addFiles, focus: () => mainInput.value?.focus() });
+defineExpose({
+  addFiles,
+  focus: () => composerRef.value?.focus(),
+});
 </script>
 
 <style scoped>
-.chat-input {
-  padding: 0 8px 8px;
-}
-
-.chat-input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  min-height: calc(var(--bar-height) + 2px);
-  background: var(--bg-floating);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  padding-right: 4px;
-}
-
-.chat-input textarea {
-  width: 100%;
-  min-height: var(--bar-height);
-  padding: 13px 16px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-normal);
-  font-size: 0.9375rem;
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  overflow: hidden;
-  overflow-wrap: break-word;
-  line-height: 1.375;
-  max-height: 200px;
-}
-
-.chat-input textarea::placeholder {
-  color: var(--text-faint);
-}
-
-.chat-send {
-  width: 32px;
-  height: var(--bar-height);
-  padding: 0;
-  margin: 0;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  transition: color 0.1s;
-}
-
-.chat-send:hover { color: var(--text-normal); box-shadow: none; }
-.chat-send:disabled { color: var(--text-faint); opacity: 0.5; }
-
 .chat-attach {
   width: 32px;
   height: var(--bar-height);
@@ -402,12 +330,6 @@ defineExpose({ addFiles, focus: () => mainInput.value?.focus() });
 }
 
 /* ── Pending files ── */
-.file-error {
-  padding: 6px 16px;
-  font-size: 0.75rem;
-  color: var(--danger);
-}
-
 .pending-files {
   display: flex;
   gap: 8px;
@@ -480,67 +402,6 @@ defineExpose({ addFiles, focus: () => mainInput.value?.focus() });
 .pending-file-remove:hover {
   background: var(--danger);
   color: var(--text-bright);
-}
-
-/* ── Reply bar above input ── */
-.reply-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-radius: 8px 8px 0 0;
-  border: 1px solid var(--border);
-  border-bottom: none;
-  font-size: 0.8125rem;
-  color: var(--text-muted);
-}
-
-.reply-bar + .chat-input-wrapper {
-  border-radius: 0 0 8px 8px;
-}
-
-.reply-bar-icon {
-  flex-shrink: 0;
-  color: var(--accent);
-}
-
-.reply-bar-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reply-bar-text strong {
-  color: var(--header-primary);
-}
-
-.reply-bar-content {
-  margin-left: 6px;
-  color: var(--text-faint);
-}
-
-.reply-bar-close {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.reply-bar-close:hover {
-  color: var(--text-normal);
-  background: var(--bg-modifier-hover);
-  box-shadow: none;
 }
 
 /* ── Mention autocomplete popup ── */

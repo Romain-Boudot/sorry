@@ -79,7 +79,15 @@ function renderMentions(html: string): string {
 }
 
 export function renderMarkdown(content: string): string {
-  return renderMentions(md.render(content));
+  return renderMentions(md.render(preserveExtraBlankLines(content)));
+}
+
+// markdown-it collapses any run of blank lines into a single paragraph break.
+// To let users keep visible empty lines (3+ consecutive newlines), inject an
+// invisible zero-width space on each extra blank line so it survives as its
+// own non-empty paragraph in the rendered HTML.
+function preserveExtraBlankLines(content: string): string {
+  return content.replace(/\n{3,}/g, (run) => "\n\n" + "​\n\n".repeat(run.length - 2));
 }
 
 /** Extract all http/https URLs from text */

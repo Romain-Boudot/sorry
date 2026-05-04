@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Sorry",
-  "version": "0.1.5",
+  "version": "0.1.14",
   "identifier": "com.sorry.app",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,12 @@
       "desktop": {
         "schemes": ["sorry"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/Romain-Boudot/sorry/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3NkVEQzNDRUNBODE3RkUKUldUK0Y2anNQTnh1NXdLMW9SRFpYWGhiOHc2Y0FlUDdQbG8xWDdScWlEc1VQTGZIUzd6cm1xWHEK"
     }
   },
   "bundle": {

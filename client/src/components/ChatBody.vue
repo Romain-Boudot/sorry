@@ -41,131 +41,42 @@
         <p class="chat-empty-sub">Sois le premier !</p>
       </div>
       <template v-for="(msg, i) in messages" :key="msg.id">
-        <!-- Date separator -->
         <div v-if="showDateSeparator(i)" class="date-separator">
           <span>{{ formatDate(msg.created_at) }}</span>
         </div>
-        <!-- Message -->
-        <div
-          class="message"
-          :class="{ grouped: isGrouped(i), editing: editingMessageId === msg.id, pending: msg.pending, failed: msg.failed }"
-          :data-msg-id="msg.id"
-          @contextmenu.prevent="onMessageContextMenu(msg, $event)"
-        >
-          <!-- Hover actions (hidden for pending/failed) -->
-          <div v-if="editingMessageId !== msg.id && !msg.pending && !msg.failed" class="message-actions">
-            <button
-              v-for="emoji in quickEmojis"
-              :key="emoji"
-              class="msg-action-btn quick-emoji"
-              :title="emoji"
-              @click="onToggleReaction(msg.id, emoji)"
-            >{{ emoji }}</button>
-            <button class="msg-action-btn" title="Reaction" @click="openEmojiPicker(msg.id, $event)">
-              <SmilePlus :size="14" />
-            </button>
-            <button class="msg-action-btn" title="Repondre" @click="startReply(msg)">
-              <Reply :size="14" />
-            </button>
-            <button v-if="canManage" class="msg-action-btn" :title="msg.pinned ? 'Desepingler' : 'Epingler'" @click="togglePin(msg)">
-              <PinOff v-if="msg.pinned" :size="14" />
-              <Pin v-else :size="14" />
-            </button>
-            <button v-if="isOwnMessage(msg)" class="msg-action-btn" title="Modifier" @click="startEdit(msg)">
-              <Pencil :size="14" />
-            </button>
-            <button v-if="canActOnMessage(msg)" class="msg-action-btn danger" title="Supprimer" @click="handleDelete(msg, $event)">
-              <Trash2 :size="14" />
-            </button>
-          </div>
-
-          <template v-if="!isGrouped(i)">
-            <div class="message-avatar" :class="{ 'has-reply': msg.reply_to }" @click="!isWebhookMessage(msg) && openCard(msg.author_id, $event)">
-              <img v-if="displayAvatar(msg)" :src="displayAvatar(msg)!" />
-              <span v-else>{{ displayName(msg)[0]?.toUpperCase() }}</span>
-            </div>
-            <div class="message-body">
-              <ReplyPreview
-                v-if="msg.reply_to"
-                :avatar-url="resolveAvatarUrl(msg.reply_to.author_id)"
-                :author-name="resolveUser(msg.reply_to.author_id)"
-                :author-color="resolveUserColor(msg.reply_to.author_id)"
-                :content="msg.reply_to.content"
-                @click="scrollToMessage(msg.reply_to.id)"
-              />
-              <div class="message-header">
-                <span
-                  class="message-author"
-                  :style="displayColor(msg) ? `color:${displayColor(msg)}` : ''"
-                  @click="!isWebhookMessage(msg) && openCard(msg.author_id, $event)"
-                >{{ displayName(msg) }}</span>
-                <span v-if="isWebhookMessage(msg)" class="bot-tag" title="Message envoye par un webhook">BOT</span>
-                <span v-else-if="isGuest(msg.author_id)" class="guest-tag">Guest</span>
-                <span class="message-time">{{ formatTime(msg.created_at) }}</span>
-                <Pin v-if="msg.pinned" :size="12" class="pin-icon" title="Message epingle" />
-              </div>
-              <template v-if="editingMessageId === msg.id">
-                <textarea
-                  class="message-edit-input"
-                  v-model="editContent"
-                  @keydown="onEditKeydown"
-                  @input="autoResize"
-                  v-focus
-                  rows="1"
-                ></textarea>
-                <div class="message-edit-hint">Echap pour annuler · Entree pour enregistrer</div>
-              </template>
-              <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
-              <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
-              <AttachmentList :attachments="msg.attachments" />
-              <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
-              <div v-if="msg.failed && msg.nonce" class="message-failed-bar">
-                <AlertCircle :size="12" />
-                <span class="message-failed-label">Echec d'envoi</span>
-                <button type="button" class="message-failed-btn" @click="onRetry(msg.nonce!)">Reessayer</button>
-                <span class="message-failed-sep">·</span>
-                <button type="button" class="message-failed-btn" @click="onDiscard(msg.nonce!)">Supprimer</button>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <div class="message-gutter">
-              <span class="message-time-hover">{{ formatTimeShort(msg.created_at) }}</span>
-            </div>
-            <div class="message-body">
-              <ReplyPreview
-                v-if="msg.reply_to"
-                :avatar-url="resolveAvatarUrl(msg.reply_to.author_id)"
-                :author-name="resolveUser(msg.reply_to.author_id)"
-                :author-color="resolveUserColor(msg.reply_to.author_id)"
-                :content="msg.reply_to.content"
-                @click="scrollToMessage(msg.reply_to.id)"
-              />
-              <template v-if="editingMessageId === msg.id">
-                <textarea
-                  class="message-edit-input"
-                  v-model="editContent"
-                  @keydown="onEditKeydown"
-                  @input="autoResize"
-                  v-focus
-                  rows="1"
-                ></textarea>
-                <div class="message-edit-hint">Echap pour annuler · Entree pour enregistrer</div>
-              </template>
-              <div v-else-if="msg.content" class="message-content" v-html="renderMarkdown(msg.content)"></div>
-              <LinkPreview v-for="url in extractUrls(msg.content)" :key="url" :url="url" />
-              <AttachmentList :attachments="msg.attachments" />
-              <MessageReactions :reactions="msg.reactions" :my-id="state?.user?.id ?? 0" @toggle="onToggleReaction(msg.id, $event)" @open-picker="openEmojiPicker(msg.id, $event)" />
-              <div v-if="msg.failed && msg.nonce" class="message-failed-bar">
-                <AlertCircle :size="12" />
-                <span class="message-failed-label">Echec d'envoi</span>
-                <button type="button" class="message-failed-btn" @click="onRetry(msg.nonce!)">Reessayer</button>
-                <span class="message-failed-sep">·</span>
-                <button type="button" class="message-failed-btn" @click="onDiscard(msg.nonce!)">Supprimer</button>
-              </div>
-            </div>
-          </template>
-        </div>
+        <MessageItem
+          :id="msg.id"
+          :author-name="displayName(msg)"
+          :author-avatar="displayAvatar(msg)"
+          :author-color="displayColor(msg)"
+          :content="msg.content"
+          :created-at="msg.created_at"
+          :pinned="msg.pinned"
+          :pending="msg.pending"
+          :failed="msg.failed"
+          :nonce="msg.nonce ?? null"
+          :is-webhook="isWebhookMessage(msg)"
+          :is-guest="!isWebhookMessage(msg) && isGuest(msg.author_id)"
+          :can-open-card="!isWebhookMessage(msg)"
+          :grouped="isGrouped(i)"
+          :reactions="msg.reactions"
+          :attachments="msg.attachments"
+          :reply-to="buildReplyPreview(msg)"
+          :my-user-id="state?.user?.id ?? 0"
+          :actions="buildActions(msg)"
+          :editing="editingMessageId === msg.id"
+          :edit-content="editContent"
+          @react="(emoji) => onToggleReaction(msg.id, emoji)"
+          @open-emoji-picker="(e) => openEmojiPicker(msg.id, e)"
+          @open-author-card="(e) => openCard(msg.author_id, e)"
+          @scroll-to-reply="scrollToMessage"
+          @context-menu="(e) => onMessageContextMenu(msg, e)"
+          @update:edit-content="editContent = $event"
+          @submit-edit="submitEdit"
+          @cancel-edit="cancelEdit"
+          @retry="onRetry(msg.nonce!)"
+          @discard="onDiscard(msg.nonce!)"
+        />
       </template>
       </div>
     </div>
@@ -210,7 +121,6 @@
       @close="cardUser = null"
     />
 
-    <!-- Delete confirmation -->
     <div v-if="confirmDeleteId" class="modal-overlay" @click.self="confirmDeleteId = null">
       <div class="modal-small">
         <h3>Supprimer le message</h3>
@@ -227,20 +137,16 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff, AlertCircle } from "lucide-vue-next";
+import { MessageSquare, Pencil, Trash2, Paperclip, Loader2, Reply, SmilePlus, Pin, PinOff } from "lucide-vue-next";
 import { activeState, activeServer, editMessage, deleteMessage, toggleReaction, resolveUser, resolveUserColor, resolveAvatarUrl, isGuest, retryMessage, discardFailedMessage, resolveWebhookName, resolveWebhookAvatar, isWebhookMessage } from "../store";
 import { topEmojis, recordEmoji } from "../composables/useEmojiFrequency";
 import * as perms from "../permissions";
 import { api, type Message, type User } from "../api";
-import { renderMarkdown, extractUrls } from "../markdown";
-import LinkPreview from "./LinkPreview.vue";
 import ContextMenu, { type MenuItem } from "./ui/ContextMenu.vue";
 import UserCard from "./UserCard.vue";
-import ReplyPreview from "./chat/ReplyPreview.vue";
-import AttachmentList from "./chat/AttachmentList.vue";
-import MessageReactions from "./chat/MessageReactions.vue";
 import EmojiPicker from "./chat/EmojiPicker.vue";
 import ChatInput from "./chat/ChatInput.vue";
+import MessageItem, { type MessageAction, type ReplyPreviewData } from "./chat/MessageItem.vue";
 
 const typingText = computed(() => {
   const st = state.value;
@@ -261,13 +167,6 @@ const editingMessageId = ref<number | null>(null);
 const editContent = ref("");
 const replyingTo = ref<Message | null>(null);
 const dragging = ref(false);
-
-const vFocus = {
-  mounted: (el: HTMLElement) => {
-    el.focus();
-    autoResize({ target: el } as unknown as Event);
-  },
-};
 
 const state = computed(() => activeState());
 
@@ -298,7 +197,6 @@ watch(() => messages.value.length, (newLen, oldLen) => {
 
 // Auto-scroll when content height grows (images loaded, reactions added, etc.)
 // but only if user was already at the bottom.
-// ResizeObserver on the inner wrapper catches all child size changes.
 let wasAtBottom = true;
 const messagesInner = ref<HTMLElement>();
 let resizeObserver: ResizeObserver | null = null;
@@ -316,7 +214,6 @@ function setupResizeObserver() {
   resizeObserver.observe(inner);
 }
 
-// Setup when connected (inner div appears via v-else)
 watch(() => state.value?.connected, (connected) => {
   if (connected) {
     scrollToBottom();
@@ -324,7 +221,6 @@ watch(() => state.value?.connected, (connected) => {
   }
 });
 
-// Also setup when channel changes (inner content replaced)
 watch(() => state.value?.activeChannelId, () => {
   noMoreMessages.value = false;
   scrollToBottom();
@@ -386,21 +282,35 @@ function onMessagesScroll() {
   }
 }
 
-function isGrouped(index: number): boolean {
-  if (index === 0) return false;
-  const msg = messages.value[index];
-  if (msg.reply_to) return false;
-  const prev = messages.value[index - 1];
-  // Group webhook messages by displayed identity (so "GitHub Bot" and "CI Failed"
-  // posted via the same webhook still render with their own headers).
-  if (isWebhookMessage(msg) || isWebhookMessage(prev)) {
-    if (isWebhookMessage(msg) !== isWebhookMessage(prev)) return false;
-    if (displayName(msg) !== displayName(prev)) return false;
-  } else if (msg.author_id !== prev.author_id) {
-    return false;
+/** Max time between a group's first message and any of its messages (ms). */
+const GROUP_MAX_SPAN_MS = 5 * 60 * 1000;
+
+// Single-pass build of the set of grouped indices. A message is grouped under
+// the previous one when the same author posts within GROUP_MAX_SPAN_MS of the
+// CURRENT GROUP HEAD (not the previous message), so long bursts naturally split
+// once they exceed the span.
+const groupedIndices = computed(() => {
+  const set = new Set<number>();
+  let headTime = 0;
+  for (let i = 0; i < messages.value.length; i++) {
+    const msg = messages.value[i];
+    const t = new Date(msg.created_at + "Z").getTime();
+    let grouped = false;
+    if (i > 0 && !msg.reply_to) {
+      const prev = messages.value[i - 1];
+      const sameAuthor = isWebhookMessage(msg) || isWebhookMessage(prev)
+        ? isWebhookMessage(msg) === isWebhookMessage(prev) && displayName(msg) === displayName(prev)
+        : msg.author_id === prev.author_id;
+      if (sameAuthor && t - headTime < GROUP_MAX_SPAN_MS) grouped = true;
+    }
+    if (grouped) set.add(i);
+    else headTime = t;
   }
-  const diff = new Date(msg.created_at + "Z").getTime() - new Date(prev.created_at + "Z").getTime();
-  return diff < 5 * 60 * 1000;
+  return set;
+});
+
+function isGrouped(index: number): boolean {
+  return groupedIndices.value.has(index);
 }
 
 function displayName(msg: Message): string {
@@ -415,6 +325,17 @@ function displayColor(msg: Message): string | null {
   return isWebhookMessage(msg) ? null : resolveUserColor(msg.author_id);
 }
 
+function buildReplyPreview(msg: Message): ReplyPreviewData | null {
+  if (!msg.reply_to) return null;
+  return {
+    id: msg.reply_to.id,
+    authorName: resolveUser(msg.reply_to.author_id),
+    authorColor: resolveUserColor(msg.reply_to.author_id),
+    avatarUrl: resolveAvatarUrl(msg.reply_to.author_id),
+    content: msg.reply_to.content,
+  };
+}
+
 function showDateSeparator(index: number): boolean {
   if (index === 0) return true;
   const msg = messages.value[index];
@@ -426,20 +347,6 @@ function isScrolledToBottom(): boolean {
   const el = messagesContainer.value;
   if (!el) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-}
-
-function autoResize(e: Event) {
-  const wasAtBottom = isScrolledToBottom();
-  const el = e.target as HTMLTextAreaElement;
-  el.style.height = "auto";
-  el.style.height = el.scrollHeight + "px";
-  el.style.overflowY = el.scrollHeight > el.offsetHeight ? "auto" : "hidden";
-  if (wasAtBottom) {
-    nextTick(() => {
-      const container = messagesContainer.value;
-      if (container) container.scrollTop = container.scrollHeight;
-    });
-  }
 }
 
 function trimMessage(s: string): string {
@@ -482,15 +389,6 @@ function startEdit(msg: Message) {
       }
     }
   });
-}
-
-function onEditKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    submitEdit();
-  } else if (e.key === "Escape") {
-    cancelEdit();
-  }
 }
 
 function submitEdit() {
@@ -604,6 +502,57 @@ async function togglePin(msg: Message) {
   } catch {}
 }
 
+function buildActions(msg: Message): MessageAction[] {
+  if (msg.pending || msg.failed) return [];
+  const items: MessageAction[] = [];
+  for (const emoji of quickEmojis.value) {
+    items.push({
+      key: `quick-${emoji}`,
+      label: emoji,
+      emoji,
+      handler: () => onToggleReaction(msg.id, emoji),
+    });
+  }
+  items.push({
+    key: "picker",
+    label: "Reaction",
+    icon: SmilePlus,
+    handler: (e) => openEmojiPicker(msg.id, e),
+  });
+  items.push({
+    key: "reply",
+    label: "Repondre",
+    icon: Reply,
+    handler: () => startReply(msg),
+  });
+  if (canManage.value) {
+    items.push({
+      key: "pin",
+      label: msg.pinned ? "Desepingler" : "Epingler",
+      icon: msg.pinned ? PinOff : Pin,
+      handler: () => togglePin(msg),
+    });
+  }
+  if (isOwnMessage(msg)) {
+    items.push({
+      key: "edit",
+      label: "Modifier",
+      icon: Pencil,
+      handler: () => startEdit(msg),
+    });
+  }
+  if (canActOnMessage(msg)) {
+    items.push({
+      key: "delete",
+      label: "Supprimer",
+      icon: Trash2,
+      danger: true,
+      handler: (e) => handleDelete(msg, e),
+    });
+  }
+  return items;
+}
+
 function onMessageContextMenu(msg: Message, e: MouseEvent) {
   if (msg.pending || msg.failed) return;
   const items: MenuItem[] = [];
@@ -657,23 +606,6 @@ function formatDate(ts: string): string {
   }
 }
 
-function formatTime(ts: string): string {
-  try {
-    const date = new Date(ts + "Z");
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    if (date.toDateString() === now.toDateString()) return time;
-    if (date.toDateString() === yesterday.toDateString()) return `Hier ${time}`;
-    return `${date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })} ${time}`;
-  } catch {
-    return ts;
-  }
-}
-
 const cardUser = ref<User | null>(null);
 const cardX = ref(0);
 const cardY = ref(0);
@@ -687,14 +619,6 @@ function openCard(userId: number, e: MouseEvent) {
   cardX.value = rect.right + 8;
   cardY.value = rect.top;
   cardUser.value = user;
-}
-
-function formatTimeShort(ts: string): string {
-  try {
-    return new Date(ts + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return ts;
-  }
 }
 </script>
 
@@ -767,312 +691,6 @@ function formatTimeShort(ts: string): string {
 
 .date-separator span {
   padding: 0 8px;
-}
-
-.message {
-  display: flex;
-  padding: 2px 16px;
-  margin: 0 -16px;
-  gap: 16px;
-  position: relative;
-}
-
-.message:not(.grouped) {
-  margin-top: 16px;
-}
-
-.message:hover {
-  background: var(--bg-modifier-hover);
-}
-
-.message-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 0.875rem;
-  color: var(--text-bright);
-  flex-shrink: 0;
-  margin-top: 2px;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.message-avatar.has-reply {
-  margin-top: 26px;
-}
-
-.message-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.message-gutter {
-  width: 40px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  padding-top: 4px;
-}
-
-.message-time-hover {
-  font-size: 0.625rem;
-  color: var(--text-muted);
-  opacity: 0;
-}
-
-.message:hover .message-time-hover {
-  opacity: 1;
-}
-
-.message-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.message-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.message-author {
-  font-weight: 600;
-  font-size: 0.9375rem;
-  color: var(--header-primary);
-  cursor: pointer;
-}
-
-.message-author:hover {
-  text-decoration: underline;
-}
-
-.message-time {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.pin-icon {
-  color: var(--text-faint);
-  flex-shrink: 0;
-}
-
-.message-content {
-  color: var(--text-normal);
-  line-height: 1.375rem;
-  word-break: break-word;
-  font-size: 0.9375rem;
-}
-
-.message-content :deep(p) { margin: 0; }
-.message-content :deep(p + p) { margin-top: 4px; }
-.message-content :deep(a) { color: var(--accent); text-decoration: none; }
-.message-content :deep(a:hover) { text-decoration: underline; }
-.message-content :deep(strong) { font-weight: 700; color: var(--header-primary); }
-.message-content :deep(em) { font-style: italic; }
-.message-content :deep(del) { text-decoration: line-through; color: var(--text-muted); }
-
-.message-content :deep(code) {
-  background: var(--bg-tertiary);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 0.85em;
-  font-family: monospace;
-}
-
-.message-content :deep(pre) {
-  background: var(--bg-tertiary);
-  padding: 10px 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  max-height: 300px;
-  overflow-y: auto;
-  margin: 4px 0;
-}
-
-.message-content :deep(pre code) {
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  font-size: 0.85em;
-}
-
-.message-content :deep(h3),
-.message-content :deep(h4),
-.message-content :deep(h5),
-.message-content :deep(h6) {
-  font-weight: 700;
-  color: var(--header-primary);
-  margin: 8px 0 4px;
-}
-
-.message-content :deep(h3) { font-size: 1.1em; }
-.message-content :deep(h4) { font-size: 1em; }
-
-.message-content :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 8px 0;
-}
-
-.message-content :deep(table) {
-  border-collapse: collapse;
-  max-width: 100%;
-  overflow-x: auto;
-  display: block;
-  margin: 4px 0;
-  font-size: 0.875em;
-}
-
-.message-content :deep(th),
-.message-content :deep(td) {
-  border: 1px solid var(--border);
-  padding: 4px 8px;
-}
-
-.message-content :deep(th) {
-  background: var(--bg-tertiary);
-  font-weight: 600;
-}
-
-.message-content :deep(blockquote) {
-  border-left: 3px solid var(--accent);
-  margin: 4px 0;
-  padding: 2px 12px;
-  color: var(--text-muted);
-}
-
-.message-content :deep(ul),
-.message-content :deep(ol) {
-  margin: 4px 0;
-  padding-left: 24px;
-}
-
-.message.editing {
-  background: var(--bg-modifier-active);
-}
-
-.message.pending {
-  opacity: 0.55;
-}
-
-.message.failed {
-  opacity: 0.9;
-}
-
-.message-failed-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 0.75rem;
-  color: var(--danger);
-}
-
-.message-failed-label {
-  font-weight: 500;
-}
-
-.message-failed-sep {
-  color: var(--text-faint);
-}
-
-.message-failed-btn {
-  width: auto;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--danger);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.message-failed-btn:hover {
-  color: var(--text-bright);
-  background: none;
-}
-
-.message-edit-input {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--bg-tertiary);
-  color: var(--text-normal);
-  font-size: 0.9375rem;
-  font-family: inherit;
-  outline: none;
-  margin-top: 2px;
-  resize: none;
-  overflow: hidden;
-  line-height: 1.375;
-  max-height: 200px;
-}
-
-.message-edit-hint {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.message-actions {
-  position: absolute;
-  top: -26px;
-  right: 16px;
-  display: none;
-  gap: 2px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px;
-  z-index: 1;
-}
-
-.message:hover .message-actions {
-  display: flex;
-}
-
-.msg-action-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  border: none;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
-}
-
-.msg-action-btn:hover {
-  background: var(--bg-modifier-hover);
-  color: var(--text-normal);
-  box-shadow: none;
-}
-
-.msg-action-btn.quick-emoji {
-  font-size: 0.875rem;
-  line-height: 1;
-}
-
-.msg-action-btn.danger:hover {
-  background: var(--danger);
-  color: var(--text-bright);
 }
 
 .modal-overlay {
