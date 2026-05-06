@@ -18,11 +18,11 @@ pub fn run() {
                 let _ = app.emit("deep-link-open", url.clone());
             }
         }))
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(debug_assertions)]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
-                let _ = app.deep_link().register("sorry");
+                let _ = _app.deep_link().register("sorry");
             }
             Ok(())
         })

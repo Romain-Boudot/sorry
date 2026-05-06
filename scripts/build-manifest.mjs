@@ -31,7 +31,9 @@ const flags = parseFlags(args.slice(1));
 const repo = flags.repo ?? "Romain-Boudot/sorry";
 const notes = flags.notes ?? "";
 
-const TARGET_DIR = "client/src-tauri/target";
+// Cargo workspace puts compiled artifacts at the workspace root, not under
+// client/src-tauri/target/. Override via $CARGO_TARGET_DIR if you've moved it.
+const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? "target";
 const releaseUrl = (filename) =>
   `https://github.com/${repo}/releases/download/v${version}/${encodeURIComponent(filename)}`;
 
@@ -39,11 +41,14 @@ const releaseUrl = (filename) =>
 // format (the one whose .sig is generated alongside).
 //
 // Source: https://v2.tauri.app/distribute/sign/updater/
+// File patterns Tauri 2 emits for the updater. Note: Windows switched from
+// `.nsis.zip` to signing the `-setup.exe` directly in recent Tauri 2 versions —
+// we accept both for forward/backward compatibility.
 const PLATFORM_RULES = [
-  { key: "darwin-aarch64", arch: "aarch64-apple-darwin",       match: /\.app\.tar\.gz$/ },
-  { key: "darwin-x86_64",  arch: "x86_64-apple-darwin",        match: /\.app\.tar\.gz$/ },
-  { key: "linux-x86_64",   arch: "x86_64-unknown-linux-gnu",   match: /\.AppImage$/ },
-  { key: "windows-x86_64", arch: "x86_64-pc-windows-msvc",     match: /\.nsis\.zip$|-setup\.exe\.zip$/ },
+  { key: "darwin-aarch64", arch: "aarch64-apple-darwin",     match: /\.app\.tar\.gz$/ },
+  { key: "darwin-x86_64",  arch: "x86_64-apple-darwin",      match: /\.app\.tar\.gz$/ },
+  { key: "linux-x86_64",   arch: "x86_64-unknown-linux-gnu", match: /\.AppImage(\.tar\.gz)?$/ },
+  { key: "windows-x86_64", arch: "x86_64-pc-windows-msvc",   match: /-setup\.exe$|\.nsis\.zip$/ },
 ];
 
 const platforms = {};

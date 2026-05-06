@@ -1,4 +1,6 @@
 /target
+/dist-release
+/latest.json
 /client/node_modules
 /client/dist
 /client/bun.lock

@@ -112,21 +112,35 @@ else
   fi
   export TAURI_SIGNING_PRIVATE_KEY="$KEY_INPUT"
   echo "✓ Key loaded ($(echo "$KEY_INPUT" | wc -l | tr -d ' ') line(s))."
-
-  if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-    read -rs -p "Passphrase (empty if none): " PW
-    echo ""
-    [ -n "$PW" ] && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$PW"
-    unset PW
-  fi
   unset KEY_INPUT
 fi
 
-# Containers receive the key contents (file paths from the host don't exist
-# inside). If the env var points at a file, read it.
-KEY_FOR_CONTAINER="$TAURI_SIGNING_PRIVATE_KEY"
-if [ -f "$KEY_FOR_CONTAINER" ]; then
-  KEY_FOR_CONTAINER="$(cat "$KEY_FOR_CONTAINER")"
+# Passphrase prompt is independent of how the key was acquired — even a key
+# from disk or env var may still be encrypted. Skip only if explicitly set.
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}" ]; then
+  echo ""
+  read -rs -p "→ Key passphrase (empty if the key has none): " PW
+  echo ""
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$PW"
+  unset PW
+fi
+
+# Containers receive the key as a single base64 line. Tauri's env-var path
+# does NOT parse the minisign file format — passing the comment header or any
+# embedded newlines makes the base64 decode fail mid-string.
+RAW_KEY="$TAURI_SIGNING_PRIVATE_KEY"
+if [ -f "$RAW_KEY" ]; then
+  RAW_KEY="$(cat "$RAW_KEY")"
+fi
+# Drop the optional `untrusted comment:` header line and strip every byte of
+# whitespace/CR/LF from the rest, leaving only the base64 payload.
+KEY_FOR_CONTAINER="$(printf '%s' "$RAW_KEY" \
+  | awk '!/^untrusted comment:/' \
+  | tr -d '[:space:]')"
+unset RAW_KEY
+if [ -z "$KEY_FOR_CONTAINER" ]; then
+  echo "✗ Failed to extract base64 key from TAURI_SIGNING_PRIVATE_KEY contents." >&2
+  exit 1
 fi
 
 # ── Build container image (idempotent — uses build cache) ──
@@ -142,12 +156,24 @@ if [ -n "$ENGINE" ]; then
   $ENGINE volume create "$CACHE_VOL" >/dev/null 2>&1 || true
 fi
 
+# Resolve a host path that container engines on Windows accept. On Git-Bash /
+# MSYS2, $PWD looks like `/c/Users/...` — engines expect `C:\Users\...`.
+host_path() {
+  if command -v cygpath >/dev/null; then
+    cygpath -w "$1"
+  else
+    echo "$1"
+  fi
+}
+
 run_container() {
   local target="$1"
   echo ""
   echo "━━ Building $target via $ENGINE ━━"
-  $ENGINE run --rm \
-    -v "$PWD:/work" \
+  # MSYS_NO_PATHCONV=1 stops Git-Bash from rewriting destination paths like
+  # `/work` and `/root/.cache` when passing them to a native Windows engine.
+  MSYS_NO_PATHCONV=1 $ENGINE run --rm \
+    -v "$(host_path "$PWD"):/work" \
     -v "$CACHE_VOL:/root/.cache" \
     -e "TARGET=$target" \
     -e "TAURI_SIGNING_PRIVATE_KEY=$KEY_FOR_CONTAINER" \
@@ -167,10 +193,10 @@ if [ "$BUILD_MACOS" = "1" ]; then
     # Symlink universal output under both arch directories so the manifest
     # script picks it up for both darwin-aarch64 and darwin-x86_64.
     for arch in aarch64-apple-darwin x86_64-apple-darwin; do
-      mkdir -p "client/src-tauri/target/$arch/release"
-      rm -rf "client/src-tauri/target/$arch/release/bundle"
-      ln -s "../../../universal-apple-darwin/release/bundle" \
-            "client/src-tauri/target/$arch/release/bundle"
+      mkdir -p "target/$arch/release"
+      rm -rf "target/$arch/release/bundle"
+      ln -s "../../universal-apple-darwin/release/bundle" \
+            "target/$arch/release/bundle"
     done
   fi
 fi
@@ -196,25 +222,47 @@ echo "━━ Collecting artefacts ━━"
 mkdir -p dist-release
 rm -f dist-release/*
 
-# macOS .app.tar.gz + .sig
+# Copy a glob into dist-release/, silently ignoring "no match" via shopt nullglob.
+shopt -s nullglob
+copy_glob() {
+  local files=( $1 )
+  if [ ${#files[@]} -gt 0 ]; then
+    cp "${files[@]}" dist-release/
+    for f in "${files[@]}"; do echo "  + $f"; done
+  fi
+}
+
 if [ "$BUILD_MACOS" = "1" ] && [ "$HOST_OS" = "Darwin" ]; then
-  find client/src-tauri/target/universal-apple-darwin/release/bundle/macos \
-    \( -name "*.app.tar.gz" -o -name "*.app.tar.gz.sig" \) \
-    -exec cp {} dist-release/ \; 2>/dev/null || true
+  copy_glob "target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz"
+  copy_glob "target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig"
 fi
-# Linux AppImage + .sig
 if [ "$BUILD_LINUX" = "1" ]; then
-  find client/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage \
-    \( -name "*.AppImage" -o -name "*.AppImage.sig" \) \
-    -exec cp {} dist-release/ \; 2>/dev/null || true
+  copy_glob "target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage"
+  copy_glob "target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.tar.gz"
+  copy_glob "target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.sig"
+  copy_glob "target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.tar.gz.sig"
 fi
-# Windows .nsis.zip + .sig (the updater format) plus the .exe installer for users
 if [ "$BUILD_WINDOWS" = "1" ]; then
-  find client/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis \
-    \( -name "*.nsis.zip" -o -name "*.nsis.zip.sig" -o -name "*-setup.exe" \) \
-    -exec cp {} dist-release/ \; 2>/dev/null || true
+  # Tauri 2 current: signed -setup.exe (.exe.sig). Older: .nsis.zip (+ .sig).
+  copy_glob "target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"
+  copy_glob "target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sig"
+  copy_glob "target/x86_64-pc-windows-msvc/release/bundle/nsis/*.nsis.zip"
+  copy_glob "target/x86_64-pc-windows-msvc/release/bundle/nsis/*.nsis.zip.sig"
 fi
+shopt -u nullglob
+
 cp latest.json dist-release/
+
+# Sanity: at least one bundle (.sig present) must have been collected, otherwise
+# the upload will be useless to the auto-updater.
+if ! ls dist-release/*.sig >/dev/null 2>&1; then
+  echo "✗ No signed bundles in dist-release/. Did the build produce .sig files?" >&2
+  echo "  Inspect: target/<arch>/release/bundle/" >&2
+  exit 1
+fi
+
+echo ""
+echo "Final dist-release/ contents:"
 ls -lh dist-release/
 
 # ── Publish ──
