@@ -69,8 +69,9 @@ function reactionTooltip(r: Reaction): string {
 }
 
 .reaction-pill.active {
-  border-color: var(--accent);
-  background: rgba(88, 101, 242, 0.15);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .reaction-emoji {

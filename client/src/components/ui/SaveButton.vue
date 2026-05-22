@@ -55,13 +55,13 @@ watch(() => props.saved, (val) => {
   border: none;
   cursor: pointer;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
   transition: background 0.15s, opacity 0.15s;
   flex-shrink: 0;
 }
 
 .save-btn:hover:not(:disabled) {
-  opacity: 0.9;
+  background: var(--accent-hover);
 }
 
 .save-btn:disabled {
@@ -70,7 +70,8 @@ watch(() => props.saved, (val) => {
 }
 
 .save-btn.saved {
-  background: var(--green, #23a55a);
+  background: var(--green);
+  color: oklch(0.15 0.05 145);
 }
 
 .save-spinner {

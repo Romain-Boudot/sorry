@@ -232,18 +232,19 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 
 <style scoped>
 .channel-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
-  margin: 3px 8px;
+  margin: 2px 8px;
   cursor: pointer;
   color: var(--text-muted);
   border-radius: 8px;
   user-select: none;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
 }
 
 .channel-item:hover {
@@ -252,8 +253,21 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 }
 
 .channel-item.active {
-  background: var(--bg-modifier-active);
+  background: var(--surface);
   color: var(--header-primary);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.channel-item.active::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 .channel-name {
@@ -281,7 +295,7 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 }
 
 .channel-item.active .channel-icon {
-  color: var(--text-normal);
+  color: var(--accent);
 }
 
 .channel-item.joined .channel-icon {
@@ -388,7 +402,7 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--header-primary);
+  background: var(--accent);
   flex-shrink: 0;
 }
 
@@ -401,8 +415,9 @@ function onVoiceUserContext(uid: number, vs: VoiceUserState, e: MouseEvent) {
 }
 
 .voice-count {
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-faint);
   margin-left: 6px;
 }

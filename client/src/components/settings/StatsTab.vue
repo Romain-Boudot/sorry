@@ -272,7 +272,7 @@ function formatNumber(n: number): string {
 }
 
 .disk-used.warning {
-  background: var(--warning, #f0b232);
+  background: var(--status-warning);
 }
 
 .disk-used.danger {

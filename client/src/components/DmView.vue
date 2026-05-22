@@ -610,14 +610,14 @@ watch(peerId, () => {
 .dm-empty-warn {
   display: flex; align-items: center; gap: 6px;
   margin-top: 8px; padding: 6px 10px;
-  font-size: 0.6875rem; color: var(--yellow, #facc15);
-  border: 1px solid color-mix(in srgb, var(--yellow, #facc15) 30%, transparent);
+  font-size: 0.6875rem; color: var(--status-warning);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 30%, transparent);
   border-radius: 6px;
 }
 
 /* ── Highlight on scroll-to-reply ── */
 :deep(.message-highlight) {
-  background: rgba(88, 101, 242, 0.1);
+  background: var(--accent-soft);
   transition: background 0.3s;
 }
 </style>

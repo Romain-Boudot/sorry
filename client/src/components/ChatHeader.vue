@@ -169,14 +169,14 @@ function formatResultDate(ts: string): string {
 .chat-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
-  height: 48px;
+  gap: 10px;
+  padding: 0 18px;
+  height: 52px;
   font-weight: 600;
   font-size: 0.9375rem;
   color: var(--header-primary);
   background: var(--bg-primary);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
   position: relative;
 }
@@ -201,10 +201,14 @@ function formatResultDate(ts: string): string {
   transition: background 0.1s, color 0.1s;
 }
 
-.header-btn:hover,
-.header-btn.active {
+.header-btn:hover {
   background: var(--bg-modifier-hover);
   color: var(--text-normal);
+}
+
+.header-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .channel-icon {
@@ -216,6 +220,7 @@ function formatResultDate(ts: string): string {
   height: 16px;
   background: var(--border);
   flex-shrink: 0;
+  margin-left: 6px;
 }
 
 .topic {
@@ -234,10 +239,17 @@ function formatResultDate(ts: string): string {
   align-items: center;
   gap: 6px;
   flex: 1;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
   height: 32px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-bar:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .search-icon {
@@ -289,8 +301,8 @@ function formatResultDate(ts: string): string {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-top: none;
-  border-radius: 0 0 8px 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-radius: 0 0 10px 10px;
+  box-shadow: var(--shadow-pop);
   z-index: 40;
 }
 
@@ -348,7 +360,8 @@ function formatResultDate(ts: string): string {
 
 .search-result-time {
   font-size: 0.6875rem;
-  color: var(--text-muted);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
 }
 
 .search-result-content {
@@ -359,10 +372,11 @@ function formatResultDate(ts: string): string {
 }
 
 .search-result-content :deep(mark) {
-  background: rgba(88, 101, 242, 0.3);
-  color: var(--text-bright);
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 2px;
-  padding: 0 1px;
+  padding: 0 2px;
+  font-weight: 600;
 }
 
 .skeleton {

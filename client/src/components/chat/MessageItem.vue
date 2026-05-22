@@ -366,14 +366,16 @@ function formatShortTime(ts: string): string {
   font-weight: 600;
   font-size: 0.9375rem;
   color: var(--header-primary);
+  letter-spacing: -0.005em;
 }
 
 .message-author.clickable { cursor: pointer; }
 .message-author.clickable:hover { text-decoration: underline; }
 
 .message-time {
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
-  color: var(--text-muted);
+  color: var(--text-faint);
   font-weight: 400;
 }
 
@@ -402,17 +404,19 @@ function formatShortTime(ts: string): string {
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 0.85em;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .message-content :deep(pre) {
   background: var(--bg-tertiary);
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow-x: auto;
   max-height: 300px;
   overflow-y: auto;
   margin: 4px 0;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-soft);
 }
 
 .message-content :deep(pre code) {
@@ -485,8 +489,8 @@ function formatShortTime(ts: string): string {
 .message-edit-input {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
+  border-radius: 8px;
+  border: 1px solid var(--accent-line);
   background: var(--bg-tertiary);
   color: var(--text-normal);
   font-size: 0.9375rem;
@@ -497,6 +501,7 @@ function formatShortTime(ts: string): string {
   overflow: hidden;
   line-height: 1.375;
   max-height: 200px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .message-edit-hint {

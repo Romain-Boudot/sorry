@@ -67,11 +67,11 @@ import { toasts } from "../../composables/useToast";
 }
 
 .toast.info {
-  border-left: 3px solid var(--accent, #5865f2);
+  border-left: 3px solid var(--accent);
 }
 
 .toast.info svg {
-  color: var(--accent, #5865f2);
+  color: var(--accent);
 }
 
 .toast-enter-active {

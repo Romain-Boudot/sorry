@@ -1219,14 +1219,15 @@ async function unbanUser(userId: number) {
 }
 
 .guest-tag {
+  font-family: var(--font-mono);
   font-size: 0.5625rem;
   font-weight: 600;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   margin-right: 4px;
 }
 </style>

@@ -259,12 +259,12 @@ const transportLabel = computed(() => {
 }
 
 .share-btn.active {
-  background: rgba(59, 165, 93, 0.15);
+  background: var(--green-bg);
   color: var(--green);
 }
 
 .share-btn.active:hover {
-  background: rgba(59, 165, 93, 0.25);
+  background: oklch(0.78 0.18 145 / 0.28);
   box-shadow: none;
 }
 
@@ -323,6 +323,7 @@ const transportLabel = computed(() => {
 .voice-bar-status.error { color: var(--danger); }
 
 .voice-bar-server {
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   color: var(--text-muted);
   font-weight: 400;
@@ -354,9 +355,9 @@ const transportLabel = computed(() => {
 }
 
 .conn-indicator.udp { color: var(--green); }
-.conn-indicator.tcp { color: var(--yellow, #f0b232); }
-.conn-indicator.turn-udp { color: var(--blue, #5865f2); }
-.conn-indicator.turn-tcp { color: var(--orange, #e67e22); }
+.conn-indicator.tcp { color: var(--status-warning); }
+.conn-indicator.turn-udp { color: var(--status-info); }
+.conn-indicator.turn-tcp { color: var(--status-orange); }
 .conn-indicator.unknown,
 .conn-indicator.pending { color: var(--text-faint); }
 
@@ -394,12 +395,12 @@ const transportLabel = computed(() => {
 
 <style>
 .conn-tooltip {
-  background: var(--bg-floating, #18191c);
+  background: var(--bg-floating);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 12px;
   min-width: 180px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-pop);
   z-index: 9999;
   pointer-events: none;
 }
@@ -425,15 +426,16 @@ const transportLabel = computed(() => {
 }
 
 .conn-tooltip .tooltip-dot.udp { background: var(--green); }
-.conn-tooltip .tooltip-dot.tcp { background: var(--yellow, #f0b232); }
-.conn-tooltip .tooltip-dot.turn-udp { background: var(--blue, #5865f2); }
-.conn-tooltip .tooltip-dot.turn-tcp { background: var(--orange, #e67e22); }
+.conn-tooltip .tooltip-dot.tcp { background: var(--status-warning); }
+.conn-tooltip .tooltip-dot.turn-udp { background: var(--status-info); }
+.conn-tooltip .tooltip-dot.turn-tcp { background: var(--status-orange); }
 .conn-tooltip .tooltip-dot.unknown,
 .conn-tooltip .tooltip-dot.pending { background: var(--text-faint); }
 
 .conn-tooltip .tooltip-rtt {
   margin-left: auto;
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }

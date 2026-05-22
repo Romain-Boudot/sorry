@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 * {
   margin: 0;
@@ -7,45 +7,88 @@
 }
 
 :root {
-  /* ── Surfaces ── */
-  --bg-primary: #343230;
-  --bg-secondary: #2c2a27;
-  --bg-tertiary: #21201d;
-  --bg-floating: #282622;
-  --bg-modifier-hover: rgba(255, 220, 180, 0.06);
-  --bg-modifier-active: rgba(255, 220, 180, 0.12);
+  /* ────────────────────────────────────────────────────────────
+     Sorry — workspace palette
+     Deep slate-black with a slight blue undertone + electric lime.
+     ──────────────────────────────────────────────────────────── */
+
+  /* ── Surfaces (mapped to legacy names so existing components work) ── */
+  --bg-primary:    oklch(0.155 0.008 252);   /* main app bg */
+  --bg-secondary:  oklch(0.125 0.008 252);   /* deepest panel (sidebar, server rail) */
+  --bg-tertiary:   oklch(0.198 0.008 252);   /* surface (cards, hovers) */
+  --bg-floating:   oklch(0.235 0.009 252);   /* surface-2 (floating cards) */
+  --bg-modifier-hover:    oklch(0.235 0.009 252 / 0.55);
+  --bg-modifier-active:   oklch(0.275 0.010 252 / 0.85);
+  --bg-modifier-selected: oklch(0.30 0.10 128 / .18);
+
+  /* Aliases matching the Sorry design naming */
+  --bg:           var(--bg-primary);
+  --bg-deep:      var(--bg-secondary);
+  --surface:      var(--bg-tertiary);
+  --surface-2:    var(--bg-floating);
+  --surface-3:    oklch(0.275 0.010 252);
 
   /* ── Text ── */
-  --text-normal: #ebe7e0;
-  --text-muted: #b0a99f;
-  --text-faint: #7d756c;
-  --text-bright: #fff;
-  --header-primary: #f7f4ef;
+  --text-normal:    oklch(0.96 0.004 252);
+  --text-muted:     oklch(0.78 0.008 252);
+  --text-faint:     oklch(0.60 0.012 252);
+  --text-bright:    oklch(0.99 0 0);
+  --header-primary: oklch(0.98 0.004 252);
 
-  /* ── Accent ── */
-  --accent: #d4914a;
-  --accent-hover: #b87c3a;
+  /* Sorry-named aliases */
+  --text:       var(--text-normal);
+  --text-2:     var(--text-muted);
+  --text-dim:   var(--text-faint);
+  --text-fade:  oklch(0.44 0.012 252);
+
+  /* ── Accent — electric lime ── */
+  --accent:        oklch(0.88 0.20 128);
+  --accent-hover:  oklch(0.80 0.22 128);
+  --accent-2:      oklch(0.80 0.22 128);
+  --accent-fg:     oklch(0.18 0.05 130);   /* foreground on accent (dark) */
+  --accent-soft:   oklch(0.30 0.10 128 / .18);
+  --accent-line:   oklch(0.55 0.18 128 / .35);
 
   /* ── Status ── */
-  --green: #5fad5f;
-  --danger: #d05050;
-  --danger-bg: rgba(208, 80, 80, 0.1);
-  --danger-bg-hover: rgba(208, 80, 80, 0.15);
-  --danger-bg-active: rgba(208, 80, 80, 0.25);
-  --green-bg: rgba(95, 173, 95, 0.2);
-  --status-warning: #f0b232;
-  --status-info: #5865f2;
-  --status-orange: #e67e22;
+  --green:         oklch(0.78 0.18 145);
+  --green-bg:      oklch(0.78 0.18 145 / 0.18);
+  --danger:        oklch(0.72 0.20 25);
+  --danger-bg:           oklch(0.72 0.20 25 / 0.12);
+  --danger-bg-hover:     oklch(0.72 0.20 25 / 0.18);
+  --danger-bg-active:    oklch(0.72 0.20 25 / 0.28);
+  --status-warning: oklch(0.85 0.16 78);
+  --status-info:    oklch(0.78 0.14 232);
+  --status-orange:  oklch(0.80 0.16 55);
+  --info:           var(--status-info);
+  --warn:           var(--status-warning);
+  --pink:           oklch(0.80 0.18 350);
+  --violet:         oklch(0.78 0.16 290);
 
   /* ── Overlays ── */
-  --overlay: rgba(0, 0, 0, 0.7);
-  --overlay-light: rgba(0, 0, 0, 0.5);
+  --overlay:       oklch(0 0 0 / 0.65);
+  --overlay-light: oklch(0 0 0 / 0.45);
 
   /* ── Borders ── */
-  --border: rgba(255, 220, 180, 0.08);
+  --border:      oklch(0.28 0.012 252);
+  --border-soft: oklch(0.235 0.009 252);
+
+  /* ── Shadows ── */
+  --shadow-1:   0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-pop: 0 24px 60px -20px oklch(0 0 0 / 0.7), 0 8px 24px -8px oklch(0 0 0 / 0.45);
 
   /* ── Layout ── */
   --bar-height: 48px;
+
+  /* ── Typography ── */
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ── Radii ── */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
 }
 
 html {
@@ -54,13 +97,15 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   background: transparent;
   color: var(--text-normal);
   height: 100vh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  font-size: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  font-feature-settings: "cv11", "ss01", "ss03";
 }
 
 #app {
@@ -72,46 +117,54 @@ button {
   width: 100%;
   padding: 10px 16px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-size: 0.875rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   margin-top: 4px;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 button:hover { background: var(--accent-hover); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
-::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #111214; }
+::-webkit-scrollbar-thumb {
+  background: oklch(0.45 0.01 252 / 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.01 252 / 0.45);
+}
 
-/* Guest tag */
+/* Guest tag — pill in mono, neutral */
 .guest-tag {
+  font-family: var(--font-mono);
   font-size: 0.5625rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   color: var(--text-faint);
-  background: var(--bg-tertiary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   padding: 1px 5px;
   border-radius: 4px;
   vertical-align: middle;
 }
 
-/* Webhook bot tag */
+/* Webhook bot tag — sky blue like the design BOT tag */
 .bot-tag {
+  font-family: var(--font-mono);
   font-size: 0.5625rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-bright);
-  background: var(--accent);
+  letter-spacing: 0.04em;
+  color: oklch(0.15 0.05 232);
+  background: var(--info);
   padding: 1px 5px;
   border-radius: 4px;
   vertical-align: middle;
@@ -119,13 +172,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Mention spans in messages */
 .mention {
-  background: rgba(212, 145, 74, 0.15);
+  background: var(--accent-soft);
   color: var(--accent);
-  padding: 0 3px;
+  padding: 0 4px;
   border-radius: 4px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 .mention:hover {
-  background: rgba(212, 145, 74, 0.3);
+  background: oklch(0.55 0.18 128 / .25);
 }

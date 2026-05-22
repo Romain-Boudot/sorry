@@ -251,9 +251,10 @@ function dismissUpdate() {
 
 .bottom-card {
   background: var(--bg-floating);
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   overflow: hidden;
+  box-shadow: var(--shadow-1);
 }
 
 .user-row {
@@ -283,7 +284,7 @@ function dismissUpdate() {
   font-weight: 600;
   font-size: 0.8rem;
   flex-shrink: 0;
-  color: var(--text-bright);
+  color: var(--accent-fg);
 }
 
 .user-meta {
@@ -304,6 +305,19 @@ function dismissUpdate() {
 .user-status {
   font-size: 0.6875rem;
   color: var(--text-muted);
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.user-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
 }
 
 .user-controls {
@@ -349,11 +363,25 @@ function dismissUpdate() {
 }
 
 .disconnected-logo {
-  font-size: 2.5rem;
-  font-weight: 800;
-  color: var(--text-faint);
-  letter-spacing: -0.02em;
+  font-size: 2.75rem;
+  font-weight: 700;
+  color: var(--text-normal);
+  letter-spacing: -0.03em;
   user-select: none;
+  position: relative;
+  padding-bottom: 6px;
+}
+
+.disconnected-logo::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 .disconnected-content p {
@@ -364,12 +392,20 @@ function dismissUpdate() {
 .disconnected-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: auto;
-  margin-top: 8px;
-  padding: 10px 20px;
+  margin-top: 12px;
+  padding: 10px 18px;
   font-size: 0.875rem;
+  font-weight: 600;
   border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  transition: background 0.15s;
+}
+
+.disconnected-btn:hover {
+  background: var(--accent-hover);
 }
 
 /* ── Update banner ── */
@@ -379,8 +415,9 @@ function dismissUpdate() {
   gap: 10px;
   padding: 6px 12px;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
   font-size: 0.8125rem;
+  font-weight: 500;
   flex-shrink: 0;
 }
 
@@ -404,15 +441,15 @@ function dismissUpdate() {
   padding: 4px 12px;
   font-size: 0.75rem;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.18);
+  background: oklch(0 0 0 / 0.20);
   color: inherit;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .update-banner-btn:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: oklch(0 0 0 / 0.32);
   box-shadow: none;
 }
 
@@ -433,7 +470,7 @@ function dismissUpdate() {
 }
 
 .update-banner-dismiss:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: oklch(0 0 0 / 0.20);
   opacity: 1;
   box-shadow: none;
 }

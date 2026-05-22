@@ -99,6 +99,6 @@ defineEmits<{
 }
 .tab-btn.active .tab-count {
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
 }
 </style>
