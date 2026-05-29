@@ -315,7 +315,7 @@ function actionClass(action: string): string {
 }
 
 .log-entry.warn {
-  border-left-color: var(--yellow, #e3b341);
+  border-left-color: var(--yellow);
   background: rgba(227, 179, 65, 0.05);
 }
 .log-entry.warn:hover { background: rgba(227, 179, 65, 0.1); }
@@ -339,7 +339,7 @@ function actionClass(action: string): string {
   letter-spacing: 0.02em;
 }
 
-.log-entry.warn .log-level { color: var(--yellow, #e3b341); }
+.log-entry.warn .log-level { color: var(--yellow); }
 .log-entry.error .log-level { color: var(--danger); }
 
 .log-target {

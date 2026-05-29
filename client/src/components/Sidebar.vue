@@ -517,8 +517,8 @@ function toggleGroup(groupId: number) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
+  border-left: 1px solid var(--border-soft);
   border-top-left-radius: 14px;
 }
 
@@ -528,9 +528,9 @@ function toggleGroup(groupId: number) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.12s;
 }
 
 .sidebar-header:hover {
@@ -541,6 +541,7 @@ function toggleGroup(groupId: number) {
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--header-primary);
+  letter-spacing: -0.005em;
 }
 
 .sidebar-header-icon {
@@ -574,15 +575,15 @@ function toggleGroup(groupId: number) {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px 8px 4px 10px;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  padding: 8px 8px 6px 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
   color: var(--text-faint);
   cursor: pointer;
   user-select: none;
-  transition: color 0.1s;
+  transition: color 0.12s;
 }
 
 .channel-group-title:hover {
@@ -652,13 +653,14 @@ function toggleGroup(groupId: number) {
   margin: 0;
   padding: 6px 14px;
   font-size: 0.75rem;
+  font-weight: 600;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
   border: none;
   border-radius: 6px;
   cursor: pointer;
 }
-.dm-empty-cta:hover { filter: brightness(1.08); box-shadow: none; }
+.dm-empty-cta:hover { background: var(--accent-hover); box-shadow: none; }
 .dm-item {
   display: flex;
   align-items: center;
@@ -682,7 +684,7 @@ function toggleGroup(groupId: number) {
   height: 22px;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -699,9 +701,10 @@ function toggleGroup(groupId: number) {
   text-overflow: ellipsis;
 }
 .dm-item-badge {
-  background: var(--danger, #ed4245);
-  color: var(--text-bright);
+  background: var(--accent);
+  color: var(--accent-fg);
   font-size: 0.6875rem;
+  font-family: var(--font-mono);
   padding: 1px 6px;
   border-radius: 10px;
   font-weight: 600;

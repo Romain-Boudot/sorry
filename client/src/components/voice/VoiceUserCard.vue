@@ -104,7 +104,7 @@ defineEmits<{ contextMenu: [event: MouseEvent]; click: [event: MouseEvent] }>();
   right: 0;
   border-width: 2px;
 }
-.vuser-quality.good { background: #f0a020; }
+.vuser-quality.good { background: var(--orange); }
 .vuser-quality.poor { background: var(--danger); }
 
 .vuser-name {

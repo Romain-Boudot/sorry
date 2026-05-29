@@ -54,15 +54,28 @@ function close() { appWindow?.close(); }
   position: absolute;
   left: 12px;
   font-size: 0.8125rem;
-  font-weight: 800;
-  color: var(--text-muted);
+  font-weight: 700;
+  color: var(--text-normal);
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-name::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .top-bar-name {
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 .window-controls {
@@ -103,7 +116,7 @@ function close() { appWindow?.close(); }
 }
 
 .wc-btn.close:hover {
-  background: #e81123;
+  background: var(--window-close);
   color: var(--text-bright);
 }
 </style>

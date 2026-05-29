@@ -236,8 +236,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKey));
   color: var(--text-faint);
   margin-top: 2px;
 }
-.fingerprint { font-family: monospace; color: var(--green, #3ba55c); }
+.fingerprint { font-family: monospace; color: var(--green); }
 .no-key { font-style: italic; }
-.ok-icon { color: var(--green, #3ba55c); flex-shrink: 0; }
+.ok-icon { color: var(--green); flex-shrink: 0; }
 .warn-icon { color: var(--text-faint); flex-shrink: 0; }
 </style>

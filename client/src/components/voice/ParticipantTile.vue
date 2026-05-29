@@ -184,14 +184,14 @@ onBeforeUnmount(() => {
 }
 
 .ptile.is-video {
-  background: #000;
+  background: var(--black);
 }
 
 .ptile video {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--black);
   display: block;
 }
 
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
   z-index: 2;
 }
 .ptile.is-video .ptile-quality { left: auto; right: 10px; top: 10px; }
-.ptile-quality.good { background: #f0a020; }
+.ptile-quality.good { background: var(--orange); }
 .ptile-quality.poor { background: var(--danger); }
 
 /* ── Hover actions ── */

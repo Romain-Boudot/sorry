@@ -675,10 +675,14 @@ function openCard(userId: number, e: MouseEvent) {
 .date-separator {
   display: flex;
   align-items: center;
-  margin: 8px 16px;
+  margin: 16px 28px 12px;
+  gap: 12px;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .date-separator::before,
@@ -686,11 +690,11 @@ function openCard(userId: number, e: MouseEvent) {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: var(--border-soft);
 }
 
 .date-separator span {
-  padding: 0 8px;
+  padding: 0 4px;
 }
 
 .modal-overlay {
@@ -751,7 +755,7 @@ function openCard(userId: number, e: MouseEvent) {
 }
 
 .btn-danger:hover {
-  opacity: 0.9;
+  background: var(--danger-strong);
 }
 
 /* ── Drop overlay ── */
@@ -778,8 +782,7 @@ function openCard(userId: number, e: MouseEvent) {
 
 /* ── Message highlight on scroll ── */
 .message-highlight {
-  background: var(--accent);
-  background: rgba(88, 101, 242, 0.1);
+  background: var(--accent-soft);
   transition: background 0.3s;
 }
 

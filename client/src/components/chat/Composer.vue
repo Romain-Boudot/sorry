@@ -120,13 +120,19 @@ defineExpose({
   align-items: flex-end;
   min-height: calc(var(--bar-height) + 2px);
   background: var(--bg-floating);
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   padding-right: 4px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.composer-wrapper:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .composer-wrapper.has-reply {
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 10px 10px;
 }
 
 .composer textarea {
@@ -175,7 +181,7 @@ defineExpose({
   gap: 8px;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border-radius: 8px 8px 0 0;
+  border-radius: 10px 10px 0 0;
   border: 1px solid var(--border);
   border-bottom: none;
   font-size: 0.8125rem;

@@ -82,18 +82,19 @@ function openCard(userId: number, e: MouseEvent) {
 <style scoped>
 .user-list {
   width: 240px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   flex-shrink: 0;
-  padding: 16px 8px;
+  padding: 16px 12px;
   overflow-y: auto;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-soft);
 }
 
 .user-list-header {
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   padding: 0 8px 8px;
 }

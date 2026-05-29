@@ -162,7 +162,7 @@ onUnmounted(() => {
 
 .lightbox-btn:hover {
   background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  color: var(--white);
 }
 
 .lightbox-img {

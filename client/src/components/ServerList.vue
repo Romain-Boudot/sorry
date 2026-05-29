@@ -247,9 +247,9 @@ function openMenu(event: MouseEvent, serverId: string) {
   content: '';
   position: absolute;
   left: -16px;
-  width: 4px;
-  border-radius: 0 4px 4px 0;
-  background: var(--header-primary);
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
   transition: height 0.15s;
   height: 0;
 }
@@ -260,24 +260,26 @@ function openMenu(event: MouseEvent, serverId: string) {
 .server-icon:hover {
   border-radius: 16px;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
 }
 
 .server-icon.active {
   border-radius: 16px;
   background: var(--accent);
-  color: var(--text-bright);
+  color: var(--accent-fg);
 }
 
 .server-icon.add-server {
   background: var(--bg-primary);
-  color: var(--green);
+  color: var(--accent);
   font-size: 1.5rem;
+  border: 1px dashed var(--accent-line);
 }
 
 .server-icon.add-server:hover {
-  background: var(--green);
-  color: var(--text-bright);
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
   border-radius: 16px;
 }
 
@@ -310,7 +312,7 @@ function openMenu(event: MouseEvent, serverId: string) {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--header-primary);
+  background: var(--accent);
   border: 2px solid var(--bg-secondary);
 }
 
@@ -326,7 +328,7 @@ function openMenu(event: MouseEvent, serverId: string) {
   height: 18px;
   border-radius: 50%;
   background: var(--green);
-  color: #000;
+  color: var(--green-fg);
   display: flex;
   align-items: center;
   justify-content: center;
