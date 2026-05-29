@@ -328,7 +328,7 @@ function openMenu(event: MouseEvent, serverId: string) {
   height: 18px;
   border-radius: 50%;
   background: var(--green);
-  color: oklch(0.15 0.05 145);
+  color: var(--green-fg);
   display: flex;
   align-items: center;
   justify-content: center;

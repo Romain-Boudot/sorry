@@ -264,7 +264,7 @@ const transportLabel = computed(() => {
 }
 
 .share-btn.active:hover {
-  background: oklch(0.78 0.18 145 / 0.28);
+  background: var(--green-bg);
   box-shadow: none;
 }
 

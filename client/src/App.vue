@@ -441,7 +441,7 @@ function dismissUpdate() {
   padding: 4px 12px;
   font-size: 0.75rem;
   font-weight: 600;
-  background: oklch(0 0 0 / 0.20);
+  background: var(--overlay-subtle);
   color: inherit;
   border: none;
   border-radius: 6px;
@@ -449,7 +449,7 @@ function dismissUpdate() {
 }
 
 .update-banner-btn:hover {
-  background: oklch(0 0 0 / 0.32);
+  background: var(--overlay-light);
   box-shadow: none;
 }
 
@@ -470,7 +470,7 @@ function dismissUpdate() {
 }
 
 .update-banner-dismiss:hover {
-  background: oklch(0 0 0 / 0.20);
+  background: var(--overlay-subtle);
   opacity: 1;
   box-shadow: none;
 }

@@ -44,26 +44,26 @@ import { toasts } from "../../composables/useToast";
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--text-bright);
-  background: var(--bg-floating, #2b2d31);
+  background: var(--bg-floating);
   border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   pointer-events: auto;
 }
 
 .toast.success {
-  border-left: 3px solid var(--green, #23a55a);
+  border-left: 3px solid var(--green);
 }
 
 .toast.success svg {
-  color: var(--green, #23a55a);
+  color: var(--green);
 }
 
 .toast.error {
-  border-left: 3px solid var(--danger, #da373c);
+  border-left: 3px solid var(--danger);
 }
 
 .toast.error svg {
-  color: var(--danger, #da373c);
+  color: var(--danger);
 }
 
 .toast.info {

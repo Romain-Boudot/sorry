@@ -1,0 +1,174 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sorry — Design Tokens
+   ═══════════════════════════════════════════════════════════════════════════
+   Single source of truth for the entire UI.
+   Edit THIS file to change colors, typography, spacing, etc.
+   All components reference these variables — no hardcoded values.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+
+  /* ── Surfaces ──────────────────────────────────────────────────────────
+     Deep slate-black palette with a slight blue undertone.
+     Ordered from darkest (deep) to lightest (surface-3).
+     ──────────────────────────────────────────────────────────────────── */
+  --bg-deep:               oklch(0.125 0.008 252);   /* deepest: sidebar, server rail */
+  --bg:                    oklch(0.155 0.008 252);   /* main app background */
+  --surface:               oklch(0.198 0.008 252);   /* cards, input fields */
+  --surface-2:             oklch(0.235 0.009 252);   /* floating panels, popovers */
+  --surface-3:             oklch(0.275 0.010 252);   /* elevated elements */
+
+  /* Surface modifiers (interactive states) */
+  --bg-modifier-hover:     oklch(0.235 0.009 252 / 0.55);
+  --bg-modifier-active:    oklch(0.275 0.010 252 / 0.85);
+  --bg-modifier-selected:  oklch(0.30  0.10  128 / 0.18);
+
+  /* Legacy aliases — keep for backward compat, prefer names above */
+  --bg-primary:            var(--bg);
+  --bg-secondary:          var(--bg-deep);
+  --bg-tertiary:           var(--surface);
+  --bg-floating:           var(--surface-2);
+
+
+  /* ── Text ──────────────────────────────────────────────────────────── */
+  --text:                  oklch(0.96 0.004 252);    /* primary body text */
+  --text-bright:           oklch(0.99 0 0);          /* max contrast (headings) */
+  --text-2:                oklch(0.78 0.008 252);    /* secondary / muted */
+  --text-dim:              oklch(0.60 0.012 252);    /* tertiary / faint */
+  --text-fade:             oklch(0.44 0.012 252);    /* disabled, placeholder */
+
+  /* Legacy aliases */
+  --text-normal:           var(--text);
+  --text-muted:            var(--text-2);
+  --text-faint:            var(--text-dim);
+  --header-primary:        oklch(0.98 0.004 252);
+
+
+  /* ── Accent — electric lime ────────────────────────────────────────── */
+  --accent:                oklch(0.88 0.20 128);     /* primary accent */
+  --accent-hover:          oklch(0.80 0.22 128);     /* accent on hover */
+  --accent-2:              oklch(0.80 0.22 128);     /* secondary accent */
+  --accent-fg:             oklch(0.18 0.05 130);     /* text on accent bg (dark) */
+  --accent-soft:           oklch(0.30 0.10 128 / 0.18); /* subtle accent bg */
+  --accent-line:           oklch(0.55 0.18 128 / 0.35); /* accent border/underline */
+
+
+  /* ── Status colors ─────────────────────────────────────────────────── */
+  --green:                 oklch(0.78 0.18 145);
+  --green-bg:              oklch(0.78 0.18 145 / 0.18);
+  --green-fg:              oklch(0.15 0.05 145);     /* text on green bg */
+
+  --danger:                oklch(0.72 0.20 25);
+  --danger-bg:             oklch(0.72 0.20 25 / 0.12);
+  --danger-bg-hover:       oklch(0.72 0.20 25 / 0.18);
+  --danger-bg-active:      oklch(0.72 0.20 25 / 0.28);
+  --danger-strong:         oklch(0.66 0.20 25);      /* stronger danger variant */
+
+  --yellow:                oklch(0.85 0.16 78);
+  --yellow-bg:             oklch(0.85 0.16 78 / 0.12);
+
+  --orange:                oklch(0.80 0.16 55);
+  --orange-bg:             oklch(0.80 0.16 55 / 0.12);
+
+  --info:                  oklch(0.78 0.14 232);
+  --info-bg:               oklch(0.78 0.14 232 / 0.12);
+
+  --pink:                  oklch(0.80 0.18 350);
+  --violet:                oklch(0.78 0.16 290);
+
+  /* Legacy aliases */
+  --status-warning:        var(--yellow);
+  --status-info:           var(--info);
+  --status-orange:         var(--orange);
+  --warn:                  var(--yellow);
+
+
+  /* ── Overlays ──────────────────────────────────────────────────────── */
+  --overlay:               oklch(0 0 0 / 0.65);
+  --overlay-light:         oklch(0 0 0 / 0.45);
+  --overlay-subtle:        oklch(0 0 0 / 0.20);
+
+
+  /* ── Borders ───────────────────────────────────────────────────────── */
+  --border:                oklch(0.28 0.012 252);
+  --border-soft:           oklch(0.235 0.009 252);
+
+
+  /* ── Shadows ───────────────────────────────────────────────────────── */
+  --shadow-1:   0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-pop: 0 24px 60px -20px oklch(0 0 0 / 0.7), 0 8px 24px -8px oklch(0 0 0 / 0.45);
+
+
+  /* ── Typography ────────────────────────────────────────────────────── */
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Font sizes — modular scale (base 14px) */
+  --fs-2xs:   0.5625rem;  /*  9px — micro labels, tags */
+  --fs-xs:    0.625rem;   /* 10px — tiny captions */
+  --fs-sm:    0.6875rem;  /* 11px — small labels */
+  --fs-md:    0.75rem;    /* 12px — captions, metadata */
+  --fs-base:  0.8125rem;  /* 13px — compact body text */
+  --fs-body:  0.875rem;   /* 14px — default body */
+  --fs-lg:    0.9375rem;  /* 15px — slightly larger body */
+  --fs-xl:    1rem;       /* 16px — subheadings */
+  --fs-2xl:   1.1rem;     /* ~18px — section titles */
+  --fs-3xl:   1.25rem;    /* 20px — modal headings */
+  --fs-4xl:   1.5rem;     /* 24px — page headings */
+
+  /* Font weights */
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* Line heights */
+  --lh-tight:    1.2;
+  --lh-normal:   1.45;
+  --lh-relaxed:  1.6;
+
+
+  /* ── Spacing ───────────────────────────────────────────────────────── */
+  --sp-2xs:  2px;
+  --sp-xs:   4px;
+  --sp-sm:   6px;
+  --sp-md:   8px;
+  --sp-lg:   12px;
+  --sp-xl:   16px;
+  --sp-2xl:  20px;
+  --sp-3xl:  24px;
+  --sp-4xl:  32px;
+  --sp-5xl:  48px;
+
+
+  /* ── Border radii ──────────────────────────────────────────────────── */
+  --r-xs:  4px;
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  20px;
+  --r-full: 9999px;
+
+
+  /* ── Transitions ───────────────────────────────────────────────────── */
+  --duration-fast:   0.1s;
+  --duration-normal: 0.15s;
+  --duration-slow:   0.3s;
+  --ease-default:    ease;
+
+
+  /* ── Layout ────────────────────────────────────────────────────────── */
+  --bar-height:  48px;
+
+  /* Scrollbar */
+  --scrollbar-width:       8px;
+  --scrollbar-thumb:       oklch(0.45 0.01 252 / 0.25);
+  --scrollbar-thumb-hover: oklch(0.45 0.01 252 / 0.45);
+
+
+  /* ── Platform-specific ─────────────────────────────────────────────── */
+  --window-close:  oklch(0.58 0.22 25);   /* red close button (Windows) */
+  --white:         #fff;                  /* pure white (lightbox, QR codes) */
+  --black:         #000;                  /* pure black (video bg) */
+}

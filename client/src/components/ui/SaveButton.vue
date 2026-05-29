@@ -71,7 +71,7 @@ watch(() => props.saved, (val) => {
 
 .save-btn.saved {
   background: var(--green);
-  color: oklch(0.15 0.05 145);
+  color: var(--green-fg);
 }
 
 .save-spinner {

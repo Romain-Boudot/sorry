@@ -828,7 +828,7 @@ const statusText = computed(() => {
   border-left: 3px solid var(--text-muted);
 }
 .stats-health.ok { border-left-color: var(--green); color: var(--green); }
-.stats-health.warn { border-left-color: #f0a020; color: #f0a020; }
+.stats-health.warn { border-left-color: var(--orange); color: var(--orange); }
 .stats-health.neutral { border-left-color: var(--text-muted); color: var(--text-muted); }
 
 .stats-health-text { flex: 1; min-width: 0; }
@@ -869,8 +869,8 @@ const statusText = computed(() => {
 
 .stats-cap-badge {
   font-size: 0.5625rem;
-  background: #f0a020;
-  color: #1a1a1a;
+  background: var(--orange);
+  color: var(--accent-fg);
   padding: 1px 6px;
   border-radius: 8px;
   text-transform: uppercase;
@@ -878,7 +878,7 @@ const statusText = computed(() => {
   font-weight: 700;
   margin-left: 6px;
 }
-.stats-warn { color: #f0a020; font-weight: 600; }
+.stats-warn { color: var(--orange); font-weight: 600; }
 .stats-hint {
   font-size: 0.6875rem;
   color: var(--text-muted);

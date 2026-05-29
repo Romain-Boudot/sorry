@@ -177,7 +177,7 @@ async function disableTotp() {
   width: 200px;
   height: 200px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--white);
   padding: 8px;
 }
 

@@ -755,7 +755,7 @@ function openCard(userId: number, e: MouseEvent) {
 }
 
 .btn-danger:hover {
-  background: oklch(0.66 0.20 25);
+  background: var(--danger-strong);
 }
 
 /* ── Drop overlay ── */

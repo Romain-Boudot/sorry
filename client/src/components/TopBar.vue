@@ -116,7 +116,7 @@ function close() { appWindow?.close(); }
 }
 
 .wc-btn.close:hover {
-  background: #e81123;
+  background: var(--window-close);
   color: var(--text-bright);
 }
 </style>
